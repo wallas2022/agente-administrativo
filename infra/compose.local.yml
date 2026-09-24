@@ -4,14 +4,22 @@
 #
 # Puertos publicados solo en 127.0.0.1 (no expuestos a la red), modelo LLM pequeño,
 # límites de recursos bajos, volúmenes nombrados (efímeros), perfil "observabilidad" opcional
-# para Prometheus/Grafana (docker compose ... --profile observabilidad up -d).
+# para Prometheus/Grafana/Langfuse (docker compose ... --profile observabilidad up -d).
+#
+# Puertos 8443/5433/9010-9011 (en vez de 443/5432/9000-9001): esta máquina de desarrollo
+# ya tiene otros proyectos Docker corriendo que ocupan esos puertos por defecto.
+
+networks:
+  red_interna:
+    internal: false   # en local SÍ hay internet (para `ollama pull`, `pip install`, etc.);
+                       # en stage se mantiene internal: true (RNF-01) — ver compose.stage.yml.
 
 services:
 
   proxy:
     env_file: ../.env.local
     ports:
-      - "127.0.0.1:443:443"
+      - "127.0.0.1:8443:443"
     # TLS: certificado autofirmado o acceso directo por HTTP en local [POR CONFIRMAR]
     deploy:
       resources:
@@ -63,13 +71,19 @@ services:
       - "127.0.0.1:11434:11434"
     volumes:
       - ollama_models:/root/.ollama
-    # Modelo (LLM_MODEL_PRINCIPAL) definido en .env.local — PC local confirmada:
-    # 128 GB RAM, sin GPU, WSL2 con memory=96GB (ver estrategia-ambientes.md §4).
+    # Modelo (LLM_MODEL_PRINCIPAL) definido en .env.local.
+    # [DISCREPANCIA CONFIRMADA 2026-09-24] La máquina real de desarrollo tiene 30.9 GB de RAM
+    # total (no 128 GB como documenta el SRS v0.6 §7); Docker Desktop/WSL2 le asigna ~15 GB
+    # por defecto (sin tocar .wslconfig para no reiniciar los demás proyectos que corren en
+    # esta máquina). gpt-oss:20b no cabe con margen razonable en ese presupuesto: el límite y
+    # el modelo por defecto de este overlay se ajustaron a lo que la máquina real soporta.
+    # Ver docs/04-pruebas/resultados/local-L1.md.
     deploy:
       resources:
         limits:
-          cpus: "4.00"   # aprox. — ajustar a núcleos reales una vez confirmado el modelo de CPU
-          memory: 64G   # aprox. — dentro de los 96 GB asignados a WSL2, dejando margen para el resto de servicios
+          cpus: "8.00"   # subido de 4.00: con 4 el modelo detectaba 16 hilos y sufría
+                          # contención severa de CPU (0.06 tokens/s medido, ver local-L1.md)
+          memory: 10G   # subido de 6G: 4.7 GB de pesos + ~0.4 GB KV/buffers dejaban <1.5 GB de margen
 
   qdrant:
     ports:
@@ -85,7 +99,7 @@ services:
   postgres:
     env_file: ../.env.local
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     deploy:
@@ -97,8 +111,8 @@ services:
   minio:
     env_file: ../.env.local
     ports:
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
+      - "127.0.0.1:9010:9000"
+      - "127.0.0.1:9011:9001"
     volumes:
       - minio_data:/data
     deploy:
@@ -149,6 +163,18 @@ services:
         limits:
           cpus: "0.25"
           memory: 256M
+
+  langfuse_clickhouse:
+    env_file: ../.env.local
+    ports:
+      - "127.0.0.1:8123:8123"
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 1G
 
   langfuse:
     env_file: ../.env.local

@@ -43,6 +43,9 @@ Thumbs.db
 .idea/
 *.swp
 
+# Estado local de herramientas de asistencia (no es contenido del proyecto)
+.claude/
+
 # Salidas de pruebas
 /tests/**/output/
 .coverage

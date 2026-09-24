@@ -14,7 +14,7 @@ services:
 
   vllm:
     profiles: ["gpu"]   # inactivo salvo que se invoque --profile gpu
-    image: vllm/vllm-openai:latest   # [POR CONFIRMAR] versión e imagen definitivas
+    image: vllm/vllm-openai:v0.30.0   # verificado en Docker Hub 2026-09-24; [POR CONFIRMAR] modelo objetivo de fase 2
     networks:
       - red_interna
     environment:

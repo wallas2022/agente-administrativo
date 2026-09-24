@@ -145,6 +145,18 @@ services:
           cpus: "0.50"
           memory: 1G
 
+  langfuse_clickhouse:
+    env_file: ../.env.stage
+    volumes:
+      - type: bind
+        source: /srv/agente/langfuse_clickhouse
+        target: /var/lib/clickhouse
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 2G
+
   langfuse:
     env_file: ../.env.stage
     deploy:
