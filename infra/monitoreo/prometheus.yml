@@ -1,0 +1,21 @@
+# Configuración mínima de scraping — Relacionado con: RF-19, docs/06-operacion/monitoreo.md
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "api"
+    metrics_path: /metrics   # [POR CONFIRMAR] exponer /metrics en src/api
+    static_configs:
+      - targets: ["api:8000"]
+
+  - job_name: "orquestador"
+    metrics_path: /metrics   # [POR CONFIRMAR]
+    static_configs:
+      - targets: ["orquestador:8001"]   # [POR CONFIRMAR] puerto de métricas
+
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # [POR CONFIRMAR] exporters adicionales: postgres_exporter, redis_exporter, node_exporter

@@ -1,0 +1,154 @@
+# Overlay de ambiente STAGE — usar junto con compose.yml:
+#   docker compose --env-file .env.stage -f compose.yml -f compose.stage.yml up -d
+# Relacionado con: docs/06-operacion/despliegue-stage-proxmox.md
+#
+# Solo "proxy" publica un puerto (443); el resto vive en la red interna. Límites de
+# recursos dimensionados para la VM stage (ver infra/proxmox/vm-spec.md). Volúmenes
+# de datos como bind mount en /srv/agente/ (respaldados por Proxmox Backup Server,
+# ver docs/06-operacion/respaldo-y-recuperacion.md).
+
+services:
+
+  proxy:
+    env_file: ../.env.stage
+    ports:
+      - "443:443"
+    # TLS: certificado interno de la organización — ver docs/06-operacion/despliegue-stage-proxmox.md §6
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+
+  api:
+    env_file: ../.env.stage
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 2G
+
+  orquestador:
+    env_file: ../.env.stage
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 2G
+
+  worker:
+    env_file: ../.env.stage
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 2G
+      replicas: 2   # RNF-05: ≥ 2 workers en paralelo para procesar ~50 documentos/día en jornada
+
+  redis:
+    env_file: ../.env.stage
+    volumes:
+      - type: bind
+        source: /srv/agente/redis
+        target: /data
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 1G
+
+  ollama:
+    env_file: ../.env.stage
+    volumes:
+      - type: bind
+        source: /srv/agente/ollama
+        target: /root/.ollama
+    deploy:
+      resources:
+        limits:
+          cpus: "1.50"   # [POR CONFIRMAR] según modelo MoE objetivo cargado
+          memory: 200G   # [POR CONFIRMAR] mayoría de la RAM de la VM para el modelo
+
+  qdrant:
+    volumes:
+      - type: bind
+        source: /srv/agente/qdrant
+        target: /qdrant/storage
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 4G
+
+  postgres:
+    env_file: ../.env.stage
+    volumes:
+      - type: bind
+        source: /srv/agente/postgres
+        target: /var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 2G
+
+  minio:
+    env_file: ../.env.stage
+    volumes:
+      - type: bind
+        source: /srv/agente/minio
+        target: /data
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 1G
+
+  languagetool:
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 1G
+
+  prometheus:
+    volumes:
+      - type: bind
+        source: /srv/agente/prometheus
+        target: /prometheus
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 1G
+
+  grafana:
+    volumes:
+      - type: bind
+        source: /srv/agente/grafana
+        target: /var/lib/grafana
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+
+  langfuse_postgres:
+    env_file: ../.env.stage
+    volumes:
+      - type: bind
+        source: /srv/agente/langfuse_postgres
+        target: /var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 1G
+
+  langfuse:
+    env_file: ../.env.stage
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 1G

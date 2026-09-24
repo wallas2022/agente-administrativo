@@ -1,0 +1,53 @@
+# Entornos y secretos
+.env
+.env.*
+!.env.example
+!.env.local.example
+!.env.stage.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node (UI, si aplica)
+node_modules/
+dist/
+build/
+
+# Datos y modelos locales (no versionar binarios pesados)
+*.gguf
+*.bin
+*.onnx
+/data/
+/models/
+
+# Bases de datos y almacenamiento local (Docker volumes montados)
+/infra/volumes/
+*.db
+*.sqlite3
+
+# Logs y auditoría local
+*.log
+/logs/
+
+# Sistema operativo / editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Salidas de pruebas
+/tests/**/output/
+.coverage
+htmlcov/
+
+# Paquetes offline generados por infra/scripts/empaquetar-offline.sh
+/infra/agente-*.tar.gz
+/infra/SHA256SUMS

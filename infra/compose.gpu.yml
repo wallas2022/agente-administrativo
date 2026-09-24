@@ -1,0 +1,36 @@
+# Overlay FASE 2 (fuera de la primera entrega) — soporte de GPU (≥ 128 GB VRAM).
+# Esqueleto: agrega un motor de inferencia alternativo (vLLM) bajo el perfil "gpu",
+# DESACTIVADO por defecto. No modifica el servicio "ollama" de compose.yml/compose.stage.yml;
+# la migración real de motor CPU → GPU se decide y documenta en un ADR posterior cuando la
+# GPU esté disponible (passthrough PCIe, drivers, modelo objetivo de fase 2).
+#
+# Uso (fase 2, cuando aplique — inactivo si se omite --profile gpu):
+#   docker compose --env-file .env.stage -f compose.yml -f compose.stage.yml -f compose.gpu.yml --profile gpu up -d
+#
+# Relacionado con: docs/03-diseno/despliegue/estrategia-ambientes.md §8,
+#   docs/06-operacion/despliegue-stage-proxmox.md §11, RNF-10, RNF-14, R-02
+
+services:
+
+  vllm:
+    profiles: ["gpu"]   # inactivo salvo que se invoque --profile gpu
+    image: vllm/vllm-openai:latest   # [POR CONFIRMAR] versión e imagen definitivas
+    networks:
+      - red_interna
+    environment:
+      LLM_PROVIDER: vllm
+      # LLM_MODEL_PRINCIPAL y demás variables del modelo objetivo de fase 2: definir en .env.stage
+      # cuando se apruebe el modelo (ver docs/03-diseno/adr/ADR-001-motor-llm-cpu.md, a revisar en fase 2)
+    volumes:
+      - type: bind
+        source: /srv/agente/vllm
+        target: /root/.cache/vllm   # [POR CONFIRMAR] ruta real de caché/modelos de vLLM
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia   # [POR CONFIRMAR] fabricante real de la GPU (NVIDIA/AMD-ROCm)
+              count: 1          # [POR CONFIRMAR] cantidad de GPUs asignadas por passthrough
+              capabilities: [gpu]
+    restart: unless-stopped
+    # [POR CONFIRMAR] healthcheck real una vez definido el endpoint de vLLM

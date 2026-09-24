@@ -1,0 +1,161 @@
+# Overlay de ambiente LOCAL (desarrollo) — usar junto con compose.yml:
+#   docker compose --env-file .env.local -f compose.yml -f compose.local.yml up -d
+# Relacionado con: docs/03-diseno/despliegue/estrategia-ambientes.md §4
+#
+# Puertos publicados solo en 127.0.0.1 (no expuestos a la red), modelo LLM pequeño,
+# límites de recursos bajos, volúmenes nombrados (efímeros), perfil "observabilidad" opcional
+# para Prometheus/Grafana (docker compose ... --profile observabilidad up -d).
+
+services:
+
+  proxy:
+    env_file: ../.env.local
+    ports:
+      - "127.0.0.1:443:443"
+    # TLS: certificado autofirmado o acceso directo por HTTP en local [POR CONFIRMAR]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+  api:
+    env_file: ../.env.local
+    ports:
+      - "127.0.0.1:8000:8000"   # acceso directo sin pasar por el proxy, para depuración
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 1G
+
+  orquestador:
+    env_file: ../.env.local
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 1G
+
+  worker:
+    env_file: ../.env.local
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 1G
+
+  redis:
+    env_file: ../.env.local
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+  ollama:
+    env_file: ../.env.local
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    # Modelo (LLM_MODEL_PRINCIPAL) definido en .env.local — PC local confirmada:
+    # 128 GB RAM, sin GPU, WSL2 con memory=96GB (ver estrategia-ambientes.md §4).
+    deploy:
+      resources:
+        limits:
+          cpus: "4.00"   # aprox. — ajustar a núcleos reales una vez confirmado el modelo de CPU
+          memory: 64G   # aprox. — dentro de los 96 GB asignados a WSL2, dejando margen para el resto de servicios
+
+  qdrant:
+    ports:
+      - "127.0.0.1:6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+
+  postgres:
+    env_file: ../.env.local
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+
+  minio:
+    env_file: ../.env.local
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio_data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+  languagetool:
+    ports:
+      - "127.0.0.1:8010:8010"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+
+  prometheus:
+    profiles: ["observabilidad"]
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+  grafana:
+    profiles: ["observabilidad"]
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+  langfuse_postgres:
+    env_file: ../.env.local
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+  langfuse:
+    env_file: ../.env.local
+    ports:
+      - "127.0.0.1:3002:3000"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
