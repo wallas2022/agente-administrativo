@@ -65,6 +65,26 @@ services:
       retries: 3
     restart: unless-stopped
 
+  ui:
+    build:
+      context: ../src/ui
+      dockerfile: Dockerfile
+    image: agente-admin/ui:0.1.0   # validar
+    networks:
+      - red_interna
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ui.entrypoints=websecure"
+      - "traefik.http.services.ui.loadbalancer.server.port=5173"
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:5173').then(()=>process.exit(0)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
   orquestador:
     build:
       context: ../src

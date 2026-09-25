@@ -37,6 +37,21 @@ services:
           cpus: "1.00"
           memory: 1G
 
+  ui:
+    build:
+      # VITE_API_BASE_URL debe apuntar a una URL alcanzable desde el NAVEGADOR
+      # (que corre en el host, no dentro de la red de Docker), no al nombre
+      # de servicio "api" — por eso usa el mismo puerto directo 8000 de arriba.
+      args:
+        VITE_API_BASE_URL: http://127.0.0.1:8000
+    ports:
+      - "127.0.0.1:5173:5173"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+
   orquestador:
     env_file: ../.env.local
     deploy:

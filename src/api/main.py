@@ -15,6 +15,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWTError
 from sqlalchemy.orm import Session
@@ -74,6 +75,20 @@ async def _ciclo_de_vida(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Agente Administrativo — API", lifespan=_ciclo_de_vida)
+
+# Orígenes de src/ui (`npm run dev` en 5173, o la app ya compilada) — la API y la
+# UI no comparten origen (ni Traefik enruta ambas bajo el mismo host todavía),
+# así que sin esto el navegador bloquea las llamadas por CORS.
+_origenes_ui = os.environ.get(
+    "UI_ORIGENES_PERMITIDOS", "http://localhost:5173,http://127.0.0.1:5173"
+).split(",")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origenes_ui,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 _esquema_bearer = HTTPBearer()
 

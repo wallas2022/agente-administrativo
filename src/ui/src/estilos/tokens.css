@@ -1,0 +1,45 @@
+:root {
+  --color-acento: #0e5e5a;
+  --color-acento-claro: #157a75;
+  --color-acento-texto: #e6f3f2;
+
+  --color-sidebar-fondo: #12181b;
+  --color-sidebar-texto: #c7d0d3;
+  --color-sidebar-texto-activo: #ffffff;
+  --color-sidebar-borde: #22292c;
+
+  --color-fondo: #f7f8f8;
+  --color-superficie: #ffffff;
+  --color-borde: #dfe3e4;
+  --color-texto: #1b2124;
+  --color-texto-tenue: #5b6669;
+
+  /* Severidades: el modelo de datos (Hallazgo.severidad) hoy solo produce
+     alta/media/baja (ver validadores/contable/reglas.py); se deja el token
+     "critico" definido para el sistema de diseño aunque no se use todavía. */
+  --color-critico-fondo: #fdecea;
+  --color-critico-texto: #a02c1f;
+  --color-alto-fondo: #fdecea;
+  --color-alto-texto: #b3261e;
+  --color-medio-fondo: #fff4e5;
+  --color-medio-texto: #8a5300;
+  --color-bajo-fondo: #eaf1fb;
+  --color-bajo-texto: #1d4e89;
+
+  --fuente-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --fuente-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --fuente-serif: "Source Serif 4", Georgia, serif;
+
+  --radio: 6px;
+  --sombra: 0 1px 2px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-fondo: #14181a;
+    --color-superficie: #1c2225;
+    --color-borde: #2a3134;
+    --color-texto: #e8ecee;
+    --color-texto-tenue: #97a2a5;
+  }
+}
