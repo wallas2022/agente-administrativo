@@ -49,7 +49,18 @@ Ejecutado en la máquina real de desarrollo (no es el "128 GB RAM" que documenta
 
 **Diagnóstico:** el contenedor `ollama` tenía `cpus: "4.00"` en `infra/compose.local.yml`, pero el motor detectó `n_threads = 16` (todos los núcleos lógicos del host) y hoy asigna 16 hilos de cómputo contra una cuota de solo 4 núcleos — contención de CPU severa (probable causa del salto de 2.51 a 0.06 tokens/s entre el procesamiento del prompt, paralelizable, y la generación, secuencial y muy sensible a esta contención). También el límite de memoria (6 GiB) dejaba menos de 1.5 GB de margen sobre el tamaño real del modelo cargado (~4.8 GiB entre pesos, KV cache y buffers), lo que pudo agravar el problema.
 
-**Corrección aplicada (sin volver a medir todavía):** subí `cpus` a `8.00` y `memory` a `10G` para `ollama` en `compose.local.yml`. **No repetí la prueba de 20+ minutos con este cambio** porque cada intento cuesta esa misma cantidad de tiempo y quise reportar antes de gastar otro; ver "Pendiente" para la decisión de cómo seguir.
+**Repetición tras subir `cpus` a `8.00` y `memory` a `10G`:** prácticamente sin cambio — **0.08 tokens/s** (89 tokens en 18m17s, duración total 20m56s). Descarta la hipótesis de contención de CPU/memoria como causa principal.
+
+**Prueba de aislamiento (diagnóstico definitivo):** esta máquina ya tenía una instalación **nativa de Ollama para Windows** corriendo (`C:\Users\walte\AppData\Local\Programs\Ollama\ollama.exe`, con los modelos `qwen2.5:14b`, `llama3.2:3b`, `qwen3:30b` ya descargados) — separada de mi contenedor y escuchando también en el puerto 11434 del host (lo cual además explica por qué mi primer reintento externo dijo "modelo no encontrado": estaba hablando con la instalación nativa, no con el contenedor). Probé el mismo tipo de prompt contra ella:
+
+| Ambiente | Modelo | Eval rate |
+| --- | --- | --- |
+| Docker Desktop / WSL2 (mis contenedores) | qwen2.5:7b-instruct | 0.06–0.08 tokens/s |
+| Ollama nativo de Windows (mismo hardware) | llama3.2:3b (más chico, pero aun así) | **7.0 tokens/s** |
+
+**Conclusión:** el cuello de botella no es el hardware ni los límites de `cpus`/`memory` del contenedor — es la virtualización de Docker Desktop sobre WSL2 en esta máquina (posiblemente agravado por `networkingMode=mirrored` en `.wslconfig`, o por cómo Hyper-V/WSL2 programa los hilos en la CPU híbrida P-core/E-core del Core Ultra 7 255H). Es una diferencia de ~100×, no explicable por el tamaño de modelo (7B vs 3B explicaría quizás 2×, no 100×).
+
+**No se corrigió todavía en la infraestructura** — ver "Pendiente" para la decisión de cómo seguir (lo más razonable: usar el Ollama nativo ya instalado para el desarrollo local en esta máquina en vez de un `ollama` dockerizado, apuntando `LLM_BASE_URL` a `http://host.docker.internal:11434`; en stage esto no debería aplicar porque ahí Docker corre nativo sobre Linux, sin la capa de Docker Desktop/WSL2).
 
 ## 4. Verificaciones adicionales
 
@@ -63,5 +74,5 @@ git 2.53.0 · Docker 29.8.0 (CLI) + demonio iniciado manualmente · Docker Compo
 
 ## Pendiente (requiere tu decisión)
 
-1. **MinIO no se puede descargar.** Opciones: (a) usar `docker login` con una cuenta que sí tenga acceso, (b) buscar otra imagen/registro S3-compatible (p. ej. una versión propia compilada, o un mirror interno), (c) posponer el almacenamiento de objetos real a una fase posterior y mockear `api`↔MinIO en L2. **`api` y el propio `minio` siguen sin arrancar hasta que se decida esto.**
-2. **Rendimiento del LLM en esta máquina.** Con el ajuste de CPU/memoria ya aplicado pero sin re-medir: ¿repito la prueba ahora (~20+ min más) para confirmar si el fix funcionó, o seguimos con L2 (que no depende de esto) y dejamos el benchmark de rendimiento para más adelante? Si el problema persiste incluso con más CPU/RAM, `gpt-oss:20b`/modelos de 20B+ quedarían descartados para desarrollo local en esta máquina tal cual está hoy (sería necesario revisar si hay throttling térmico, el modo de energía de Windows, o si WSL2 en modo *mirrored* introduce overhead adicional).
+1. **MinIO no se puede descargar sin autenticación.** En progreso: vas a generar un Access Token de Docker Hub (cuenta `walter.rene.rosales.teni@gmail.com`) para que yo ejecute `docker login` y reintente.
+2. **Rendimiento del LLM en Docker Desktop/WSL2 es ~100× más lento que nativo en esta máquina.** Propuesta: para el ambiente **local**, usar el Ollama nativo de Windows ya instalado (en vez de un `ollama` dockerizado) — cambiar `LLM_BASE_URL` a `http://host.docker.internal:11434` en `.env.local` y quitar/hacer opcional el servicio `ollama` de `compose.local.yml`. Esto no debería afectar **stage**, donde Docker corre nativo sobre Linux (sin Docker Desktop/WSL2) y `LLM_BASE_URL=http://ollama:11434` seguiría siendo válido. Pendiente de tu confirmación antes de aplicar el cambio.
