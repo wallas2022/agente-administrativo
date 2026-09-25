@@ -21,7 +21,9 @@ from jwt import PyJWTError
 from sqlalchemy.orm import Session
 
 from api.esquemas import (
+    FuenteConocimientoEsquema,
     HallazgoEsquema,
+    ParteSubidaEsquema,
     RespuestaAnalisis,
     RespuestaCompletarCarga,
     RespuestaDecision,
@@ -41,6 +43,7 @@ from comun.modelos import (
     Bitacora,
     Decision,
     Documento,
+    FuenteConocimiento,
     Hallazgo,
     TipoRevision,
     Usuario,
@@ -224,6 +227,26 @@ async def subir_parte_documento(
     return {"numero_parte": parte["PartNumber"], "etag": parte["ETag"]}
 
 
+@app.get("/documentos/{documento_id}/partes", response_model=list[ParteSubidaEsquema])
+def listar_partes_subidas_documento(
+    documento_id: str,
+    upload_id: str,
+    llave_almacenamiento: str,
+    usuario: Annotated[
+        Usuario, Depends(requiere_rol(RolUsuario.ANALISTA, RolUsuario.ADMINISTRADOR))
+    ],
+    cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
+) -> list[ParteSubidaEsquema]:
+    """RN-09: permite reanudar una carga interrumpida preguntando qué partes
+    ya llegaron a S3, en vez de volver a subir el archivo completo."""
+    partes = almacenamiento.listar_partes_subidas(
+        cliente_s3, BUCKET_DOCUMENTOS, llave_almacenamiento, upload_id
+    )
+    return [
+        ParteSubidaEsquema(numero_parte=p["PartNumber"], etag=p["ETag"]) for p in partes
+    ]
+
+
 @app.post("/documentos/{documento_id}/completar", response_model=RespuestaCompletarCarga)
 def completar_carga(
     documento_id: str,
@@ -282,6 +305,40 @@ def completar_carga(
     )
 
 
+def _a_respuesta_analisis(
+    sesion: Session, analisis: Analisis, documento: Documento | None
+) -> RespuestaAnalisis:
+    tipo_revision = sesion.get(TipoRevision, analisis.tipo_revision_id)
+    return RespuestaAnalisis(
+        id=str(analisis.id),
+        documento_id=str(analisis.documento_id),
+        nombre_documento=documento.nombre_original if documento else None,
+        tipo_revision=tipo_revision.nombre if tipo_revision else "",
+        estado=documento.estado if documento else analisis.estado,
+        fecha_inicio=analisis.fecha_inicio,
+        fecha_fin=analisis.fecha_fin,
+        periodo_cierre=analisis.periodo_cierre,
+    )
+
+
+@app.get("/analisis", response_model=list[RespuestaAnalisis])
+def listar_analisis(
+    usuario: Annotated[Usuario, Depends(usuario_actual)],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+    limite: int = 20,
+) -> list[RespuestaAnalisis]:
+    """Panel de "análisis recientes": del área del usuario, o de todas para
+    Administrador/Auditor (mismo criterio que consultar_analisis)."""
+    consulta = sesion.query(Analisis).join(Documento, Analisis.documento_id == Documento.id)
+    if _nombre_rol(usuario) not in (RolUsuario.ADMINISTRADOR.value, RolUsuario.AUDITOR.value):
+        consulta = consulta.filter(Documento.area_id == usuario.area_id)
+    analisis_lista = consulta.order_by(Analisis.fecha_inicio.desc()).limit(limite).all()
+    return [
+        _a_respuesta_analisis(sesion, analisis, sesion.get(Documento, analisis.documento_id))
+        for analisis in analisis_lista
+    ]
+
+
 @app.get("/analisis/{analisis_id}", response_model=RespuestaAnalisis)
 def consultar_analisis(
     analisis_id: str,
@@ -300,16 +357,7 @@ def consultar_analisis(
                 detail="No puede consultar análisis de otra área",
             )
 
-    tipo_revision = sesion.get(TipoRevision, analisis.tipo_revision_id)
-    return RespuestaAnalisis(
-        id=str(analisis.id),
-        documento_id=str(analisis.documento_id),
-        tipo_revision=tipo_revision.nombre if tipo_revision else "",
-        estado=documento.estado if documento else analisis.estado,
-        fecha_inicio=analisis.fecha_inicio,
-        fecha_fin=analisis.fecha_fin,
-        periodo_cierre=analisis.periodo_cierre,
-    )
+    return _a_respuesta_analisis(sesion, analisis, documento)
 
 
 @app.get("/analisis/{analisis_id}/hallazgos", response_model=list[HallazgoEsquema])
@@ -405,3 +453,24 @@ def decidir_hallazgo(
         resultado=decision.resultado,
         fecha=decision.fecha,
     )
+
+
+@app.get("/fuentes-conocimiento", response_model=list[FuenteConocimientoEsquema])
+def listar_fuentes_conocimiento(
+    usuario: Annotated[Usuario, Depends(usuario_actual)],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> list[FuenteConocimientoEsquema]:
+    """RF-16: fuentes vigentes del área del usuario, para que elija cuáles
+    consultar al iniciar un análisis (ver ADR-002, estado=vigente)."""
+    fuentes = (
+        sesion.query(FuenteConocimiento)
+        .filter_by(area_id=usuario.area_id, estado="vigente")
+        .order_by(FuenteConocimiento.nombre)
+        .all()
+    )
+    return [
+        FuenteConocimientoEsquema(
+            id=str(f.id), nombre=f.nombre, version=f.version, vigente_desde=f.vigente_desde
+        )
+        for f in fuentes
+    ]

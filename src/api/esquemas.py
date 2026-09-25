@@ -1,6 +1,6 @@
 """Esquemas Pydantic de la API (request/response). Sin lógica de negocio."""
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -50,6 +50,7 @@ class RespuestaCompletarCarga(BaseModel):
 class RespuestaAnalisis(BaseModel):
     id: str
     documento_id: str
+    nombre_documento: str | None = None
     tipo_revision: str
     estado: str
     fecha_inicio: datetime
@@ -79,3 +80,10 @@ class RespuestaDecision(BaseModel):
     hallazgo_id: str
     resultado: str
     fecha: datetime
+
+
+class FuenteConocimientoEsquema(BaseModel):
+    id: str
+    nombre: str
+    version: str
+    vigente_desde: date

@@ -19,9 +19,12 @@ from comun.modelos import Analisis, Decision, Documento, Hallazgo, TipoRevision 
 
 @pytest.fixture()
 def cliente(sesion_bd, cliente_s3_bucket):
+    def _encolador_falso(documento_id: str, analisis_id: str) -> str:
+        return "tarea-de-prueba"
+
     main.app.dependency_overrides[main.obtener_sesion] = lambda: sesion_bd
     main.app.dependency_overrides[main.obtener_cliente_almacenamiento] = lambda: cliente_s3_bucket
-    main.app.dependency_overrides[main.obtener_encolador] = lambda *a, **k: "tarea-de-prueba"
+    main.app.dependency_overrides[main.obtener_encolador] = lambda: _encolador_falso
 
     with TestClient(main.app) as test_client:
         yield test_client
