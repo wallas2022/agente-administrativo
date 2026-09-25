@@ -82,6 +82,13 @@ class RespuestaDecision(BaseModel):
     fecha: datetime
 
 
+class BitacoraEsquema(BaseModel):
+    id: str
+    accion: str
+    fecha_hora: datetime
+    detalle: str | None = None
+
+
 class FuenteConocimientoEsquema(BaseModel):
     id: str
     nombre: str

@@ -21,6 +21,7 @@ from jwt import PyJWTError
 from sqlalchemy.orm import Session
 
 from api.esquemas import (
+    BitacoraEsquema,
     FuenteConocimientoEsquema,
     HallazgoEsquema,
     ParteSubidaEsquema,
@@ -305,6 +306,20 @@ def completar_carga(
     )
 
 
+def _analisis_y_documento_accesibles(
+    sesion: Session, usuario: Usuario, analisis_id: str, *, mensaje_403: str
+) -> tuple[Analisis, Documento | None]:
+    analisis = sesion.get(Analisis, uuid.UUID(analisis_id))
+    if analisis is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Análisis no encontrado")
+
+    documento = sesion.get(Documento, analisis.documento_id)
+    if _nombre_rol(usuario) not in (RolUsuario.ADMINISTRADOR.value, RolUsuario.AUDITOR.value):
+        if documento is None or documento.area_id != usuario.area_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=mensaje_403)
+    return analisis, documento
+
+
 def _a_respuesta_analisis(
     sesion: Session, analisis: Analisis, documento: Documento | None
 ) -> RespuestaAnalisis:
@@ -345,18 +360,9 @@ def consultar_analisis(
     usuario: Annotated[Usuario, Depends(usuario_actual)],
     sesion: Annotated[Session, Depends(obtener_sesion)],
 ) -> RespuestaAnalisis:
-    analisis = sesion.get(Analisis, uuid.UUID(analisis_id))
-    if analisis is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Análisis no encontrado")
-
-    documento = sesion.get(Documento, analisis.documento_id)
-    if _nombre_rol(usuario) not in (RolUsuario.ADMINISTRADOR.value, RolUsuario.AUDITOR.value):
-        if documento is None or documento.area_id != usuario.area_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No puede consultar análisis de otra área",
-            )
-
+    analisis, documento = _analisis_y_documento_accesibles(
+        sesion, usuario, analisis_id, mensaje_403="No puede consultar análisis de otra área"
+    )
     return _a_respuesta_analisis(sesion, analisis, documento)
 
 
@@ -366,18 +372,9 @@ def listar_hallazgos(
     usuario: Annotated[Usuario, Depends(usuario_actual)],
     sesion: Annotated[Session, Depends(obtener_sesion)],
 ) -> list[HallazgoEsquema]:
-    analisis = sesion.get(Analisis, uuid.UUID(analisis_id))
-    if analisis is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Análisis no encontrado")
-
-    documento = sesion.get(Documento, analisis.documento_id)
-    if _nombre_rol(usuario) not in (RolUsuario.ADMINISTRADOR.value, RolUsuario.AUDITOR.value):
-        if documento is None or documento.area_id != usuario.area_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No puede consultar hallazgos de otra área",
-            )
-
+    analisis, _documento = _analisis_y_documento_accesibles(
+        sesion, usuario, analisis_id, mensaje_403="No puede consultar hallazgos de otra área"
+    )
     hallazgos = sesion.query(Hallazgo).filter_by(analisis_id=analisis.id).all()
     return [
         HallazgoEsquema(
@@ -392,6 +389,31 @@ def listar_hallazgos(
             estado=h.estado,
         )
         for h in hallazgos
+    ]
+
+
+@app.get("/analisis/{analisis_id}/bitacora", response_model=list[BitacoraEsquema])
+def listar_bitacora_analisis(
+    analisis_id: str,
+    usuario: Annotated[Usuario, Depends(usuario_actual)],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> list[BitacoraEsquema]:
+    """Pantalla "Agente trabajando" (U3): registro de pasos del análisis.
+    Hoy solo hay 'analisis_iniciado'/'analisis_completado' (ver
+    orquestador/tareas.py) — el pipeline no emite eventos más granulares
+    todavía."""
+    analisis, _documento = _analisis_y_documento_accesibles(
+        sesion, usuario, analisis_id, mensaje_403="No puede consultar la bitácora de otra área"
+    )
+    entradas = (
+        sesion.query(Bitacora)
+        .filter_by(entidad_tipo="analisis", entidad_id=analisis.id)
+        .order_by(Bitacora.fecha_hora)
+        .all()
+    )
+    return [
+        BitacoraEsquema(id=str(e.id), accion=e.accion, fecha_hora=e.fecha_hora, detalle=e.detalle)
+        for e in entradas
     ]
 
 

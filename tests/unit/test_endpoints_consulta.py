@@ -175,3 +175,67 @@ def test_listar_analisis_recientes_del_area(cliente: TestClient, sesion_bd) -> N
     respuesta = cliente.get("/analisis", headers={"Authorization": f"Bearer {token_auditor}"})
     assert respuesta.status_code == 200
     assert len(respuesta.json()) == 1  # el auditor ve de todas las áreas
+
+
+def test_bitacora_del_analisis_ordenada_por_fecha(cliente: TestClient, sesion_bd) -> None:
+    import uuid
+    from datetime import UTC, datetime
+
+    from comun.modelos import Bitacora
+
+    token = _token(cliente, "analista@local")
+    encabezados = {"Authorization": f"Bearer {token}"}
+
+    respuesta = cliente.post(
+        "/documentos/iniciar",
+        headers=encabezados,
+        json={"nombre_original": "cierre.xlsx", "tipo_archivo": "xlsx", "tamano_bytes": 100},
+    )
+    inicio = respuesta.json()
+    documento_id, upload_id, llave = (
+        inicio["documento_id"],
+        inicio["upload_id"],
+        inicio["llave_almacenamiento"],
+    )
+    respuesta = cliente.put(
+        f"/documentos/{documento_id}/partes/1?upload_id={upload_id}&llave_almacenamiento={llave}",
+        headers=encabezados,
+        content=b"x",
+    )
+    etag = respuesta.json()["etag"]
+    respuesta = cliente.post(
+        f"/documentos/{documento_id}/completar?upload_id={upload_id}&llave_almacenamiento={llave}",
+        headers=encabezados,
+        json={
+            "partes": [{"numero_parte": 1, "etag": etag}],
+            "tipo_revision": "contable",
+            "periodo_cierre": "2026-01",
+        },
+    )
+    analisis_id = respuesta.json()["analisis_id"]
+
+    usuario = sesion_bd.query(Usuario).filter_by(email="analista@local").one()
+    sesion_bd.add_all(
+        [
+            Bitacora(
+                usuario_id=usuario.id,
+                accion="analisis_completado",
+                entidad_tipo="analisis",
+                entidad_id=uuid.UUID(analisis_id),
+                fecha_hora=datetime(2026, 1, 1, 10, 5, tzinfo=UTC),
+            ),
+            Bitacora(
+                usuario_id=usuario.id,
+                accion="analisis_iniciado",
+                entidad_tipo="analisis",
+                entidad_id=uuid.UUID(analisis_id),
+                fecha_hora=datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
+            ),
+        ]
+    )
+    sesion_bd.commit()
+
+    respuesta = cliente.get(f"/analisis/{analisis_id}/bitacora", headers=encabezados)
+    assert respuesta.status_code == 200
+    entradas = respuesta.json()
+    assert [e["accion"] for e in entradas] == ["analisis_iniciado", "analisis_completado"]
