@@ -60,7 +60,14 @@ Ejecutado en la máquina real de desarrollo (no es el "128 GB RAM" que documenta
 
 **Conclusión:** el cuello de botella no es el hardware ni los límites de `cpus`/`memory` del contenedor — es la virtualización de Docker Desktop sobre WSL2 en esta máquina (posiblemente agravado por `networkingMode=mirrored` en `.wslconfig`, o por cómo Hyper-V/WSL2 programa los hilos en la CPU híbrida P-core/E-core del Core Ultra 7 255H). Es una diferencia de ~100×, no explicable por el tamaño de modelo (7B vs 3B explicaría quizás 2×, no 100×).
 
-**No se corrigió todavía en la infraestructura** — ver "Pendiente" para la decisión de cómo seguir (lo más razonable: usar el Ollama nativo ya instalado para el desarrollo local en esta máquina en vez de un `ollama` dockerizado, apuntando `LLM_BASE_URL` a `http://host.docker.internal:11434`; en stage esto no debería aplicar porque ahí Docker corre nativo sobre Linux, sin la capa de Docker Desktop/WSL2).
+**Corrección aplicada y confirmada:** `infra/compose.local.yml` ya no publica el puerto de `ollama` (choca con el Ollama nativo, que ya lo usa) y le bajó los límites a `cpus: 1.00` / `memory: 1G` (queda idle, solo por paridad de nombre de servicio con stage). `.env.local` / `.env.local.example` ahora tienen `LLM_BASE_URL=http://host.docker.internal:11434` y `LLM_MODEL_PRINCIPAL=qwen2.5:14b` (nativo, ya descargado). Verificación desde dentro de un contenedor (`worker`) llamando al Ollama nativo vía `host.docker.internal`:
+
+| Prueba | Resultado |
+| --- | --- |
+| `GET /api/tags` desde el contenedor | responde con los 3 modelos nativos (`qwen2.5:14b`, `llama3.2:3b`, `qwen3:30b`) |
+| Generación (`llama3.2:3b`, prompt corto) desde el contenedor | **5.57 tokens/s**, 22.8 s de punta a punta (antes: 20+ minutos) |
+
+Confirma que el rendimiento real se mantiene cuando se llama al Ollama nativo desde dentro de Docker (el problema era específicamente el motor de inferencia corriendo *dentro* de la VM de Docker Desktop, no la red entre contenedor y host). En **stage** esto no debería aplicar: ahí Docker corre nativo sobre Linux, sin Docker Desktop/WSL2 de por medio, así que `LLM_BASE_URL=http://ollama:11434` (el propio contenedor) se mantiene sin cambios.
 
 ## 4. Verificaciones adicionales
 
@@ -75,4 +82,4 @@ git 2.53.0 · Docker 29.8.0 (CLI) + demonio iniciado manualmente · Docker Compo
 ## Pendiente (requiere tu decisión)
 
 1. **MinIO no se puede descargar sin autenticación.** En progreso: vas a generar un Access Token de Docker Hub (cuenta `walter.rene.rosales.teni@gmail.com`) para que yo ejecute `docker login` y reintente.
-2. **Rendimiento del LLM en Docker Desktop/WSL2 es ~100× más lento que nativo en esta máquina.** Propuesta: para el ambiente **local**, usar el Ollama nativo de Windows ya instalado (en vez de un `ollama` dockerizado) — cambiar `LLM_BASE_URL` a `http://host.docker.internal:11434` en `.env.local` y quitar/hacer opcional el servicio `ollama` de `compose.local.yml`. Esto no debería afectar **stage**, donde Docker corre nativo sobre Linux (sin Docker Desktop/WSL2) y `LLM_BASE_URL=http://ollama:11434` seguiría siendo válido. Pendiente de tu confirmación antes de aplicar el cambio.
+2. ~~Rendimiento del LLM en Docker Desktop/WSL2 es ~100× más lento que nativo~~ — **resuelto**: `LLM_BASE_URL` ahora apunta al Ollama nativo (`http://host.docker.internal:11434`), confirmado a 5.57 tokens/s desde dentro de un contenedor.

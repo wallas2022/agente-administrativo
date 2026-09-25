@@ -65,25 +65,24 @@ services:
           cpus: "0.25"
           memory: 256M
 
+  # [DECISIÓN 2026-09-24, ver docs/04-pruebas/resultados/local-L1.md] La inferencia dentro de
+  # Docker Desktop/WSL2 en esta máquina es ~100x más lenta que Ollama nativo de Windows en el
+  # mismo hardware (0.06-0.08 tokens/s vs 7.0 tokens/s medidos) — no es un problema de límites
+  # de CPU/RAM, es la capa de virtualización. Por eso en LOCAL el motor real es el Ollama nativo
+  # del host (LLM_BASE_URL=http://host.docker.internal:11434 en .env.local), no este contenedor.
+  # Este servicio se deja arriba pero sin cargar modelos (uso de recursos mínimo) por paridad de
+  # stack con stage, donde sí se usa (ahí Docker corre nativo sobre Linux, sin esta penalización).
   ollama:
     env_file: ../.env.local
-    ports:
-      - "127.0.0.1:11434:11434"
+    # Sin ports: publicar 11434 chocaría con el Ollama nativo de Windows que ya usa ese
+    # puerto en el host (y es el que realmente se usa en local, ver nota arriba).
     volumes:
       - ollama_models:/root/.ollama
-    # Modelo (LLM_MODEL_PRINCIPAL) definido en .env.local.
-    # [DISCREPANCIA CONFIRMADA 2026-09-24] La máquina real de desarrollo tiene 30.9 GB de RAM
-    # total (no 128 GB como documenta el SRS v0.6 §7); Docker Desktop/WSL2 le asigna ~15 GB
-    # por defecto (sin tocar .wslconfig para no reiniciar los demás proyectos que corren en
-    # esta máquina). gpt-oss:20b no cabe con margen razonable en ese presupuesto: el límite y
-    # el modelo por defecto de este overlay se ajustaron a lo que la máquina real soporta.
-    # Ver docs/04-pruebas/resultados/local-L1.md.
     deploy:
       resources:
         limits:
-          cpus: "8.00"   # subido de 4.00: con 4 el modelo detectaba 16 hilos y sufría
-                          # contención severa de CPU (0.06 tokens/s medido, ver local-L1.md)
-          memory: 10G   # subido de 6G: 4.7 GB de pesos + ~0.4 GB KV/buffers dejaban <1.5 GB de margen
+          cpus: "1.00"
+          memory: 1G
 
   qdrant:
     ports:

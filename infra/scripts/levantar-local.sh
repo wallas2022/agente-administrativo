@@ -24,6 +24,8 @@ echo "== Levantando servicios (compose.yml + compose.local.yml) ==" >&2
 docker compose --env-file ../.env.local -f compose.yml -f compose.local.yml up -d "$@"
 
 echo "== Esperando healthchecks ==" >&2
+# "ollama" aquí es el contenedor idle de paridad de stack, no el motor real en local
+# (ver docs/04-pruebas/resultados/local-L1.md): el LLM real corre nativo en el host.
 SERVICIOS_CORE="proxy api orquestador worker redis ollama qdrant postgres minio languagetool"
 for intento in $(seq 1 60); do
   PENDIENTES=""
@@ -42,10 +44,19 @@ for intento in $(seq 1 60); do
   sleep 5
 done
 
-echo "== Descargando modelos en ollama ==" >&2
-echo "  Modelo principal: ${LLM_MODEL_PRINCIPAL:-[POR CONFIRMAR en .env.local]}" >&2
-docker compose -f compose.yml -f compose.local.yml exec -T ollama ollama pull "${LLM_MODEL_PRINCIPAL:?LLM_MODEL_PRINCIPAL no definido en .env.local}"
-echo "  Embeddings: ${LLM_MODEL_EMBEDDINGS:-bge-m3}" >&2
-docker compose -f compose.yml -f compose.local.yml exec -T ollama ollama pull "${LLM_MODEL_EMBEDDINGS:-bge-m3}"
+echo "== Descargando modelos en el Ollama NATIVO del host (no en el contenedor) ==" >&2
+echo "  LLM_BASE_URL=${LLM_BASE_URL:-[POR CONFIRMAR]} — debe apuntar al Ollama nativo," >&2
+echo "  ver docs/04-pruebas/resultados/local-L1.md sobre por qué no se usa el contenedor." >&2
+if command -v ollama >/dev/null 2>&1; then
+  echo "  Modelo principal: ${LLM_MODEL_PRINCIPAL:-[POR CONFIRMAR en .env.local]}" >&2
+  ollama pull "${LLM_MODEL_PRINCIPAL:?LLM_MODEL_PRINCIPAL no definido en .env.local}"
+  echo "  Embeddings: ${LLM_MODEL_EMBEDDINGS:-bge-m3}" >&2
+  ollama pull "${LLM_MODEL_EMBEDDINGS:-bge-m3}"
+else
+  echo "  'ollama' no está en el PATH de este shell — instala Ollama nativo" >&2
+  echo "  (https://ollama.com/download) y ejecuta manualmente:" >&2
+  echo "    ollama pull ${LLM_MODEL_PRINCIPAL:-<modelo>}" >&2
+  echo "    ollama pull ${LLM_MODEL_EMBEDDINGS:-bge-m3}" >&2
+fi
 
 echo "== Listo. Ver docs/06-operacion/instalacion.md para el resto de la verificación. ==" >&2
