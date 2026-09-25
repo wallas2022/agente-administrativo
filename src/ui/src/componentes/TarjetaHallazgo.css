@@ -1,0 +1,105 @@
+.tarjeta-hallazgo {
+  background: var(--color-superficie);
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tarjeta-hallazgo__cabecera {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tarjeta-hallazgo__ubicacion {
+  font-family: var(--fuente-mono);
+  font-size: 0.85rem;
+  color: var(--color-texto-tenue);
+  flex: 1;
+}
+
+.tarjeta-hallazgo__descripcion {
+  margin: 0;
+  font-weight: 500;
+}
+
+.tarjeta-hallazgo__monto {
+  margin: 0;
+  font-family: var(--fuente-mono);
+  font-size: 0.85rem;
+  color: var(--color-texto-tenue);
+}
+
+.tarjeta-hallazgo__explicacion {
+  background: var(--color-fondo);
+  border-radius: var(--radio);
+  padding: 10px 12px;
+}
+
+.tarjeta-hallazgo__explicacion h3 {
+  margin: 0 0 6px;
+  font-size: 0.8rem;
+  color: var(--color-texto-tenue);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.tarjeta-hallazgo__explicacion p {
+  margin: 0;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+}
+
+.tarjeta-hallazgo__fuente {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-texto-tenue);
+  font-style: italic;
+}
+
+.tarjeta-hallazgo__error {
+  margin: 0;
+  color: var(--color-alto-texto);
+  background: var(--color-alto-fondo);
+  border-radius: var(--radio);
+  padding: 6px 10px;
+  font-size: 0.85rem;
+}
+
+.tarjeta-hallazgo__acciones {
+  display: flex;
+  gap: 8px;
+}
+
+.tarjeta-hallazgo__acciones button {
+  border: 1px solid var(--color-borde);
+  background: var(--color-superficie);
+  border-radius: var(--radio);
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.tarjeta-hallazgo__acciones button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tarjeta-hallazgo__aceptar {
+  background: var(--color-acento) !important;
+  color: #ffffff;
+  border-color: var(--color-acento) !important;
+}
+
+.tarjeta-hallazgo__aceptar:hover:not(:disabled) {
+  background: var(--color-acento-claro) !important;
+}
+
+.tarjeta-hallazgo__rechazar {
+  color: var(--color-alto-texto);
+  border-color: var(--color-alto-texto) !important;
+}

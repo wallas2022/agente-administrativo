@@ -226,6 +226,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/documentos/{documento_id}/version-corregida": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Descargar Version Corregida
+         * @description Pantalla 3 (U4): descarga del Excel con las celdas marcadas
+         *     (validadores.contable.salida). La API hace de intermediaria en vez de dar
+         *     un enlace directo a LocalStack/MinIO porque ese endpoint interno
+         *     (`localstack:4566`) no es alcanzable desde el navegador.
+         */
+        get: operations["descargar_version_corregida_documentos__documento_id__version_corregida_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -283,6 +306,8 @@ export interface components {
             moneda?: string | null;
             /** Estado */
             estado: string;
+            /** Fuente Citada */
+            fuente_citada?: string | null;
         };
         /** ParteSubidaEsquema */
         ParteSubidaEsquema: {
@@ -312,6 +337,22 @@ export interface components {
             fecha_fin?: string | null;
             /** Periodo Cierre */
             periodo_cierre?: string | null;
+            /** Total Debe */
+            total_debe?: number | null;
+            /** Total Haber */
+            total_haber?: number | null;
+            /** Moneda */
+            moneda?: string | null;
+            /**
+             * Puede Decidir
+             * @default false
+             */
+            puede_decidir: boolean;
+            /**
+             * Tiene Version Corregida
+             * @default false
+             */
+            tiene_version_corregida: boolean;
         };
         /** RespuestaCompletarCarga */
         RespuestaCompletarCarga: {
@@ -779,6 +820,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FuenteConocimientoEsquema"][];
+                };
+            };
+        };
+    };
+    descargar_version_corregida_documentos__documento_id__version_corregida_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documento_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

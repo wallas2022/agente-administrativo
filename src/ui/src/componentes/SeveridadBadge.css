@@ -1,0 +1,23 @@
+.severidad-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.severidad-badge--alta {
+  background: var(--color-alto-fondo);
+  color: var(--color-alto-texto);
+}
+
+.severidad-badge--media {
+  background: var(--color-medio-fondo);
+  color: var(--color-medio-texto);
+}
+
+.severidad-badge--baja {
+  background: var(--color-bajo-fondo);
+  color: var(--color-bajo-texto);
+}

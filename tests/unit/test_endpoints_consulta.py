@@ -337,11 +337,18 @@ def test_descargar_version_corregida(cliente: TestClient, sesion_bd, cliente_s3_
 
     respuesta = cliente.get(
         f"/documentos/{documento_id}/version-corregida",
-        headers={"Authorization": f"Bearer {token_analista}"},
+        headers={
+            "Authorization": f"Bearer {token_analista}",
+            "Origin": "http://127.0.0.1:5173",
+        },
     )
     assert respuesta.status_code == 200
     assert respuesta.content == contenido_marcado
     assert "cierre.marcado.xlsx" in respuesta.headers["content-disposition"]
+    # Sin esto, el navegador recibe el archivo pero `fetch` no puede leer el
+    # nombre real (Content-Disposition no viaja a JS en CORS por defecto) —
+    # bug real encontrado al probar la descarga en un navegador real.
+    assert respuesta.headers["access-control-expose-headers"] == "Content-Disposition"
 
 
 def test_descargar_version_corregida_404_si_no_existe(cliente: TestClient) -> None:

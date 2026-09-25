@@ -92,6 +92,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Sin esto, el navegador recibe el header pero no lo expone a JS (fetch
+    # ve `null` en Content-Disposition) — se notó al descargar el Excel
+    # corregido: el archivo llegaba bien, pero con un nombre genérico.
+    expose_headers=["Content-Disposition"],
 )
 
 _esquema_bearer = HTTPBearer()
