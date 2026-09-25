@@ -96,6 +96,28 @@ Medición real del parser + validador determinista (sin LLM ni RAG) sobre los 10
 
 El costo dominante del pipeline completo es la redacción con LLM por hallazgo (~92 s con `llama3.2:3b` nativo en este equipo, ver arriba) — el parser y las reglas deterministas son órdenes de magnitud más rápidos y no son el cuello de botella.
 
+## Comparación de modelos LLM: gpt-oss:20b vs llama3.2:3b (2026-09-25)
+
+Medición real (sin mocks) sobre 2 documentos del dataset, con RAG real (Qdrant + `bge-m3`) y Ollama nativo, usando exactamente el mismo prompt (`construir_prompt` de `validadores/contable/explicacion.py`). Tokens/s calculado desde `eval_count`/`eval_duration` que devuelve la API de Ollama (no estimado).
+
+| Documento | Hallazgos | Modelo | Tiempo total doc. | tok/s | Tokens generados |
+| --- | --- | --- | --- | --- | --- |
+| cu01-07-mezcla-moneda.xlsx | 1 (RN-05) | llama3.2:3b | 50–86 s | 5.8–9.3 | 253–353 |
+| cu01-07-mezcla-moneda.xlsx | 1 (RN-05) | gpt-oss:20b | 224.6 s (3.74 min) | 3.3 | 724 |
+| cu01-08-multiples-errores.xlsx | 2 (RN-01, RN-02) | llama3.2:3b | 65–69 s | 7.1–8.8 | 392–407 |
+| cu01-08-multiples-errores.xlsx | 2 (RN-01, RN-02) | gpt-oss:20b | 224–238 s (3.7–4.0 min) | 3.2–3.5 | 626–742 |
+
+(Los rangos de `llama3.2:3b` vienen de dos corridas reales independientes — hay variación normal de carga del sistema entre corridas; con `gpt-oss:20b` se reporta la corrida final, limpia.)
+
+**Criterio de la tarea: ≤ 10 min/documento → se cumple para ambos modelos** en los 2 documentos probados (peor caso observado: 4.0 min). Extrapolando al peor caso del dataset (4 hallazgos, ver `cu01-10-multiples-errores-2.xlsx` en la tabla de arriba) a ~120 s/hallazgo con `gpt-oss:20b`, el estimado sigue por debajo de 10 min (~8 min).
+
+**Calidad de las explicaciones (revisión manual de los textos completos):**
+- `gpt-oss:20b` produce explicaciones más estructuradas (causa probable / corrección numeradas), cita la fuente entre corchetes de forma más consistente y explícita (`[politica-cierre-contable]`, a veces más de una vez por respuesta), y da pasos de corrección más concretos y accionables. No inventó cifras: reutilizó los montos exactos del hallazgo (900.00 / 850.00) sin recalcular nada, consistente con RNF-03.
+- `llama3.2:3b` es 3–4x más rápido y las respuestas son correctas en sustancia, pero con más relleno conversacional innecesario ("¡Claro! A continuación...") y menos estructura.
+- **Riesgo observado (no reproducible):** en una corrida exploratoria previa (prompt idéntico, misma llamada RN-01), `gpt-oss:20b` escribió una vez "50 soles" en vez de "50 quetzales/Q" — un error de terminología de moneda (Perú en vez de Guatemala), no reproducido en la corrida final documentada arriba. No es invención de cifras (el monto era correcto), pero sí un recordatorio de que ambos modelos requieren la revisión humana ya obligatoria por diseño (PP-09, rol Revisor) antes de aceptar cualquier explicación generada.
+
+**Decisión:** se cambia `LLM_MODEL_PRINCIPAL` a `gpt-oss:20b` en `.env.local`/`.env.local.example` (antes `llama3.2:3b`), por la mejor calidad/estructura observada y porque el tiempo por documento sigue dentro del criterio de la tarea. Se sube el timeout por defecto de `rag/cliente_llm.py` de 180 s a 300 s: la llamada de 224.6 s medida arriba ya superaba el timeout anterior, lo que habría hecho fallar al worker real en producción con el modelo nuevo. `llama3.2:3b` se mantiene descargado como alternativa rápida para iteración.
+
 ## Hallazgos de esta fase
 
 1. **`completar_carga` (L2) no persistía la ubicación del archivo subido.** El endpoint completaba la carga multiparte en S3/MinIO pero nunca guardaba un `VersionDocumento`, así que el orquestador no tenía forma de saber qué objeto descargar. Corregido: `completar_carga` ahora crea la `VersionDocumento` inicial (`numero_version=1`, `es_corregida=False`) con la misma llave usada en la carga.
@@ -105,5 +127,5 @@ El costo dominante del pipeline completo es la redacción con LLM por hallazgo (
 ## Pendiente
 
 - ~~MinIO/Docker Hub sigue bloqueado~~ **Resuelto** (ver docs/04-pruebas/resultados/local-localstack.md): MinIO descontinuó toda distribución gratuita (no era un problema de credenciales); se reemplazó por LocalStack en local y se verificó el flujo `carga→S3→orquestador→pipeline CU-01` completo en vivo, sin mocks, incluyendo varios bugs reales descubiertos al correr el stack completo por primera vez.
-- RNF-04 (tiempo máximo de procesamiento) sigue sin medirse contra el pipeline completo en hardware de stage — depende de ADR-005 (aún no resuelto) y de un modelo LLM definitivo para producción (en este equipo, sin GPU, `llama3.2:3b` es el único viable en tiempo razonable; `qwen2.5:14b` excede el timeout de prueba). La verificación E2E real de local-localstack.md sí midió el pipeline completo en esta máquina: ~92 s para 4 hallazgos con `llama3.2:3b`.
+- RNF-04 (tiempo máximo de procesamiento) sigue sin medirse contra el pipeline completo en hardware de stage — depende de ADR-005 (aún no resuelto). En este equipo, sin GPU, tanto `gpt-oss:20b` (modelo por defecto desde esta comparación) como `llama3.2:3b` quedan dentro de ≤10 min/documento; `qwen2.5:14b` excede el timeout de prueba y se descarta. La verificación E2E real de local-localstack.md midió el pipeline completo en esta máquina: ~92 s para 4 hallazgos con `llama3.2:3b`.
 - Los tipos de revisión distintos de "contable" (Word, PDF, PowerPoint, imágenes) no tienen adaptador todavía; siguen el flujo genérico de L2.
