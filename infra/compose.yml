@@ -55,7 +55,7 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_healthy
-      minio:
+      localstack:
         condition: service_healthy
     healthcheck:
       # python:3.12-slim no trae curl; se usa urllib de la librería estándar.
@@ -69,6 +69,8 @@ services:
     build:
       context: ../src
       dockerfile: orquestador/Dockerfile
+      additional_contexts:
+        kb: ../kb
     image: agente-admin/orquestador:0.1.0   # validar
     networks:
       - red_interna
@@ -92,6 +94,8 @@ services:
     build:
       context: ../src
       dockerfile: orquestador/Dockerfile
+      additional_contexts:
+        kb: ../kb
     image: agente-admin/orquestador:0.1.0   # validar — reutiliza la imagen del orquestador
     command: celery -A orquestador worker --loglevel=info   # [POR CONFIRMAR] módulo celery real
     networks:
@@ -161,16 +165,24 @@ services:
       retries: 5
     restart: unless-stopped
 
-  minio:
-    image: minio/minio:RELEASE.2024-10-13T13-34-11Z   # validar
-    command: server /data --console-address ":9001"
+  # [DECISIÓN 2026-09-25, ver docs/04-pruebas/resultados/local-localstack.md] MinIO
+  # descontinuó toda distribución gratuita (Docker Hub, binario nativo) — el propio
+  # sitio de descargas responde 410 Gone: "archived and no longer maintained... no
+  # longer served from this site". No es un problema de credenciales/login. Se
+  # reemplaza por LocalStack (solo el servicio S3), que expone la misma API S3 que ya
+  # consume comun/almacenamiento.py vía boto3 — sin cambios de código. Las variables
+  # de entorno MINIO_* se conservan por ahora para no dispersar el cambio por todo el
+  # código/documentación; el nombre definitivo del backend de objetos para stage queda
+  # pendiente de una decisión de arquitectura (afecta SRS/ADR, no solo esta infra local).
+  localstack:
+    image: localstack/localstack:4.9.1   # verificado en Docker Hub 2026-09-25
     environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+      SERVICES: s3
+      DEFAULT_REGION: us-east-1
     networks:
       - red_interna
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -277,7 +289,7 @@ services:
       REDIS_CONNECTION_STRING: redis://:${REDIS_PASSWORD}@redis:6379/1
       LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
       LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
-      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://localstack:4566
       LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
       LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
       LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
@@ -288,7 +300,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      minio:
+      localstack:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 -O - http://localhost:3000/api/public/health || exit 1"]
@@ -297,14 +309,14 @@ services:
       retries: 5
       start_period: 60s
     restart: unless-stopped
-    # [POR CONFIRMAR] el bucket "langfuse" en MinIO debe crearse antes del primer arranque (ver infra/scripts/)
+    # [POR CONFIRMAR] el bucket "langfuse" en el almacenamiento S3 debe crearse antes del primer arranque (ver infra/scripts/)
 
 volumes:
   redis_data:
   ollama_models:
   qdrant_data:
   postgres_data:
-  minio_data:
+  localstack_data:
   prometheus_data:
   grafana_data:
   langfuse_postgres_data:

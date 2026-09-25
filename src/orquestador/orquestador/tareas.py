@@ -46,6 +46,7 @@ def ejecutar_analisis(
     funcion_embedding: FuncionEmbedding | None = None,
     funcion_llm: FuncionLLM | None = None,
     modelo_llm: str | None = None,
+    coleccion_rag: str | None = None,
 ) -> str:
     """Lógica pura (sin Celery) para poder probarla con una sesión en memoria.
 
@@ -102,6 +103,7 @@ def ejecutar_analisis(
             funcion_llm=funcion_llm,
             modelo_llm=modelo_llm,
             subir_version_corregida=_subir_version_corregida,
+            coleccion_rag=coleccion_rag,
         )
 
     documento.estado = (
@@ -126,12 +128,11 @@ def analizar_documento(documento_id: str, analisis_id: str) -> str:
 
     sesion = obtener_fabrica_sesion()()
     try:
-        cliente_qdrant = None
-        qdrant_url = os.environ.get("QDRANT_URL")
-        if qdrant_url:
-            from qdrant_client import QdrantClient
+        from qdrant_client import QdrantClient
 
-            cliente_qdrant = QdrantClient(url=qdrant_url)
+        qdrant_host = os.environ.get("QDRANT_HOST", "qdrant")
+        qdrant_port = os.environ.get("QDRANT_PORT", "6333")
+        cliente_qdrant = QdrantClient(url=f"http://{qdrant_host}:{qdrant_port}")
 
         return ejecutar_analisis(
             sesion,
@@ -143,6 +144,7 @@ def analizar_documento(documento_id: str, analisis_id: str) -> str:
             funcion_embedding=obtener_embedding,
             funcion_llm=generar_texto,
             modelo_llm=os.environ.get("LLM_MODEL_PRINCIPAL", ""),
+            coleccion_rag=os.environ.get("QDRANT_COLECCION"),
         )
     finally:
         sesion.close()

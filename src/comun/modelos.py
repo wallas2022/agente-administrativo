@@ -125,7 +125,9 @@ class Hallazgo(Base):
     descripcion: Mapped[str] = mapped_column(Text, nullable=False)
     correccion_sugerida: Mapped[str | None] = mapped_column(Text)
     monto: Mapped[float | None] = mapped_column(Numeric(18, 2))
-    moneda: Mapped[str | None] = mapped_column(String(3))
+    # No es un solo código ISO 4217 (3 letras): RN-05 registra la combinación de
+    # monedas mezcladas en la partida, p. ej. "Q/USD".
+    moneda: Mapped[str | None] = mapped_column(String(10))
     estado: Mapped[str] = mapped_column(String(20), default="pendiente")
 
     analisis: Mapped["Analisis"] = relationship(back_populates="hallazgos")

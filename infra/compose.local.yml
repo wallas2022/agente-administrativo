@@ -107,18 +107,17 @@ services:
           cpus: "0.50"
           memory: 512M
 
-  minio:
+  localstack:
     env_file: ../.env.local
     ports:
-      - "127.0.0.1:9010:9000"
-      - "127.0.0.1:9011:9001"
+      - "127.0.0.1:9010:4566"
     volumes:
-      - minio_data:/data
+      - localstack_data:/var/lib/localstack
     deploy:
       resources:
         limits:
-          cpus: "0.25"
-          memory: 256M
+          cpus: "0.50"
+          memory: 512M
 
   languagetool:
     ports:

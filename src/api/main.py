@@ -9,7 +9,8 @@ docs/03-diseno/secuencia/cu-01-excel-contable.md.
 
 import os
 import uuid
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
 
@@ -32,7 +33,7 @@ from api.esquemas import (
 )
 from comun import almacenamiento
 from comun.cola import encolar_analisis
-from comun.db import obtener_sesion
+from comun.db import obtener_fabrica_sesion, obtener_sesion
 from comun.estados import EstadoAnalisis, EstadoDocumento, RolUsuario
 from comun.modelos import (
     Analisis,
@@ -50,8 +51,29 @@ from comun.seguridad import (
     crear_token_acceso,
     decodificar_token_acceso,
 )
+from comun.semillas import sembrar_datos_de_prueba
 
-app = FastAPI(title="Agente Administrativo — API")
+
+@asynccontextmanager
+async def _ciclo_de_vida(_app: FastAPI) -> AsyncIterator[None]:
+    # En local/desarrollo (APP_ENV=local en .env.local) este startup deja el ambiente
+    # listo para usarse de inmediato — se omite en cualquier otro valor, incluido "sin
+    # definir" (pruebas unitarias, que ya preparan su propia sesión/bucket mockeados):
+    # - RF-01: siembra los usuarios locales de prueba (uno por rol) como fila real.
+    # - RF-03: crea el bucket de documentos si todavía no existe (en stage, la
+    #   creación del bucket es un paso de aprovisionamiento de infraestructura,
+    #   no responsabilidad del código de la aplicación).
+    if os.environ.get("APP_ENV") == "local":
+        sesion = obtener_fabrica_sesion()()
+        try:
+            sembrar_datos_de_prueba(sesion)
+        finally:
+            sesion.close()
+        almacenamiento.asegurar_bucket(almacenamiento.obtener_cliente_s3(), BUCKET_DOCUMENTOS)
+    yield
+
+
+app = FastAPI(title="Agente Administrativo — API", lifespan=_ciclo_de_vida)
 
 _esquema_bearer = HTTPBearer()
 

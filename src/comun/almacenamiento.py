@@ -1,9 +1,10 @@
-"""Almacenamiento de documentos (MinIO/S3) — carga por partes y reanudable.
+"""Almacenamiento de documentos (API S3) — carga por partes y reanudable.
 
 Relacionado con: RF-03 (tamaño máx. 1 GB, carga por partes y reanudable), RN-09.
-Cliente boto3 (compatible con la API S3 que expone MinIO) en vez del SDK propio
-de MinIO: expone las primitivas de multipart upload (incluida la reanudación
-mediante `upload_id`) de forma directa.
+Cliente boto3 genérico contra cualquier backend compatible con la API S3 (en
+local, LocalStack — ver docs/04-pruebas/resultados/local-localstack.md; MinIO
+descontinuó su distribución gratuita). Expone las primitivas de multipart
+upload (incluida la reanudación mediante `upload_id`) de forma directa.
 """
 
 import os
@@ -31,10 +32,10 @@ def obtener_cliente_s3() -> BaseClient:
     return boto3.client(
         "s3",
         endpoint_url=os.environ.get("MINIO_ENDPOINT_URL")
-        or f"http://{os.environ.get('MINIO_ENDPOINT', 'minio:9000')}",
+        or f"http://{os.environ.get('MINIO_ENDPOINT', 'localstack:4566')}",
         aws_access_key_id=os.environ.get("MINIO_ACCESS_KEY", ""),
         aws_secret_access_key=os.environ.get("MINIO_SECRET_KEY", ""),
-        config=Config(signature_version="s3v4"),
+        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
         region_name="us-east-1",
     )
 
@@ -95,6 +96,12 @@ def completar_carga_multiparte(
 
 def abortar_carga_multiparte(cliente: BaseClient, bucket: str, llave: str, upload_id: str) -> None:
     cliente.abort_multipart_upload(Bucket=bucket, Key=llave, UploadId=upload_id)
+
+
+def asegurar_bucket(cliente: BaseClient, bucket: str) -> None:
+    buckets_existentes = {b["Name"] for b in cliente.list_buckets().get("Buckets", [])}
+    if bucket not in buckets_existentes:
+        cliente.create_bucket(Bucket=bucket)
 
 
 def descargar_objeto(cliente: BaseClient, bucket: str, llave: str) -> bytes:

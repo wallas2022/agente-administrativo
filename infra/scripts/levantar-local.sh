@@ -26,7 +26,7 @@ docker compose --env-file ../.env.local -f compose.yml -f compose.local.yml up -
 echo "== Esperando healthchecks ==" >&2
 # "ollama" aquí es el contenedor idle de paridad de stack, no el motor real en local
 # (ver docs/04-pruebas/resultados/local-L1.md): el LLM real corre nativo en el host.
-SERVICIOS_CORE="proxy api orquestador worker redis ollama qdrant postgres minio languagetool"
+SERVICIOS_CORE="proxy api orquestador worker redis ollama qdrant postgres localstack languagetool"
 for intento in $(seq 1 60); do
   PENDIENTES=""
   for s in $SERVICIOS_CORE; do

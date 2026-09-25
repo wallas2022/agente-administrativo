@@ -24,17 +24,41 @@ from validadores.contable.explicacion import generar_explicacion
 from validadores.contable.reglas import validar_libro_contable
 from validadores.contable.salida import marcar_celdas_en_libro
 
-RUTA_CATALOGO_POR_DEFECTO = (
-    Path(__file__).resolve().parents[3] / "kb" / "fuentes" / "catalogo-cuentas-contabilidad.csv"
-)
+
+def _encontrar_raiz_con_kb(profundidad_maxima: int = 6) -> Path:
+    """Busca hacia arriba desde este archivo un directorio que contenga `kb/`.
+
+    La ubicación de `kb/` respecto a este módulo cambia según el entorno: en
+    local, el paquete vive anidado en `src/orquestador/orquestador/` (3
+    niveles bajo la raíz del repo); en la imagen Docker, `orquestador/Dockerfile`
+    lo aplana a `/app/orquestador/` y copia `kb/` como `/app/kb/` (1 nivel).
+    Recorrer hacia arriba evita hardcodear ese índice.
+    """
+    actual = Path(__file__).resolve().parent
+    for _ in range(profundidad_maxima):
+        if (actual / "kb").is_dir():
+            return actual
+        if actual.parent == actual:
+            break
+        actual = actual.parent
+    raise FileNotFoundError(
+        f"No se encontró un directorio 'kb/' subiendo desde {Path(__file__).resolve()}"
+    )
+
+
+def _ruta_catalogo_por_defecto() -> Path:
+    return _encontrar_raiz_con_kb() / "kb" / "fuentes" / "catalogo-cuentas-contabilidad.csv"
+
+
 COLECCION_RAG = "kb-contable"
 
 FuncionEmbedding = Callable[[str], list[float]]
 FuncionLLM = Callable[[str], str]
 
 
-def cargar_catalogo(ruta: Path = RUTA_CATALOGO_POR_DEFECTO) -> set[str]:
-    with ruta.open(encoding="utf-8") as archivo:
+def cargar_catalogo(ruta: Path | None = None) -> set[str]:
+    ruta_efectiva = ruta or _ruta_catalogo_por_defecto()
+    with ruta_efectiva.open(encoding="utf-8") as archivo:
         return {fila["codigo"].strip() for fila in csv.DictReader(archivo)}
 
 
@@ -51,6 +75,7 @@ def procesar_documento_contable(
     modelo_llm: str,
     subir_version_corregida: Callable[[str, bytes], None] | None = None,
     catalogo: set[str] | None = None,
+    coleccion_rag: str | None = None,
 ) -> list[Hallazgo]:
     """Corre el pipeline completo sobre un libro contable ya descargado y
     persiste un `Hallazgo` por cada detección. Devuelve las filas creadas.
@@ -65,7 +90,7 @@ def procesar_documento_contable(
     for hallazgo in detectados:
         fragmentos = buscar_fragmentos(
             cliente_qdrant,
-            coleccion=COLECCION_RAG,
+            coleccion=coleccion_rag or COLECCION_RAG,
             texto_consulta=hallazgo.descripcion,
             funcion_embedding=funcion_embedding,
         )

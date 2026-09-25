@@ -104,6 +104,6 @@ El costo dominante del pipeline completo es la redacción con LLM por hallazgo (
 
 ## Pendiente
 
-- MinIO/Docker Hub sigue bloqueado (ver local-L1.md, local-L2.md): el contenedor `api` real y el flujo de carga→S3→orquestador no se pudieron verificar en vivo con MinIO real en esta fase; se verificó con `moto` (S3 mockeado) y, por separado, con Qdrant/Ollama reales.
-- RNF-04 (tiempo máximo de procesamiento) sigue sin medirse contra el pipeline completo en hardware de stage — depende de ADR-005 (aún no resuelto) y de un modelo LLM definitivo para producción (en este equipo, sin GPU, `llama3.2:3b` es el único viable en tiempo razonable; `qwen2.5:14b` excede el timeout de prueba).
+- ~~MinIO/Docker Hub sigue bloqueado~~ **Resuelto** (ver docs/04-pruebas/resultados/local-localstack.md): MinIO descontinuó toda distribución gratuita (no era un problema de credenciales); se reemplazó por LocalStack en local y se verificó el flujo `carga→S3→orquestador→pipeline CU-01` completo en vivo, sin mocks, incluyendo varios bugs reales descubiertos al correr el stack completo por primera vez.
+- RNF-04 (tiempo máximo de procesamiento) sigue sin medirse contra el pipeline completo en hardware de stage — depende de ADR-005 (aún no resuelto) y de un modelo LLM definitivo para producción (en este equipo, sin GPU, `llama3.2:3b` es el único viable en tiempo razonable; `qwen2.5:14b` excede el timeout de prueba). La verificación E2E real de local-localstack.md sí midió el pipeline completo en esta máquina: ~92 s para 4 hallazgos con `llama3.2:3b`.
 - Los tipos de revisión distintos de "contable" (Word, PDF, PowerPoint, imágenes) no tienen adaptador todavía; siguen el flujo genérico de L2.
