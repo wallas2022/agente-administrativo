@@ -20,4 +20,10 @@ Estado de análisis actualizado en PostgreSQL. Hallazgos estructurados enviados 
 
 RF-04, RF-05, RF-12 (ver [docs/01-requerimientos/04-matriz-trazabilidad.md](../../docs/01-requerimientos/04-matriz-trazabilidad.md)).
 
-Sin lógica de negocio implementada (solo esqueleto/interfaces).
+## Estructura (desde L2)
+
+- `orquestador/tareas.py` — tarea de Celery `analizar_documento`: consume la cola y transiciona `documento`/`analisis` (docs/03-diseno/estados/estados-analisis.md), registra bitácora.
+- `orquestador/__init__.py` — reexporta la app de Celery compartida (`comun/cola.py`), usada también por `worker` (mismo proceso Celery) y por `src/api` como productora.
+- `orquestador/__main__.py` — proceso del servicio "orquestador" propiamente dicho: hoy es un esqueleto en espera (la orquestación real corre en `worker`); ver nota de arquitectura en el propio archivo sobre la redundancia detectada en L2.
+
+Sin validadores de negocio todavía (contable, control, ortografía, OCR, RAG — Sprint 1). Ver docs/04-pruebas/resultados/local-L2.md.

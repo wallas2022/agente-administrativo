@@ -22,4 +22,11 @@ Capa HTTP (FastAPI) que expone los endpoints del sistema: carga de documentos, c
 
 RF-01, RF-03, RF-04, RF-05, RF-12, RF-13, RF-18, RF-19 (ver [docs/01-requerimientos/04-matriz-trazabilidad.md](../../docs/01-requerimientos/04-matriz-trazabilidad.md)).
 
-Sin lógica de negocio implementada (solo esqueleto/interfaces).
+## Estructura (desde L2)
+
+- `main.py` — endpoints reales (auth, carga por partes, análisis).
+- `esquemas.py` — modelos Pydantic de request/response.
+- `alembic.ini`, `migraciones/` — migraciones del modelo de datos (`comun/modelos.py`).
+- Usa el paquete compartido `comun/` (ver `src/comun/`) para BD, seguridad, cola y almacenamiento.
+
+Sin validadores de negocio todavía (contable, control, ortografía, OCR, RAG — Sprint 1). Ver docs/04-pruebas/resultados/local-L2.md para el estado de pruebas y cobertura.

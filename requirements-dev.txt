@@ -1,0 +1,11 @@
+# Dependencias de desarrollo y pruebas (no se instalan en las imágenes de producción).
+-r src/api/requirements.txt
+-r src/orquestador/requirements.txt
+alembic==1.14.0
+pytest==8.3.4
+pytest-cov==6.0.0
+httpx==0.28.1
+moto[s3]==5.0.21
+fakeredis==2.26.1
+ruff==0.8.4
+mypy==1.13.0

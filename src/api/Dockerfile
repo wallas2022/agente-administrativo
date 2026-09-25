@@ -1,13 +1,18 @@
-# Dockerfile mínimo — sin lógica de negocio. Ver README.md de este módulo.
+# Build context: src/ (no src/api/) para poder copiar el paquete compartido "comun".
+# Ver infra/compose.yml (build.context: ../src, build.dockerfile: api/Dockerfile).
 FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+COPY comun/requirements.txt ./comun/requirements.txt
+COPY api/requirements.txt ./api/requirements.txt
+RUN pip install --no-cache-dir -r api/requirements.txt
 
-COPY . .
+COPY comun ./comun
+COPY api ./api
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# python -m (no el script "uvicorn" suelto) para que /app quede en sys.path
+# y "import comun" / "import api" resuelvan como paquetes hermanos.
+CMD ["python", "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

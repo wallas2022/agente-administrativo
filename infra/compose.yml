@@ -39,7 +39,8 @@ services:
 
   api:
     build:
-      context: ../src/api
+      context: ../src
+      dockerfile: api/Dockerfile
     image: agente-admin/api:0.1.0   # validar
     networks:
       - red_interna
@@ -57,7 +58,8 @@ services:
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      # python:3.12-slim no trae curl; se usa urllib de la librería estándar.
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -65,7 +67,8 @@ services:
 
   orquestador:
     build:
-      context: ../src/orquestador
+      context: ../src
+      dockerfile: orquestador/Dockerfile
     image: agente-admin/orquestador:0.1.0   # validar
     networks:
       - red_interna
@@ -87,7 +90,8 @@ services:
 
   worker:
     build:
-      context: ../src/orquestador
+      context: ../src
+      dockerfile: orquestador/Dockerfile
     image: agente-admin/orquestador:0.1.0   # validar — reutiliza la imagen del orquestador
     command: celery -A orquestador worker --loglevel=info   # [POR CONFIRMAR] módulo celery real
     networks:

@@ -1,17 +1,9 @@
-# Esqueleto del orquestador. Sin lógica de negocio: solo la app de Celery expuesta
-# para infra/compose.yml (servicios "orquestador" y "worker"), configurada contra
-# el Redis del propio stack (RF-01, RF-09, RF-12 — ver README.md de este módulo).
-import os
+# Orquestador: consume la cola y ejecuta el flujo de análisis (sin lógica de
+# negocio real todavía — la aplican los validadores en Sprint 1). Reexporta la
+# app de Celery compartida con "comun.cola" (usada también por la api como
+# productora) para que ambos hablen el mismo broker y el mismo nombre de tarea.
+from comun.cola import app
 
-from celery import Celery
+from . import tareas  # noqa: F401  (registra las tareas en `app`)
 
-
-def _redis_url(db: int = 0) -> str:
-    host = os.environ.get("REDIS_HOST", "redis")
-    port = os.environ.get("REDIS_PORT", "6379")
-    password = os.environ.get("REDIS_PASSWORD", "")
-    auth = f":{password}@" if password else ""
-    return f"redis://{auth}{host}:{port}/{db}"
-
-
-app = Celery("orquestador", broker=_redis_url(), backend=_redis_url())
+__all__ = ["app"]
