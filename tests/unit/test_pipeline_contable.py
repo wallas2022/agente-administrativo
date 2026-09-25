@@ -26,7 +26,9 @@ from comun.modelos import (
     Usuario,
     VersionDocumento,
 )
+from orquestador.pipeline_contable import COLECCION_RAG
 from orquestador.tareas import ejecutar_analisis
+from rag.ingesta import ingerir_fragmentos
 
 BUCKET = "documentos"
 
@@ -149,12 +151,16 @@ def test_ejecutar_analisis_contable_persiste_hallazgos_y_marca_con_hallazgos() -
         assert analisis.estado == EstadoAnalisis.COMPLETADO.value
         assert analisis.modelo_llm == "modelo-de-prueba"
         assert analisis.version_prompt == "redaccion-contable.v1"
+        assert float(analisis.total_debe) == 100.0
+        assert float(analisis.total_haber) == 100.0
+        assert analisis.moneda == "Q"
 
         hallazgos = sesion.query(Hallazgo).filter_by(analisis_id=analisis_id).all()
         assert len(hallazgos) == 1
         assert hallazgos[0].ubicacion == "Partidas!A3"
         assert hallazgos[0].severidad == "alta"
         assert "prueba" in hallazgos[0].correccion_sugerida
+        assert hallazgos[0].fuente_citada is None  # sin fragmentos ingeridos en este Qdrant
 
         versiones = (
             sesion.query(VersionDocumento)
@@ -197,6 +203,12 @@ def test_ejecutar_analisis_contable_sin_hallazgos_marca_en_revision() -> None:
 
         versiones = sesion.query(VersionDocumento).filter_by(documento_id=documento_id).all()
         assert len(versiones) == 1  # no se sube versión corregida si no hay hallazgos
+
+        # Los totales se calculan siempre, haya o no hallazgos (Pantalla 3, U4).
+        analisis = sesion.get(Analisis, analisis_id)
+        assert float(analisis.total_debe) == 100.0
+        assert float(analisis.total_haber) == 100.0
+        assert analisis.moneda == "Q"
 
 
 def test_rn03_usa_periodo_cierre_del_analisis_no_la_fecha_en_que_corre() -> None:
@@ -250,6 +262,44 @@ def test_rn03_usa_periodo_cierre_del_analisis_no_la_fecha_en_que_corre() -> None
         hallazgos = sesion2.query(Hallazgo).filter_by(analisis_id=analisis_id2).all()
         assert {h.ubicacion for h in hallazgos} == {"Partidas!A2", "Partidas!A3"}
         assert all("período" in h.descripcion for h in hallazgos)
+
+
+def test_hallazgo_guarda_la_fuente_citada_por_rag() -> None:
+    """Pantalla 3 (U4): cada hallazgo debe mostrar la fuente citada (RF-12,
+    PP-07) — se persiste en Hallazgo.fuente_citada, no solo queda en el
+    texto libre de correccion_sugerida."""
+    contenido = _libro_con_cuenta_inexistente()
+    sesion, documento_id, analisis_id, llave = _sesion_con_documento_analisis_y_version(contenido)
+
+    cliente_qdrant = QdrantClient(":memory:")
+    ingerir_fragmentos(
+        cliente_qdrant,
+        coleccion=COLECCION_RAG,
+        fuente_id="politica-cierre-contable",
+        fragmentos=[("sec-2-cuentas", "Toda cuenta usada debe existir en el catálogo vigente.")],
+        funcion_embedding=_embedding_falso,
+        dimension=4,
+    )
+
+    with mock_aws():
+        cliente_s3 = boto3.client("s3", region_name="us-east-1")
+        cliente_s3.create_bucket(Bucket=BUCKET)
+        cliente_s3.put_object(Bucket=BUCKET, Key=llave, Body=contenido)
+
+        ejecutar_analisis(
+            sesion,
+            documento_id,
+            analisis_id,
+            cliente_s3=cliente_s3,
+            bucket=BUCKET,
+            cliente_qdrant=cliente_qdrant,
+            funcion_embedding=_embedding_falso,
+            funcion_llm=_llm_falso,
+            modelo_llm="modelo-de-prueba",
+        )
+
+        hallazgo = sesion.query(Hallazgo).filter_by(analisis_id=analisis_id).one()
+        assert hallazgo.fuente_citada == "politica-cierre-contable"
 
 
 def test_ejecutar_analisis_sin_dependencias_de_infraestructura_usa_flujo_generico() -> None:

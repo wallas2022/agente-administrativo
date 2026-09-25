@@ -4,7 +4,8 @@ conocimiento vigentes del área, y listar análisis recientes.
 """
 
 import os
-from datetime import date
+import uuid
+from datetime import UTC, date, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,7 +13,7 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("API_SECRET_KEY", "clave-de-prueba")
 
 from api import main  # noqa: E402
-from comun.modelos import Area, FuenteConocimiento, Usuario  # noqa: E402
+from comun.modelos import Area, FuenteConocimiento, Usuario, VersionDocumento  # noqa: E402
 
 
 @pytest.fixture()
@@ -178,9 +179,6 @@ def test_listar_analisis_recientes_del_area(cliente: TestClient, sesion_bd) -> N
 
 
 def test_bitacora_del_analisis_ordenada_por_fecha(cliente: TestClient, sesion_bd) -> None:
-    import uuid
-    from datetime import UTC, datetime
-
     from comun.modelos import Bitacora
 
     token = _token(cliente, "analista@local")
@@ -239,3 +237,119 @@ def test_bitacora_del_analisis_ordenada_por_fecha(cliente: TestClient, sesion_bd
     assert respuesta.status_code == 200
     entradas = respuesta.json()
     assert [e["accion"] for e in entradas] == ["analisis_iniciado", "analisis_completado"]
+
+
+def _crear_analisis_via_api(cliente: TestClient, token_analista: str) -> tuple[str, str]:
+    encabezados = {"Authorization": f"Bearer {token_analista}"}
+    respuesta = cliente.post(
+        "/documentos/iniciar",
+        headers=encabezados,
+        json={"nombre_original": "cierre.xlsx", "tipo_archivo": "xlsx", "tamano_bytes": 100},
+    )
+    inicio = respuesta.json()
+    documento_id, upload_id, llave = (
+        inicio["documento_id"],
+        inicio["upload_id"],
+        inicio["llave_almacenamiento"],
+    )
+    respuesta = cliente.put(
+        f"/documentos/{documento_id}/partes/1?upload_id={upload_id}&llave_almacenamiento={llave}",
+        headers=encabezados,
+        content=b"x",
+    )
+    etag = respuesta.json()["etag"]
+    respuesta = cliente.post(
+        f"/documentos/{documento_id}/completar?upload_id={upload_id}&llave_almacenamiento={llave}",
+        headers=encabezados,
+        json={
+            "partes": [{"numero_parte": 1, "etag": etag}],
+            "tipo_revision": "contable",
+            "periodo_cierre": "2026-01",
+        },
+    )
+    assert respuesta.status_code == 200, respuesta.text
+    return documento_id, respuesta.json()["analisis_id"]
+
+
+def test_puede_decidir_segun_rol_y_segregacion_de_funciones(cliente: TestClient) -> None:
+    token_analista = _token(cliente, "analista@local")
+    _documento_id, analisis_id = _crear_analisis_via_api(cliente, token_analista)
+
+    # Quien cargó el documento (analista) nunca puede decidir, aunque haya
+    # otro analista sin ese conflicto tampoco (no tiene el rol requerido).
+    respuesta = cliente.get(
+        f"/analisis/{analisis_id}", headers={"Authorization": f"Bearer {token_analista}"}
+    )
+    assert respuesta.json()["puede_decidir"] is False
+
+    token_revisor = _token(cliente, "revisor@local")
+    respuesta = cliente.get(
+        f"/analisis/{analisis_id}", headers={"Authorization": f"Bearer {token_revisor}"}
+    )
+    assert respuesta.json()["puede_decidir"] is True
+
+
+def test_tiene_version_corregida_solo_si_existe_una_version_marcada(
+    cliente: TestClient, sesion_bd
+) -> None:
+    token_analista = _token(cliente, "analista@local")
+    documento_id, analisis_id = _crear_analisis_via_api(cliente, token_analista)
+
+    respuesta = cliente.get(
+        f"/analisis/{analisis_id}", headers={"Authorization": f"Bearer {token_analista}"}
+    )
+    assert respuesta.json()["tiene_version_corregida"] is False
+
+    sesion_bd.add(
+        VersionDocumento(
+            documento_id=uuid.UUID(documento_id),
+            numero_version=2,
+            ruta_almacenamiento="area/doc/cierre.marcado.xlsx",
+            es_corregida=True,
+            fecha_creacion=datetime.now(UTC),
+        )
+    )
+    sesion_bd.commit()
+
+    respuesta = cliente.get(
+        f"/analisis/{analisis_id}", headers={"Authorization": f"Bearer {token_analista}"}
+    )
+    assert respuesta.json()["tiene_version_corregida"] is True
+
+
+def test_descargar_version_corregida(cliente: TestClient, sesion_bd, cliente_s3_bucket) -> None:
+    token_analista = _token(cliente, "analista@local")
+    documento_id, _analisis_id = _crear_analisis_via_api(cliente, token_analista)
+
+    llave_corregida = "area/doc/cierre.marcado.xlsx"
+    contenido_marcado = b"contenido de un excel marcado, de prueba"
+    cliente_s3_bucket.put_object(Bucket="documentos", Key=llave_corregida, Body=contenido_marcado)
+    sesion_bd.add(
+        VersionDocumento(
+            documento_id=uuid.UUID(documento_id),
+            numero_version=2,
+            ruta_almacenamiento=llave_corregida,
+            es_corregida=True,
+            fecha_creacion=datetime.now(UTC),
+        )
+    )
+    sesion_bd.commit()
+
+    respuesta = cliente.get(
+        f"/documentos/{documento_id}/version-corregida",
+        headers={"Authorization": f"Bearer {token_analista}"},
+    )
+    assert respuesta.status_code == 200
+    assert respuesta.content == contenido_marcado
+    assert "cierre.marcado.xlsx" in respuesta.headers["content-disposition"]
+
+
+def test_descargar_version_corregida_404_si_no_existe(cliente: TestClient) -> None:
+    token_analista = _token(cliente, "analista@local")
+    documento_id, _analisis_id = _crear_analisis_via_api(cliente, token_analista)
+
+    respuesta = cliente.get(
+        f"/documentos/{documento_id}/version-corregida",
+        headers={"Authorization": f"Bearer {token_analista}"},
+    )
+    assert respuesta.status_code == 404

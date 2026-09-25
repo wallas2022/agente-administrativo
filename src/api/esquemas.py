@@ -56,6 +56,14 @@ class RespuestaAnalisis(BaseModel):
     fecha_inicio: datetime
     fecha_fin: datetime | None = None
     periodo_cierre: str | None = None
+    total_debe: float | None = None
+    total_haber: float | None = None
+    moneda: str | None = None
+    # Calculado en el servidor (rol + PP-09: quien cargó el documento no
+    # decide sobre sus propios hallazgos) para que la UI no duplique esa
+    # lógica de negocio — ver decidir_hallazgo en api/main.py.
+    puede_decidir: bool = False
+    tiene_version_corregida: bool = False
 
 
 class HallazgoEsquema(BaseModel):
@@ -68,6 +76,7 @@ class HallazgoEsquema(BaseModel):
     monto: float | None = None
     moneda: str | None = None
     estado: str
+    fuente_citada: str | None = None
 
 
 class SolicitudDecision(BaseModel):

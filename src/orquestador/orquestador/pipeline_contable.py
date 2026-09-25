@@ -101,6 +101,13 @@ def procesar_documento_contable(
         libro, catalogo=catalogo or cargar_catalogo(), periodo=periodo
     )
 
+    # Totales reales del libro (Pantalla 3, U4) — se calculan siempre, haya o
+    # no hallazgos, igual que el resto de RNF-03: suma simple, nunca el LLM.
+    analisis.total_debe = sum(p.debe for p in libro.partidas)
+    analisis.total_haber = sum(p.haber for p in libro.partidas)
+    monedas_usadas = sorted({p.moneda for p in libro.partidas if p.moneda})
+    analisis.moneda = "/".join(monedas_usadas) if monedas_usadas else None
+
     filas: list[Hallazgo] = []
     for hallazgo in detectados:
         fragmentos = buscar_fragmentos(
@@ -122,6 +129,7 @@ def procesar_documento_contable(
             monto=hallazgo.monto,
             moneda=hallazgo.moneda,
             estado="pendiente",
+            fuente_citada=explicacion.fuente_citada,
         )
         sesion.add(fila)
         filas.append(fila)

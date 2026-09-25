@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWTError
@@ -320,10 +320,26 @@ def _analisis_y_documento_accesibles(
     return analisis, documento
 
 
+def _puede_decidir(usuario: Usuario, documento: Documento | None) -> bool:
+    """Mismo criterio que decidir_hallazgo: rol Revisor/Administrador y no
+    ser quien cargó el documento (RN-07, PP-09)."""
+    if _nombre_rol(usuario) not in (RolUsuario.REVISOR.value, RolUsuario.ADMINISTRADOR.value):
+        return False
+    if documento is not None and documento.usuario_carga_id == usuario.id:
+        return False
+    return True
+
+
 def _a_respuesta_analisis(
-    sesion: Session, analisis: Analisis, documento: Documento | None
+    sesion: Session, analisis: Analisis, documento: Documento | None, usuario: Usuario
 ) -> RespuestaAnalisis:
     tipo_revision = sesion.get(TipoRevision, analisis.tipo_revision_id)
+    tiene_version_corregida = (
+        sesion.query(VersionDocumento)
+        .filter_by(documento_id=analisis.documento_id, es_corregida=True)
+        .first()
+        is not None
+    )
     return RespuestaAnalisis(
         id=str(analisis.id),
         documento_id=str(analisis.documento_id),
@@ -333,6 +349,11 @@ def _a_respuesta_analisis(
         fecha_inicio=analisis.fecha_inicio,
         fecha_fin=analisis.fecha_fin,
         periodo_cierre=analisis.periodo_cierre,
+        total_debe=float(analisis.total_debe) if analisis.total_debe is not None else None,
+        total_haber=float(analisis.total_haber) if analisis.total_haber is not None else None,
+        moneda=analisis.moneda,
+        puede_decidir=_puede_decidir(usuario, documento),
+        tiene_version_corregida=tiene_version_corregida,
     )
 
 
@@ -349,7 +370,9 @@ def listar_analisis(
         consulta = consulta.filter(Documento.area_id == usuario.area_id)
     analisis_lista = consulta.order_by(Analisis.fecha_inicio.desc()).limit(limite).all()
     return [
-        _a_respuesta_analisis(sesion, analisis, sesion.get(Documento, analisis.documento_id))
+        _a_respuesta_analisis(
+            sesion, analisis, sesion.get(Documento, analisis.documento_id), usuario
+        )
         for analisis in analisis_lista
     ]
 
@@ -363,7 +386,7 @@ def consultar_analisis(
     analisis, documento = _analisis_y_documento_accesibles(
         sesion, usuario, analisis_id, mensaje_403="No puede consultar análisis de otra área"
     )
-    return _a_respuesta_analisis(sesion, analisis, documento)
+    return _a_respuesta_analisis(sesion, analisis, documento, usuario)
 
 
 @app.get("/analisis/{analisis_id}/hallazgos", response_model=list[HallazgoEsquema])
@@ -387,6 +410,7 @@ def listar_hallazgos(
             monto=float(h.monto) if h.monto is not None else None,
             moneda=h.moneda,
             estado=h.estado,
+            fuente_citada=h.fuente_citada,
         )
         for h in hallazgos
     ]
@@ -496,3 +520,48 @@ def listar_fuentes_conocimiento(
         )
         for f in fuentes
     ]
+
+
+@app.get("/documentos/{documento_id}/version-corregida")
+def descargar_version_corregida(
+    documento_id: str,
+    usuario: Annotated[Usuario, Depends(usuario_actual)],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+    cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
+) -> Response:
+    """Pantalla 3 (U4): descarga del Excel con las celdas marcadas
+    (validadores.contable.salida). La API hace de intermediaria en vez de dar
+    un enlace directo a LocalStack/MinIO porque ese endpoint interno
+    (`localstack:4566`) no es alcanzable desde el navegador."""
+    documento = sesion.get(Documento, uuid.UUID(documento_id))
+    if documento is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento no encontrado")
+    if _nombre_rol(usuario) not in (RolUsuario.ADMINISTRADOR.value, RolUsuario.AUDITOR.value):
+        if documento.area_id != usuario.area_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No puede descargar documentos de otra área",
+            )
+
+    version = (
+        sesion.query(VersionDocumento)
+        .filter_by(documento_id=documento.id, es_corregida=True)
+        .order_by(VersionDocumento.numero_version.desc())
+        .first()
+    )
+    if version is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Este documento no tiene una versión corregida todavía",
+        )
+
+    contenido = almacenamiento.descargar_objeto(
+        cliente_s3, BUCKET_DOCUMENTOS, version.ruta_almacenamiento
+    )
+    base, _, extension = documento.nombre_original.rpartition(".")
+    nombre_descarga = f"{base or documento.nombre_original}.marcado.{extension or 'xlsx'}"
+    return Response(
+        content=contenido,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nombre_descarga}"'},
+    )

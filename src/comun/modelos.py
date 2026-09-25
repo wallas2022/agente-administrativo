@@ -109,6 +109,13 @@ class Analisis(Base):
     # Período contable que se está cerrando/revisando ("AAAA-MM"), distinto de
     # fecha_inicio (momento en que se ejecuta el análisis) — usado por RN-03.
     periodo_cierre: Mapped[str | None] = mapped_column(String(7))
+    # Totales reales del libro (suma de Debe/Haber de todas las partidas),
+    # calculados por validadores.contable.reglas — nunca por el LLM (RNF-03).
+    # No es un solo código ISO 4217: puede ser la combinación de monedas
+    # mezcladas en el documento (RN-05), igual que Hallazgo.moneda.
+    total_debe: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    total_haber: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    moneda: Mapped[str | None] = mapped_column(String(10))
 
     hallazgos: Mapped[list["Hallazgo"]] = relationship(back_populates="analisis")
 
@@ -132,6 +139,11 @@ class Hallazgo(Base):
     # monedas mezcladas en la partida, p. ej. "Q/USD".
     moneda: Mapped[str | None] = mapped_column(String(10))
     estado: Mapped[str] = mapped_column(String(20), default="pendiente")
+    # Identificador de la fuente citada por el LLM (ResultadoBusqueda.fuente_id
+    # / ExplicacionGenerada.fuente_citada, p. ej. "politica-cierre-contable")
+    # — RF-12/PP-07. No es una FK real: el RAG hoy vive en Qdrant, no hay
+    # garantía de que exista una fila FuenteConocimiento con ese mismo id.
+    fuente_citada: Mapped[str | None] = mapped_column(String(300))
 
     analisis: Mapped["Analisis"] = relationship(back_populates="hallazgos")
     decisiones: Mapped[list["Decision"]] = relationship(back_populates="hallazgo")
