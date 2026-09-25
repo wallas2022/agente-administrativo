@@ -4,6 +4,7 @@ por `ejecutar_analisis` cuando `tipo_revision == "contable"`.
 """
 
 import io
+import json
 import uuid
 from datetime import UTC, date, datetime, timedelta
 
@@ -40,6 +41,20 @@ def _libro_con_cuenta_inexistente() -> bytes:
     ws.append(["Cuenta", "Descripcion", "Fecha", "Debe", "Haber", "Moneda"])
     ws.append(["1010", "Cobro a cliente", date(2026, 1, 5), 100.0, 0.0, "Q"])
     ws.append(["9999", "Cuenta que no existe", date(2026, 1, 5), 0.0, 100.0, "Q"])
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+def _libro_con_descuadre_y_cuenta_inexistente() -> bytes:
+    """RN-02 (fila 3, plantilla) + RN-01 (fila 4, la última partida — LLM)."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Partidas"
+    ws.append(["Cuenta", "Descripcion", "Fecha", "Debe", "Haber", "Moneda"])
+    ws.append(["1010", "Cobro a cliente", date(2026, 1, 5), 100.0, 0.0, "Q"])
+    ws.append(["9999", "Cuenta que no existe", date(2026, 1, 5), 0.0, 30.0, "Q"])
+    ws.append(["4010", "Ingreso por servicio", date(2026, 1, 5), 0.0, 40.0, "Q"])
     buffer = io.BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
@@ -149,8 +164,9 @@ def test_ejecutar_analisis_contable_persiste_hallazgos_y_marca_con_hallazgos() -
         analisis = sesion.get(Analisis, analisis_id)
         assert documento.estado == EstadoDocumento.CON_HALLAZGOS.value
         assert analisis.estado == EstadoAnalisis.COMPLETADO.value
-        assert analisis.modelo_llm == "modelo-de-prueba"
-        assert analisis.version_prompt == "redaccion-contable.v1"
+        # RN-02 se explica por plantilla (sin LLM) — no debió llamarse a _llm_falso.
+        assert analisis.modelo_llm is None
+        assert analisis.version_prompt is None
         assert float(analisis.total_debe) == 100.0
         assert float(analisis.total_haber) == 100.0
         assert analisis.moneda == "Q"
@@ -159,7 +175,7 @@ def test_ejecutar_analisis_contable_persiste_hallazgos_y_marca_con_hallazgos() -
         assert len(hallazgos) == 1
         assert hallazgos[0].ubicacion == "Partidas!A3"
         assert hallazgos[0].severidad == "alta"
-        assert "prueba" in hallazgos[0].correccion_sugerida
+        assert "catálogo de cuentas" in hallazgos[0].correccion_sugerida
         assert hallazgos[0].fuente_citada is None  # sin fragmentos ingeridos en este Qdrant
 
         versiones = (
@@ -300,6 +316,57 @@ def test_hallazgo_guarda_la_fuente_citada_por_rag() -> None:
 
         hallazgo = sesion.query(Hallazgo).filter_by(analisis_id=analisis_id).one()
         assert hallazgo.fuente_citada == "politica-cierre-contable"
+
+
+def test_pipeline_agrupa_llm_en_una_sola_llamada_y_persiste_deterministas_primero() -> None:
+    """RNF-04 (ver docs/04-pruebas/resultados/local-S1.md): con documentos de
+    varias decenas de hallazgos, una llamada al LLM por hallazgo tardaba
+    20-40 min. Esta prueba fija ese comportamiento: RN-01 y RN-05 se agrupan
+    en una sola llamada, y los hallazgos por plantilla (RN-02 acá) quedan
+    persistidos y consultables ANTES de que esa llamada termine."""
+    contenido = _libro_con_descuadre_y_cuenta_inexistente()
+    sesion, documento_id, analisis_id, llave = _sesion_con_documento_analisis_y_version(contenido)
+
+    llamadas_llm: list[str] = []
+    ubicaciones_visibles_durante_la_llamada_llm: list[str] = []
+
+    def llm_falso_que_verifica_orden(prompt: str) -> str:
+        llamadas_llm.append(prompt)
+        # El hallazgo determinista (RN-02) debe estar ya persistido y
+        # consultable en este punto -- antes de que la llamada al LLM
+        # siquiera termine de "resolver".
+        existentes = sesion.query(Hallazgo).filter_by(analisis_id=analisis_id).all()
+        ubicaciones_visibles_durante_la_llamada_llm.extend(h.ubicacion for h in existentes)
+        return json.dumps(
+            [{"indice": 0, "causa_probable": "causa llm", "correccion_sugerida": "correccion llm"}]
+        )
+
+    with mock_aws():
+        cliente_s3 = boto3.client("s3", region_name="us-east-1")
+        cliente_s3.create_bucket(Bucket=BUCKET)
+        cliente_s3.put_object(Bucket=BUCKET, Key=llave, Body=contenido)
+
+        ejecutar_analisis(
+            sesion,
+            documento_id,
+            analisis_id,
+            cliente_s3=cliente_s3,
+            bucket=BUCKET,
+            cliente_qdrant=QdrantClient(":memory:"),
+            funcion_embedding=_embedding_falso,
+            funcion_llm=llm_falso_que_verifica_orden,
+            modelo_llm="gpt-oss:20b",
+        )
+
+        assert len(llamadas_llm) == 1  # una sola llamada, sin importar cuántos la necesiten
+        assert ubicaciones_visibles_durante_la_llamada_llm == ["Partidas!A3"]  # RN-02 ya estaba
+
+        hallazgos = sesion.query(Hallazgo).filter_by(analisis_id=analisis_id).all()
+        assert len(hallazgos) == 2
+        por_ubicacion = {h.ubicacion: h for h in hallazgos}
+        assert "catálogo de cuentas" in por_ubicacion["Partidas!A3"].correccion_sugerida
+        assert "causa llm" in por_ubicacion["Partidas!A4"].correccion_sugerida
+        assert "correccion llm" in por_ubicacion["Partidas!A4"].correccion_sugerida
 
 
 def test_ejecutar_analisis_sin_dependencias_de_infraestructura_usa_flujo_generico() -> None:
