@@ -48,7 +48,7 @@ Verificado además en la explicación real generada por el LLM (ver más abajo):
 
 ## PP-07 — Citas correctas de la fuente
 
-`tests/unit/test_explicacion_contable.py` verifica que `generar_explicacion` propaga `fuente_citada` desde el primer fragmento recuperado por RAG. Verificado además con RAG real (ver más abajo): la búsqueda para un hallazgo RN-05 (mezcla de moneda) recuperó la sección 5 de `kb/fuentes/politica-cierre-contable.md` (score 0.67 con embeddings reales de `bge-m3`), y el LLM citó esa fuente en su explicación.
+`tests/unit/test_explicacion_contable.py` verifica que `generar_explicacion` propaga `fuente_citada` desde el primer fragmento recuperado por RAG. Verificado además con RAG real (ver más abajo): la búsqueda para un hallazgo RN-05 (mezcla de moneda) recuperó la sección 5 de `kb/fuentes/politica-cierre-contable.md` (score 0.7555 con embeddings reales de `bge-m3`), y el LLM citó esa fuente en su explicación.
 
 ## PP-09 — Segregación de funciones
 
@@ -73,7 +73,7 @@ Con el stack local levantado (Qdrant y Postgres reales del `compose.local.yml`, 
 
 | Verificación | Resultado |
 | --- | --- |
-| Ingesta RAG real (`bge-m3` vía Ollama nativo → Qdrant real) | Ingestados los fragmentos de `kb/fuentes/politica-cierre-contable.md`; búsqueda para "mezcla de moneda sin tipo de cambio" recuperó la sección 5 con score 0.67 |
+| Ingesta RAG real (`bge-m3` vía Ollama nativo → Qdrant real), 6 fragmentos de `kb/fuentes/politica-cierre-contable.md` | 10.28 s de ingesta; 3 consultas de prueba, cada una recuperó como primer resultado la sección de la política que la responde: "mezcla quetzales/dólares sin tipo de cambio" → sección 5 (RN-05, score 0.7555); "el total no coincide entre debe y haber" → sección 1 (RN-01, score 0.6031); "fecha del mes pasado" → sección 3 (RN-03, score 0.6208). Búsquedas: 158-657 ms |
 | Redacción LLM real de un hallazgo RN-05 (`llama3.2:3b`, tras cambiar de `qwen2.5:14b` por timeout) | 92.16 s; texto en español, causa probable y corrección sugerida correctas, cita `politica-cierre-contable` sección 5, sin cifras inventadas |
 | Endpoint `/api/embed` de Ollama 0.34.4 | `/api/embeddings` (deprecado) devuelve 404; `/api/embed` con `input` (no `prompt`) funciona, respuesta en `embeddings[0]` |
 
