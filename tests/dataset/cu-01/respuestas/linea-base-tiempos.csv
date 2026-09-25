@@ -1,0 +1,11 @@
+documento,tipo,minutos_revision_manual
+cu01-01-limpio.xlsx,simple,10
+cu01-02-descuadre.xlsx,simple,15
+cu01-03-cuenta-inexistente.xlsx,simple,15
+cu01-04-formula-reemplazada.xlsx,simple,15
+cu01-05-fecha-fuera-periodo.xlsx,simple,15
+cu01-06-duplicado.xlsx,simple,15
+cu01-07-mezcla-moneda.xlsx,simple,20
+cu01-08-multiples-errores.xlsx,complejo,30
+cu01-09-limpio-grande.xlsx,complejo,45
+cu01-10-multiples-errores-2.xlsx,complejo,40

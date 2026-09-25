@@ -51,3 +51,27 @@ class RespuestaAnalisis(BaseModel):
     estado: str
     fecha_inicio: datetime
     fecha_fin: datetime | None = None
+
+
+class HallazgoEsquema(BaseModel):
+    id: str
+    regla_codigo: str | None = None
+    severidad: str
+    ubicacion: str
+    descripcion: str
+    correccion_sugerida: str | None = None
+    monto: float | None = None
+    moneda: str | None = None
+    estado: str
+
+
+class SolicitudDecision(BaseModel):
+    resultado: str  # "aceptado" | "rechazado" | "deshecho"
+    comentario: str | None = None
+
+
+class RespuestaDecision(BaseModel):
+    id: str
+    hallazgo_id: str
+    resultado: str
+    fecha: datetime

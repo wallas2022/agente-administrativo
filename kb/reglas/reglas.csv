@@ -1,1 +1,10 @@
 id_regla,descripcion,area,tipo_documento,severidad,fuente_id,vigente_desde,version,estado,moneda
+RN-01,Cuadre debe/haber: el total de debitos debe ser igual al total de creditos por comprobante y por hoja,Contabilidad,xlsx,alta,politica-cierre-contable,2026-01-01,1.0,vigente,
+RN-02,Cuentas vs. catalogo: toda cuenta contable referenciada debe existir en el catalogo de cuentas vigente,Contabilidad,xlsx,alta,politica-cierre-contable,2026-01-01,1.0,vigente,
+RN-03,Validacion de periodo: la fecha de cada partida debe corresponder al periodo contable que se esta revisando,Contabilidad,xlsx,media,politica-cierre-contable,2026-01-01,1.0,vigente,
+RN-04,Duplicados: dos o mas partidas con la misma cuenta monto y fecha dentro del mismo documento se marcan como posible duplicado,Contabilidad,xlsx,media,politica-cierre-contable,2026-01-01,1.0,vigente,
+RN-05,Mezcla de moneda sin tipo de cambio: mezcla de Q y USD sin tipo de cambio explicito registrado; el sistema no infiere el tipo de cambio,Contabilidad,xlsx,alta,politica-cierre-contable,2026-01-01,1.0,vigente,ambas
+RN-06,Ortografia con glosario: los terminos del glosario del area se excluyen de los hallazgos ortograficos,Contabilidad,"texto,xlsx,docx,pptx,pdf",,,2026-01-01,1.0,vigente,
+RN-07,Segregacion de funciones: el usuario que cargo un documento no puede aprobar ni rechazar sus propios hallazgos,Contabilidad,,bloqueante,,2026-01-01,1.0,vigente,
+RN-08,Retencion: documentos originales corregidos y resultados se conservan 90 dias desde su carga y luego se eliminan automaticamente y de forma auditada,Contabilidad,,,,2026-01-01,1.0,vigente,
+RN-09,Tamano maximo de archivo: ningun documento cargado puede exceder 1 GB (1024 MB); la carga es por partes y reanudable,Contabilidad,,bloqueante,,2026-01-01,1.0,vigente,

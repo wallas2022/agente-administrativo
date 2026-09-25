@@ -95,3 +95,12 @@ def completar_carga_multiparte(
 
 def abortar_carga_multiparte(cliente: BaseClient, bucket: str, llave: str, upload_id: str) -> None:
     cliente.abort_multipart_upload(Bucket=bucket, Key=llave, UploadId=upload_id)
+
+
+def descargar_objeto(cliente: BaseClient, bucket: str, llave: str) -> bytes:
+    respuesta = cliente.get_object(Bucket=bucket, Key=llave)
+    return respuesta["Body"].read()
+
+
+def subir_objeto(cliente: BaseClient, bucket: str, llave: str, contenido: bytes) -> None:
+    cliente.put_object(Bucket=bucket, Key=llave, Body=contenido)

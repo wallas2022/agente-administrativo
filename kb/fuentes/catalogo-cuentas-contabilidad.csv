@@ -1,0 +1,21 @@
+codigo,nombre,tipo,naturaleza
+1010,Caja,activo,deudora
+1020,Bancos,activo,deudora
+1030,Cuentas por cobrar clientes,activo,deudora
+1040,Inventarios,activo,deudora
+1050,IVA por cobrar,activo,deudora
+1210,Mobiliario y equipo,activo,deudora
+1220,Depreciación acumulada,activo,acreedora
+2010,Cuentas por pagar proveedores,pasivo,acreedora
+2020,IVA por pagar,pasivo,acreedora
+2030,Préstamos por pagar,pasivo,acreedora
+2040,Sueldos por pagar,pasivo,acreedora
+3010,Capital social,patrimonio,acreedora
+3020,Utilidades retenidas,patrimonio,acreedora
+4010,Ingresos por servicios,ingreso,acreedora
+4020,Ingresos por ventas,ingreso,acreedora
+5010,Gastos de sueldos,gasto,deudora
+5020,Gastos de arrendamiento,gasto,deudora
+5030,Gastos de suministros,gasto,deudora
+5040,Gastos financieros,gasto,deudora
+5050,Gastos de depreciación,gasto,deudora

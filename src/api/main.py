@@ -19,11 +19,14 @@ from jwt import PyJWTError
 from sqlalchemy.orm import Session
 
 from api.esquemas import (
+    HallazgoEsquema,
     RespuestaAnalisis,
     RespuestaCompletarCarga,
+    RespuestaDecision,
     RespuestaIniciarCarga,
     RespuestaToken,
     SolicitudCompletarCarga,
+    SolicitudDecision,
     SolicitudIniciarCarga,
     SolicitudLogin,
 )
@@ -31,7 +34,16 @@ from comun import almacenamiento
 from comun.cola import encolar_analisis
 from comun.db import obtener_sesion
 from comun.estados import EstadoAnalisis, EstadoDocumento, RolUsuario
-from comun.modelos import Analisis, Documento, TipoRevision, Usuario
+from comun.modelos import (
+    Analisis,
+    Bitacora,
+    Decision,
+    Documento,
+    Hallazgo,
+    TipoRevision,
+    Usuario,
+    VersionDocumento,
+)
 from comun.seguridad import (
     UsuarioLocal,
     autenticar_usuario_local,
@@ -199,6 +211,16 @@ def completar_carga(
         cliente_s3, BUCKET_DOCUMENTOS, llave_almacenamiento, upload_id, partes
     )
 
+    sesion.add(
+        VersionDocumento(
+            documento_id=documento.id,
+            numero_version=1,
+            ruta_almacenamiento=llave_almacenamiento,
+            es_corregida=False,
+            fecha_creacion=datetime.now(UTC),
+        )
+    )
+
     tipo_revision = sesion.query(TipoRevision).filter_by(nombre=datos.tipo_revision).one_or_none()
     if tipo_revision is None:
         tipo_revision = TipoRevision(nombre=datos.tipo_revision)
@@ -248,4 +270,99 @@ def consultar_analisis(
         estado=documento.estado if documento else analisis.estado,
         fecha_inicio=analisis.fecha_inicio,
         fecha_fin=analisis.fecha_fin,
+    )
+
+
+@app.get("/analisis/{analisis_id}/hallazgos", response_model=list[HallazgoEsquema])
+def listar_hallazgos(
+    analisis_id: str,
+    usuario: Annotated[Usuario, Depends(usuario_actual)],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> list[HallazgoEsquema]:
+    analisis = sesion.get(Analisis, uuid.UUID(analisis_id))
+    if analisis is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Análisis no encontrado")
+
+    documento = sesion.get(Documento, analisis.documento_id)
+    if _nombre_rol(usuario) not in (RolUsuario.ADMINISTRADOR.value, RolUsuario.AUDITOR.value):
+        if documento is None or documento.area_id != usuario.area_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No puede consultar hallazgos de otra área",
+            )
+
+    hallazgos = sesion.query(Hallazgo).filter_by(analisis_id=analisis.id).all()
+    return [
+        HallazgoEsquema(
+            id=str(h.id),
+            regla_codigo=None,
+            severidad=h.severidad,
+            ubicacion=h.ubicacion,
+            descripcion=h.descripcion,
+            correccion_sugerida=h.correccion_sugerida,
+            monto=float(h.monto) if h.monto is not None else None,
+            moneda=h.moneda,
+            estado=h.estado,
+        )
+        for h in hallazgos
+    ]
+
+
+@app.post("/hallazgos/{hallazgo_id}/decision", response_model=RespuestaDecision)
+def decidir_hallazgo(
+    hallazgo_id: str,
+    datos: SolicitudDecision,
+    usuario: Annotated[
+        Usuario, Depends(requiere_rol(RolUsuario.REVISOR, RolUsuario.ADMINISTRADOR))
+    ],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> RespuestaDecision:
+    hallazgo = sesion.get(Hallazgo, uuid.UUID(hallazgo_id))
+    if hallazgo is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hallazgo no encontrado")
+
+    analisis = sesion.get(Analisis, hallazgo.analisis_id)
+    documento = sesion.get(Documento, analisis.documento_id) if analisis else None
+
+    # RN-07 / RNF-02: quien cargó el documento no puede decidir sobre sus propios
+    # hallazgos, ni siquiera si tiene rol Administrador.
+    if documento is not None and documento.usuario_carga_id == usuario.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Quien cargó el documento no puede decidir sobre sus propios hallazgos "
+            "(segregación de funciones, RN-07)",
+        )
+
+    if datos.resultado not in ("aceptado", "rechazado", "deshecho"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="resultado debe ser 'aceptado', 'rechazado' o 'deshecho'",
+        )
+
+    decision = Decision(
+        hallazgo_id=hallazgo.id,
+        usuario_id=usuario.id,
+        resultado=datos.resultado,
+        comentario=datos.comentario,
+        fecha=datetime.now(UTC),
+    )
+    hallazgo.estado = datos.resultado
+    sesion.add(decision)
+    sesion.add(
+        Bitacora(
+            usuario_id=usuario.id,
+            accion=f"hallazgo_{datos.resultado}",
+            entidad_tipo="hallazgo",
+            entidad_id=hallazgo.id,
+            fecha_hora=datetime.now(UTC),
+            detalle=datos.comentario,
+        )
+    )
+    sesion.commit()
+
+    return RespuestaDecision(
+        id=str(decision.id),
+        hallazgo_id=str(hallazgo.id),
+        resultado=decision.resultado,
+        fecha=decision.fecha,
     )
