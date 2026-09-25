@@ -65,7 +65,7 @@ class Documento(Base):
     tamano_bytes: Mapped[int] = mapped_column(nullable=False)
     area_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("area.id"), nullable=False)
     usuario_carga_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("usuario.id"), nullable=False)
-    fecha_carga: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    fecha_carga: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     fecha_expiracion: Mapped[date] = mapped_column(Date, nullable=False)
     estado: Mapped[str] = mapped_column(String(20), nullable=False)
 
@@ -80,7 +80,7 @@ class VersionDocumento(Base):
     numero_version: Mapped[int] = mapped_column(nullable=False)
     ruta_almacenamiento: Mapped[str] = mapped_column(String(1000), nullable=False)
     es_corregida: Mapped[bool] = mapped_column(Boolean, default=False)
-    fecha_creacion: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    fecha_creacion: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     documento: Mapped["Documento"] = relationship(back_populates="versiones")
 
@@ -101,8 +101,8 @@ class Analisis(Base):
         ForeignKey("tipo_revision.id"), nullable=False
     )
     usuario_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("usuario.id"), nullable=False)
-    fecha_inicio: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    fecha_fin: Mapped[datetime | None] = mapped_column(DateTime)
+    fecha_inicio: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    fecha_fin: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     modelo_llm: Mapped[str | None] = mapped_column(String(200))
     version_prompt: Mapped[str | None] = mapped_column(String(50))
     estado: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -145,7 +145,7 @@ class Decision(Base):
     usuario_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("usuario.id"), nullable=False)
     resultado: Mapped[str] = mapped_column(String(20), nullable=False)
     comentario: Mapped[str | None] = mapped_column(Text)
-    fecha: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    fecha: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     hallazgo: Mapped["Hallazgo"] = relationship(back_populates="decisiones")
 
@@ -209,5 +209,5 @@ class Bitacora(Base):
     accion: Mapped[str] = mapped_column(String(100), nullable=False)
     entidad_tipo: Mapped[str] = mapped_column(String(50), nullable=False)
     entidad_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
-    fecha_hora: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    fecha_hora: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     detalle: Mapped[str | None] = mapped_column(Text)
