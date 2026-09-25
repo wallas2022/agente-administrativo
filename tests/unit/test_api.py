@@ -120,7 +120,11 @@ def test_flujo_completo_cu01_carga_y_consulta_de_estado(
         f"/documentos/{documento_id}/completar"
         f"?upload_id={upload_id}&llave_almacenamiento={llave}",
         headers=encabezados,
-        json={"partes": [{"numero_parte": 1, "etag": etag}], "tipo_revision": "contable"},
+        json={
+            "partes": [{"numero_parte": 1, "etag": etag}],
+            "tipo_revision": "contable",
+            "periodo_cierre": "2026-01",
+        },
     )
     assert respuesta.status_code == 200
     completado = respuesta.json()
@@ -161,7 +165,11 @@ def test_auditor_puede_consultar_analisis_de_cualquier_area(
     respuesta = cliente.post(
         f"/documentos/{documento_id}/completar?upload_id={upload_id}&llave_almacenamiento={llave}",
         headers={"Authorization": f"Bearer {token_analista}"},
-        json={"partes": [{"numero_parte": 1, "etag": etag}], "tipo_revision": "contable"},
+        json={
+            "partes": [{"numero_parte": 1, "etag": etag}],
+            "tipo_revision": "contable",
+            "periodo_cierre": "2026-01",
+        },
     )
     analisis_id = respuesta.json()["analisis_id"]
 

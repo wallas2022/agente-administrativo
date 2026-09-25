@@ -36,6 +36,9 @@ class ParteSubidaEsquema(BaseModel):
 class SolicitudCompletarCarga(BaseModel):
     partes: list[ParteSubidaEsquema]
     tipo_revision: str
+    # "AAAA-MM": período contable que se está cerrando/revisando (RN-03), no la
+    # fecha en que se ejecuta el análisis.
+    periodo_cierre: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
 
 
 class RespuestaCompletarCarga(BaseModel):
@@ -51,6 +54,7 @@ class RespuestaAnalisis(BaseModel):
     estado: str
     fecha_inicio: datetime
     fecha_fin: datetime | None = None
+    periodo_cierre: str | None = None
 
 
 class HallazgoEsquema(BaseModel):

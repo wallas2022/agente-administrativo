@@ -62,6 +62,21 @@ def cargar_catalogo(ruta: Path | None = None) -> set[str]:
         return {fila["codigo"].strip() for fila in csv.DictReader(archivo)}
 
 
+def _parsear_periodo_cierre(analisis: Analisis) -> tuple[int, int]:
+    """RN-03 compara cada partida contra el período que se está cerrando
+    (`Analisis.periodo_cierre`, "AAAA-MM"), no contra la fecha en que corre el
+    análisis (`fecha_inicio`) — de lo contrario, revisar hoy un documento de
+    un mes anterior dispararía RN-03 en casi todas las partidas.
+    """
+    if not analisis.periodo_cierre:
+        raise ValueError(
+            f"El análisis {analisis.id} no tiene periodo_cierre definido; "
+            "requerido para validar RN-03 (fecha fuera de período)"
+        )
+    anio, mes = analisis.periodo_cierre.split("-")
+    return int(anio), int(mes)
+
+
 def procesar_documento_contable(
     sesion: Session,
     *,
@@ -81,7 +96,7 @@ def procesar_documento_contable(
     persiste un `Hallazgo` por cada detección. Devuelve las filas creadas.
     """
     libro = leer_libro_contable(io.BytesIO(contenido_original))
-    periodo = (analisis.fecha_inicio.year, analisis.fecha_inicio.month)
+    periodo = _parsear_periodo_cierre(analisis)
     detectados = validar_libro_contable(
         libro, catalogo=catalogo or cargar_catalogo(), periodo=periodo
     )

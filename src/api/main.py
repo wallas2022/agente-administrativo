@@ -255,6 +255,7 @@ def completar_carga(
         usuario_id=usuario.id,
         fecha_inicio=datetime.now(UTC),
         estado=EstadoAnalisis.PROCESANDO.value,
+        periodo_cierre=datos.periodo_cierre,
     )
     sesion.add(analisis)
     sesion.commit()
@@ -292,6 +293,7 @@ def consultar_analisis(
         estado=documento.estado if documento else analisis.estado,
         fecha_inicio=analisis.fecha_inicio,
         fecha_fin=analisis.fecha_fin,
+        periodo_cierre=analisis.periodo_cierre,
     )
 
 

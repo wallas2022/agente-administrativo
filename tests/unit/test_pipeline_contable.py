@@ -57,6 +57,8 @@ def _libro_sin_errores() -> bytes:
 
 def _sesion_con_documento_analisis_y_version(
     contenido: bytes,
+    *,
+    periodo_cierre: str = "2026-01",
 ) -> tuple[Session, uuid.UUID, uuid.UUID, str]:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -89,8 +91,9 @@ def _sesion_con_documento_analisis_y_version(
         documento_id=documento.id,
         tipo_revision_id=tipo_revision.id,
         usuario_id=usuario.id,
-        fecha_inicio=datetime(2026, 1, 31, tzinfo=UTC),
+        fecha_inicio=datetime.now(UTC),
         estado=EstadoAnalisis.PROCESANDO.value,
+        periodo_cierre=periodo_cierre,
     )
     sesion.add(analisis)
     sesion.flush()
@@ -194,6 +197,59 @@ def test_ejecutar_analisis_contable_sin_hallazgos_marca_en_revision() -> None:
 
         versiones = sesion.query(VersionDocumento).filter_by(documento_id=documento_id).all()
         assert len(versiones) == 1  # no se sube versión corregida si no hay hallazgos
+
+
+def test_rn03_usa_periodo_cierre_del_analisis_no_la_fecha_en_que_corre() -> None:
+    """El período que se está cerrando lo declara quien sube el documento
+    (`periodo_cierre`), no depende de cuándo corre el worker: un documento de
+    enero revisado hoy (2026-09) no debe disparar RN-03 si periodo_cierre
+    coincide con enero; sí debe dispararlo si se declara un período distinto.
+    """
+    contenido = _libro_sin_errores()  # partidas con fecha 2026-01-05, sin otros errores
+
+    sesion, documento_id, analisis_id, llave = _sesion_con_documento_analisis_y_version(
+        contenido, periodo_cierre="2026-01"
+    )
+    with mock_aws():
+        cliente_s3 = boto3.client("s3", region_name="us-east-1")
+        cliente_s3.create_bucket(Bucket=BUCKET)
+        cliente_s3.put_object(Bucket=BUCKET, Key=llave, Body=contenido)
+
+        ejecutar_analisis(
+            sesion,
+            documento_id,
+            analisis_id,
+            cliente_s3=cliente_s3,
+            bucket=BUCKET,
+            cliente_qdrant=QdrantClient(":memory:"),
+            funcion_embedding=_embedding_falso,
+            funcion_llm=_llm_falso,
+            modelo_llm="modelo-de-prueba",
+        )
+        assert sesion.query(Hallazgo).filter_by(analisis_id=analisis_id).count() == 0
+
+    sesion2, documento_id2, analisis_id2, llave2 = _sesion_con_documento_analisis_y_version(
+        contenido, periodo_cierre="2026-02"
+    )
+    with mock_aws():
+        cliente_s3 = boto3.client("s3", region_name="us-east-1")
+        cliente_s3.create_bucket(Bucket=BUCKET)
+        cliente_s3.put_object(Bucket=BUCKET, Key=llave2, Body=contenido)
+
+        ejecutar_analisis(
+            sesion2,
+            documento_id2,
+            analisis_id2,
+            cliente_s3=cliente_s3,
+            bucket=BUCKET,
+            cliente_qdrant=QdrantClient(":memory:"),
+            funcion_embedding=_embedding_falso,
+            funcion_llm=_llm_falso,
+            modelo_llm="modelo-de-prueba",
+        )
+        hallazgos = sesion2.query(Hallazgo).filter_by(analisis_id=analisis_id2).all()
+        assert {h.ubicacion for h in hallazgos} == {"Partidas!A2", "Partidas!A3"}
+        assert all("período" in h.descripcion for h in hallazgos)
 
 
 def test_ejecutar_analisis_sin_dependencias_de_infraestructura_usa_flujo_generico() -> None:

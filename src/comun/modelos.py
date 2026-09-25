@@ -106,6 +106,9 @@ class Analisis(Base):
     modelo_llm: Mapped[str | None] = mapped_column(String(200))
     version_prompt: Mapped[str | None] = mapped_column(String(50))
     estado: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Período contable que se está cerrando/revisando ("AAAA-MM"), distinto de
+    # fecha_inicio (momento en que se ejecuta el análisis) — usado por RN-03.
+    periodo_cierre: Mapped[str | None] = mapped_column(String(7))
 
     hallazgos: Mapped[list["Hallazgo"]] = relationship(back_populates="analisis")
 
