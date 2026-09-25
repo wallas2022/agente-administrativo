@@ -1,0 +1,36 @@
+.estado-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.estado-badge--cargado,
+.estado-badge--cerrado {
+  background: var(--color-borde);
+  color: var(--color-texto-tenue);
+}
+
+.estado-badge--procesando,
+.estado-badge--en_revision {
+  background: var(--color-bajo-fondo);
+  color: var(--color-bajo-texto);
+}
+
+.estado-badge--con_hallazgos {
+  background: var(--color-medio-fondo);
+  color: var(--color-medio-texto);
+}
+
+.estado-badge--fallido,
+.estado-badge--rechazado {
+  background: var(--color-alto-fondo);
+  color: var(--color-alto-texto);
+}
+
+.estado-badge--aprobado {
+  background: var(--color-acento-texto);
+  color: var(--color-acento);
+}

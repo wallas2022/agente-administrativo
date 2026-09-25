@@ -1,0 +1,109 @@
+.nuevo-analisis {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.nuevo-analisis__principal {
+  flex: 1;
+  min-width: 0;
+  max-width: 560px;
+}
+
+.nuevo-analisis__formulario {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  background: var(--color-superficie);
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio);
+  padding: 20px;
+  margin-top: 16px;
+}
+
+.nuevo-analisis__campo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--color-texto-tenue);
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+.nuevo-analisis__campo legend {
+  font-size: 0.85rem;
+  color: var(--color-texto-tenue);
+  padding: 0;
+  margin-bottom: 4px;
+}
+
+.nuevo-analisis__campo input[type="month"],
+.nuevo-analisis__campo input[type="file"] {
+  padding: 8px 10px;
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio);
+  color: var(--color-texto);
+  background: var(--color-fondo);
+}
+
+.nuevo-analisis__opciones {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nuevo-analisis__opcion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--color-texto);
+}
+
+.nuevo-analisis__opcion--deshabilitada {
+  color: var(--color-texto-tenue);
+}
+
+.nuevo-analisis__progreso {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--color-texto-tenue);
+}
+
+.nuevo-analisis__progreso progress {
+  width: 100%;
+  accent-color: var(--color-acento);
+}
+
+.nuevo-analisis__error {
+  margin: 0;
+  color: var(--color-alto-texto);
+  background: var(--color-alto-fondo);
+  border-radius: var(--radio);
+  padding: 8px 10px;
+  font-size: 0.85rem;
+}
+
+.nuevo-analisis__boton {
+  align-self: flex-start;
+  background: var(--color-acento);
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radio);
+  padding: 10px 18px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.nuevo-analisis__boton:hover {
+  background: var(--color-acento-claro);
+}
+
+.nuevo-analisis__boton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

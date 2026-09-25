@@ -11,6 +11,12 @@ export function registrarProveedorToken(fn: () => string | null): void {
   obtenerToken = fn;
 }
 
+/** Para llamadas fuera de openapi-fetch (p. ej. XMLHttpRequest, necesario
+ * para reportar progreso de subida) que igual necesitan el token vigente. */
+export function obtenerTokenActual(): string | null {
+  return obtenerToken();
+}
+
 export const clienteApi = createClient<paths>({ baseUrl: URL_BASE_API });
 
 clienteApi.use({

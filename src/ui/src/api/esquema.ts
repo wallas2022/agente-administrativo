@@ -72,6 +72,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/documentos/{documento_id}/partes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Listar Partes Subidas Documento
+         * @description RN-09: permite reanudar una carga interrumpida preguntando qué partes
+         *     ya llegaron a S3, en vez de volver a subir el archivo completo.
+         */
+        get: operations["listar_partes_subidas_documento_documentos__documento_id__partes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/documentos/{documento_id}/completar": {
         parameters: {
             query?: never;
@@ -83,6 +104,27 @@ export interface paths {
         put?: never;
         /** Completar Carga */
         post: operations["completar_carga_documentos__documento_id__completar_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analisis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Listar Analisis
+         * @description Panel de "análisis recientes": del área del usuario, o de todas para
+         *     Administrador/Auditor (mismo criterio que consultar_analisis).
+         */
+        get: operations["listar_analisis_analisis_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -140,10 +182,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/fuentes-conocimiento": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Listar Fuentes Conocimiento
+         * @description RF-16: fuentes vigentes del área del usuario, para que elija cuáles
+         *     consultar al iniciar un análisis (ver ADR-002, estado=vigente).
+         */
+        get: operations["listar_fuentes_conocimiento_fuentes_conocimiento_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** FuenteConocimientoEsquema */
+        FuenteConocimientoEsquema: {
+            /** Id */
+            id: string;
+            /** Nombre */
+            nombre: string;
+            /** Version */
+            version: string;
+            /**
+             * Vigente Desde
+             * Format: date
+             */
+            vigente_desde: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -183,6 +260,8 @@ export interface components {
             id: string;
             /** Documento Id */
             documento_id: string;
+            /** Nombre Documento */
+            nombre_documento?: string | null;
             /** Tipo Revision */
             tipo_revision: string;
             /** Estado */
@@ -416,6 +495,40 @@ export interface operations {
             };
         };
     };
+    listar_partes_subidas_documento_documentos__documento_id__partes_get: {
+        parameters: {
+            query: {
+                upload_id: string;
+                llave_almacenamiento: string;
+            };
+            header?: never;
+            path: {
+                documento_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParteSubidaEsquema"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     completar_carga_documentos__documento_id__completar_post: {
         parameters: {
             query: {
@@ -441,6 +554,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RespuestaCompletarCarga"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listar_analisis_analisis_get: {
+        parameters: {
+            query?: {
+                limite?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaAnalisis"][];
                 };
             };
             /** @description Validation Error */
@@ -547,6 +691,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listar_fuentes_conocimiento_fuentes_conocimiento_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FuenteConocimientoEsquema"][];
                 };
             };
         };
