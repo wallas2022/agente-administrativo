@@ -19,6 +19,13 @@ const EXTENSIONES_ACEPTADAS: Record<string, string[]> = {
   contable: ["xlsx"],
 };
 
+// Mismo patrón que SolicitudCompletarCarga.periodo_cierre en el backend. Se
+// valida también acá porque <input type="month"> no es soportado igual en
+// todos los navegadores (p. ej. Safari lo degrada a texto libre) — sin esto,
+// un valor mal formado llega a la API y el usuario solo ve un error 422
+// genérico en vez de una pista clara de qué corregir.
+const PATRON_PERIODO_CIERRE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
 type FuenteConocimiento = { id: string; nombre: string; version: string; vigente_desde: string };
 
 export function NuevoAnalisis() {
@@ -61,6 +68,10 @@ export function NuevoAnalisis() {
     }
     if (!periodoCierre) {
       setError("Selecciona el período de cierre");
+      return;
+    }
+    if (!PATRON_PERIODO_CIERRE.test(periodoCierre)) {
+      setError('El período de cierre debe tener el formato "AAAA-MM", por ejemplo 2026-08');
       return;
     }
     const extensionesValidas = EXTENSIONES_ACEPTADAS[tipoRevision] ?? [];
@@ -127,6 +138,8 @@ export function NuevoAnalisis() {
                 en vez del tooltip nativo del navegador. */}
             <input
               type="month"
+              placeholder="2026-08"
+              pattern="\d{4}-(0[1-9]|1[0-2])"
               value={periodoCierre}
               onChange={(e) => setPeriodoCierre(e.target.value)}
             />
