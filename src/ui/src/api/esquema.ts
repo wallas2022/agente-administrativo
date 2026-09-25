@@ -165,6 +165,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analisis/{analisis_id}/bitacora": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Listar Bitacora Analisis
+         * @description Pantalla "Agente trabajando" (U3): registro de pasos del análisis.
+         *     Hoy solo hay 'analisis_iniciado'/'analisis_completado' (ver
+         *     orquestador/tareas.py) — el pipeline no emite eventos más granulares
+         *     todavía.
+         */
+        get: operations["listar_bitacora_analisis_analisis__analisis_id__bitacora_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hallazgos/{hallazgo_id}/decision": {
         parameters: {
             query?: never;
@@ -207,6 +230,20 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** BitacoraEsquema */
+        BitacoraEsquema: {
+            /** Id */
+            id: string;
+            /** Accion */
+            accion: string;
+            /**
+             * Fecha Hora
+             * Format: date-time
+             */
+            fecha_hora: string;
+            /** Detalle */
+            detalle?: string | null;
+        };
         /** FuenteConocimientoEsquema */
         FuenteConocimientoEsquema: {
             /** Id */
@@ -647,6 +684,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HallazgoEsquema"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listar_bitacora_analisis_analisis__analisis_id__bitacora_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                analisis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BitacoraEsquema"][];
                 };
             };
             /** @description Validation Error */

@@ -1,0 +1,60 @@
+.etapas-analisis {
+  display: flex;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  gap: 8px;
+}
+
+.etapas-analisis__paso {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--color-texto-tenue);
+}
+
+.etapas-analisis__paso:not(:last-child)::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-borde);
+  margin: 0 4px;
+}
+
+.etapas-analisis__punto {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-borde);
+  flex-shrink: 0;
+}
+
+.etapas-analisis__paso--completada .etapas-analisis__punto {
+  background: var(--color-acento);
+}
+
+.etapas-analisis__paso--completada .etapas-analisis__etiqueta {
+  color: var(--color-texto);
+}
+
+.etapas-analisis__paso--activa .etapas-analisis__punto {
+  background: var(--color-acento);
+  box-shadow: 0 0 0 3px var(--color-acento-texto);
+}
+
+.etapas-analisis__paso--activa .etapas-analisis__etiqueta {
+  color: var(--color-texto);
+  font-weight: 500;
+}
+
+.etapas-analisis__paso--fallido .etapas-analisis__punto {
+  background: var(--color-alto-texto);
+  box-shadow: 0 0 0 3px var(--color-alto-fondo);
+}
+
+.etapas-analisis__paso--fallido .etapas-analisis__etiqueta {
+  color: var(--color-alto-texto);
+  font-weight: 500;
+}

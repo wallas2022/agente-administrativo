@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { Layout } from "./componentes/Layout";
 import { RutaProtegida } from "./auth/RutaProtegida";
 import { AgenteTrabajando } from "./paginas/AgenteTrabajando";
+import { Hallazgos } from "./paginas/Hallazgos";
 import { Login } from "./paginas/Login";
 import { NuevoAnalisis } from "./paginas/NuevoAnalisis";
 import { Proximamente } from "./paginas/Proximamente";
@@ -19,6 +20,7 @@ export function App() {
       >
         <Route path="/" element={<NuevoAnalisis />} />
         <Route path="/analisis/:analisisId" element={<AgenteTrabajando />} />
+        <Route path="/analisis/:analisisId/hallazgos" element={<Hallazgos />} />
         <Route path="/historial" element={<Proximamente titulo="Historial" />} />
         <Route
           path="/base-de-conocimiento"
