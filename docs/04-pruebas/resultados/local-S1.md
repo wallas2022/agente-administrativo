@@ -128,8 +128,36 @@ Efecto secundario observado durante esta verificación: el healthcheck de `worke
 2. **`ejecutar_analisis` se mantuvo retrocompatible con L2.** El pipeline contable solo se activa cuando `tipo_revision == "contable"` **y** se inyectan todas las dependencias de infraestructura (S3, Qdrant, embeddings, LLM); sin ellas (como en las pruebas de L2 y para tipos de revisión sin adaptador todavía) se preserva el flujo genérico sin validadores. Esto evitó romper `tests/unit/test_orquestador_tareas.py`.
 3. **Ollama 0.34.4 retiró `/api/embeddings`.** Confirmado en la verificación real (ver tabla arriba); `cliente_embeddings.py` usa `/api/embed` con `input` en vez de `prompt`, y lee `embeddings[0]` (plural) en vez de `embedding`.
 
+## Optimización RNF-04: agrupar la redacción LLM en una sola llamada por lote (2026-09-25)
+
+**Problema reportado:** con el archivo real de un usuario (`tests/dataset/escenarios-usuario/Escenario_Descuadre_Cierre_Agosto_2026.xlsx`, 10 hallazgos), el pipeline tardaba entre 20 y 40 minutos con `gpt-oss:20b` porque `explicacion.py` hacía **una llamada al LLM por hallazgo** — incumple RNF-04 (≤ 10 min). Cifra reportada por el usuario, no re-verificada de forma independiente con el código anterior (habría implicado otra corrida de 20-40 min solo para comparar).
+
+**Cambio (`src/validadores/contable/explicacion.py`, `src/orquestador/orquestador/pipeline_contable.py`):**
+
+1. RN-02 y RN-FORMULA: explicación por plantilla + cita RAG, sin LLM (una por hallazgo — cada uno referencia una cuenta/celda distinta).
+2. RN-03 y RN-04: explicación por plantilla, agrupada en una sola explicación por regla (todas las partidas del grupo comparten la misma causa).
+3. RN-01 y RN-05 (los únicos que sí requieren redacción con LLM): una única llamada por lote, con el modelo respondiendo un arreglo JSON (un objeto `{indice, causa_probable, correccion_sugerida}` por hallazgo), con parseo tolerante a bloques de código y texto de respaldo por ítem si el JSON no es válido.
+4. Los hallazgos deterministas (plantilla) se persisten (`commit`) **antes** de la llamada al LLM, así quedan visibles de inmediato vía `GET /analisis/{id}/hallazgos` aunque el análisis siga `procesando`.
+
+Cubierto por 8 pruebas nuevas en `tests/unit/test_explicacion_contable.py` y una prueba de integración en `tests/unit/test_pipeline_contable.py` que verifica que `funcion_llm` se llama exactamente una vez sin importar cuántos hallazgos de RN-01/RN-05 existan, y que los hallazgos deterministas ya están en la base de datos cuando esa llamada ocurre. 87/87 pruebas unitarias pasan; `ruff check .` y `mypy src` sin errores.
+
+**Medición real (después), stack completo sin mocks** (Postgres/Qdrant/LocalStack reales + Ollama nativo con `gpt-oss:20b`), mismo archivo real del usuario, vía `POST /documentos/iniciar` → `PUT .../partes/1` → `POST .../completar` (`periodo_cierre=2026-08`) y sondeo de `GET /analisis/{id}` y `GET /analisis/{id}/hallazgos`:
+
+| Etapa | Tiempo |
+| --- | --- |
+| Subida (iniciar + parte + completar) | < 1 s |
+| `completar()` → primeros hallazgos deterministas visibles (8 de 10, RN-02/RN-03/RN-04) | 15.5 s |
+| `completar()` → fin del análisis (10/10 hallazgos, incluye la única llamada por lote a `gpt-oss:20b` para RN-01/RN-05) | 140.6 s (`fecha_inicio` 22:31:19.054682Z → `fecha_fin` 22:33:39.700688Z) |
+| **Total** | **≈ 2 min 21 s** |
+
+Estado final: `con_hallazgos`, 10/10 hallazgos, `total_debe=159988.74`, `total_haber=158738.74`, `moneda="Q/USD"`.
+
+**RNF-04 (≤ 10 min): se cumple con amplio margen** — de un reporte de 20-40 min a ~2.3 min medidos (mejora ≥ 8-17x), con el mismo modelo (`gpt-oss:20b`) y el mismo archivo.
+
+**Nota de entorno:** durante esta medición, el contenedor `api` (y `ui`) quedaron marcados `unhealthy` y varias peticiones HTTP posteriores fallaron con `Connection reset` / timeout — mismo patrón de contención de CPU sin GPU ya documentado más arriba (línea "Efecto secundario observado..." de la reverificación con `gpt-oss:20b`), agravado esta vez porque el host tenía además otros contenedores ajenos al proyecto corriendo (`maxtott-security-*`). No afecta la medición: `fecha_inicio`/`fecha_fin` quedan en la base de datos, no dependen de que el cliente HTTP externo siga conectado. Sigue pendiente de revisar si esto se vuelve recurrente en stage.
+
 ## Pendiente
 
 - ~~MinIO/Docker Hub sigue bloqueado~~ **Resuelto** (ver docs/04-pruebas/resultados/local-localstack.md): MinIO descontinuó toda distribución gratuita (no era un problema de credenciales); se reemplazó por LocalStack en local y se verificó el flujo `carga→S3→orquestador→pipeline CU-01` completo en vivo, sin mocks, incluyendo varios bugs reales descubiertos al correr el stack completo por primera vez.
-- RNF-04 (tiempo máximo de procesamiento) sigue sin medirse contra el pipeline completo en hardware de stage — depende de ADR-005 (aún no resuelto). En este equipo, sin GPU, tanto `gpt-oss:20b` (modelo por defecto desde esta comparación) como `llama3.2:3b` quedan dentro de ≤10 min/documento; `qwen2.5:14b` excede el timeout de prueba y se descarta. La verificación E2E real de local-localstack.md midió el pipeline completo en esta máquina: ~92 s para 4 hallazgos con `llama3.2:3b`.
+- RNF-04 (tiempo máximo de procesamiento) sigue sin medirse contra el pipeline completo en hardware de stage — depende de ADR-005 (aún no resuelto). En este equipo, sin GPU, tanto `gpt-oss:20b` (modelo por defecto desde esta comparación) como `llama3.2:3b` quedan dentro de ≤10 min/documento; `qwen2.5:14b` excede el timeout de prueba y se descarta. La verificación E2E real de local-localstack.md midió el pipeline completo en esta máquina: ~92 s para 4 hallazgos con `llama3.2:3b`. **Actualización 2026-09-25:** tras agrupar la redacción LLM en una sola llamada por lote (ver sección arriba), el documento real de 10 hallazgos del usuario baja de 20-40 min a ~2.3 min en esta misma máquina — sigue pendiente solo la medición en hardware de stage.
 - Los tipos de revisión distintos de "contable" (Word, PDF, PowerPoint, imágenes) no tienen adaptador todavía; siguen el flujo genérico de L2.
