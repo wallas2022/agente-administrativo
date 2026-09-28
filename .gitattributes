@@ -1,0 +1,18 @@
+# Normaliza finales de línea a LF para todo lo que Git detecte como texto
+# (ver .editorconfig, que ya usa LF) -- evita que Windows los guarde como
+# CRLF y ensucie los diffs entre quienes trabajan en Windows/WSL2/Linux.
+* text=auto eol=lf
+
+*.sh text eol=lf
+
+# Binarios: nunca normalizar finales de línea ni intentar diff de texto.
+*.xlsx binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
