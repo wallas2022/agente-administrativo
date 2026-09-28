@@ -6,6 +6,7 @@
 # se agregan para que `pip install -r requirements-dev.txt` alcance de verdad.
 -r src/parsers/requirements.txt
 -r src/rag/requirements.txt
+-r src/ortografia/requirements.txt
 alembic==1.14.0
 pytest==8.3.4
 pytest-cov==6.0.0
