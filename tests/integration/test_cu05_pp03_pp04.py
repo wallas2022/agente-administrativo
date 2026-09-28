@@ -282,3 +282,79 @@ def test_pp04_pptx_corregido_conserva_titulo_vinetas_y_notas() -> None:
     assert diapositivas[0].shapes.title.text.strip(), "el título no se conservó"
     assert diapositivas[1].has_notes_slide, "las notas del orador no se conservaron"
     assert diapositivas[1].notes_slide.notes_text_frame.text.strip()
+
+
+def test_pp04_xlsx_corregido_conserva_hoja_y_celdas_no_tocadas() -> None:
+    """PP-04 (punto 4, Bloque O6): igual que docx/pptx, pero para XLSX --
+    el dataset real (CU05-04) no tiene fórmulas, así que lo que hay que
+    conservar es la hoja completa (6 filas x 3 columnas) y las celdas que
+    ninguna corrección tocó (encabezados, códigos de cuenta)."""
+    nombre = "CU05-04_Catalogo_Descripciones.xlsx"
+    if nombre not in _RESULTADOS:
+        pytest.skip("corre después de test_pp03_recall_y_falsos_positivos_por_archivo")
+
+    from parsers.xlsx import aplicar_correcciones_xlsx
+
+    ruta = RAIZ_DATASET / nombre
+    hallazgos = _RESULTADOS[nombre]["hallazgos"]
+    correcciones = [
+        CorreccionAplicable(h.ubicacion, h.texto_original, h.correccion_sugerida) for h in hallazgos
+    ]
+    assert correcciones, "PP-03 no detectó ningún error en este archivo -- no hay nada que corregir"
+
+    libro_original = load_workbook(str(ruta), data_only=False)
+    hoja_original = libro_original["Descripciones"]
+
+    resultado = aplicar_correcciones_xlsx(str(ruta), correcciones)
+
+    libro = load_workbook(io.BytesIO(resultado.contenido), data_only=False)
+    assert libro.sheetnames == ["Descripciones"], "no se conservó la hoja"
+    hoja = libro["Descripciones"]
+    assert hoja.dimensions == "A1:C6", "no se conservaron filas/columnas"
+    # A1 (encabezado) y A4 (código de cuenta) no los tocó ninguna corrección
+    # -- deben quedar exactamente igual que en el archivo original.
+    assert hoja["A1"].value == hoja_original["A1"].value, "el encabezado no se conservó"
+    assert hoja["A4"].value == hoja_original["A4"].value == "2020", (
+        "una celda no tocada por ninguna corrección cambió"
+    )
+
+    textos_originales = {c.texto_original.strip().lower() for c in correcciones}
+    for fila in hoja.iter_rows():
+        for celda in fila:
+            if isinstance(celda.value, str):
+                assert celda.value.strip().lower() not in textos_originales, (
+                    f"'{celda.value}' sigue con el error original en {celda.coordinate}"
+                )
+
+
+def test_pp04_texto_plano_corregido_no_toca_lo_que_no_marco_languagetool() -> None:
+    """PP-04 (punto 4, Bloque O6): igual que docx/pptx/xlsx, pero para el
+    modo "pegar texto" -- no hay formato que preservar, así que lo que hay
+    que verificar es que el texto corregido reemplaza justo los errores
+    detectados y deja el resto (incluido el término de glosario "SFC")
+    intacto."""
+    nombre = "CU05-05_Texto_para_pegar.txt"
+    if nombre not in _RESULTADOS:
+        pytest.skip("corre después de test_pp03_recall_y_falsos_positivos_por_archivo")
+
+    from parsers.texto_plano import aplicar_correcciones_texto_plano
+
+    ruta = RAIZ_DATASET / nombre
+    texto_original = ruta.read_text(encoding="utf-8")
+    hallazgos = _RESULTADOS[nombre]["hallazgos"]
+    correcciones = [
+        CorreccionAplicable(h.ubicacion, h.texto_original, h.correccion_sugerida) for h in hallazgos
+    ]
+    assert correcciones, "PP-03 no detectó ningún error en este archivo -- no hay nada que corregir"
+
+    texto_corregido = aplicar_correcciones_texto_plano(texto_original, correcciones)
+
+    assert texto_corregido != texto_original, "el texto corregido quedó igual al original"
+    assert "SFC" in texto_corregido, "el término de glosario no debió tocarse"
+    for correccion in correcciones:
+        assert correccion.texto_original not in texto_corregido, (
+            f"'{correccion.texto_original}' sigue en el texto corregido"
+        )
+        assert correccion.texto_nuevo in texto_corregido, (
+            f"'{correccion.texto_nuevo}' no aparece en el texto corregido"
+        )
