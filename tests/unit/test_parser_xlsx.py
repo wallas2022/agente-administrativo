@@ -1,8 +1,9 @@
 import io
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
-from parsers.xlsx import leer_texto_xlsx
+from parsers.correcciones import CorreccionAplicable
+from parsers.xlsx import aplicar_correcciones_xlsx, leer_texto_xlsx
 
 
 def _libro_de_prueba() -> bytes:
@@ -37,3 +38,24 @@ def test_no_extrae_celdas_con_formula() -> None:
     segmentos = leer_texto_xlsx(io.BytesIO(_libro_de_prueba()))
 
     assert not any(s.ubicacion == "Descripciones!A4" for s in segmentos)
+
+
+def test_aplicar_correccion_reemplaza_subcadena_de_la_celda() -> None:
+    correccion = CorreccionAplicable("Descripciones!B2", "Bancos", "Bancos S.A.")
+
+    resultado = aplicar_correcciones_xlsx(io.BytesIO(_libro_de_prueba()), [correccion])
+
+    assert resultado.no_aplicadas == []
+    libro = load_workbook(io.BytesIO(resultado.contenido))
+    assert libro["Descripciones"]["B2"].value == "Bancos S.A., cuentas monetarias"
+
+
+def test_correccion_en_celda_o_texto_inexistente_queda_en_no_aplicadas() -> None:
+    correccion_celda_vacia = CorreccionAplicable("Descripciones!Z99", "algo", "otro")
+    correccion_texto_distinto = CorreccionAplicable("Descripciones!A1", "texto que no está", "x")
+
+    resultado = aplicar_correcciones_xlsx(
+        io.BytesIO(_libro_de_prueba()), [correccion_celda_vacia, correccion_texto_distinto]
+    )
+
+    assert resultado.no_aplicadas == [correccion_celda_vacia, correccion_texto_distinto]

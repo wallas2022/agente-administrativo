@@ -3,7 +3,8 @@ import io
 from pptx import Presentation
 from pptx.util import Inches
 
-from parsers.pptx import leer_texto_pptx
+from parsers.correcciones import CorreccionAplicable
+from parsers.pptx import aplicar_correcciones_pptx, leer_texto_pptx
 
 
 def _pptx_de_prueba() -> bytes:
@@ -50,3 +51,35 @@ def test_extrae_notas_del_orador() -> None:
     notas = [s for s in segmentos if s.ubicacion == "Diapositiva 1, notas"]
     assert len(notas) == 1
     assert notas[0].texto == "Notas del orador para esta diapositiva"
+
+
+def test_aplicar_correcciones_corrige_titulo_vineta_y_notas() -> None:
+    correcciones = [
+        CorreccionAplicable("Diapositiva 1, título", "Título de la diapositiva", "Título correcto"),
+        CorreccionAplicable("Diapositiva 1, viñeta 2", "Segunda viñeta", "Segunda viñeta correcta"),
+        CorreccionAplicable(
+            "Diapositiva 1, notas",
+            "Notas del orador para esta diapositiva",
+            "Notas corregidas",
+        ),
+    ]
+
+    resultado = aplicar_correcciones_pptx(io.BytesIO(_pptx_de_prueba()), correcciones)
+
+    assert resultado.no_aplicadas == []
+    segmentos = leer_texto_pptx(io.BytesIO(resultado.contenido))
+    textos = {s.texto for s in segmentos}
+    assert "Título correcto" in textos
+    assert "Segunda viñeta correcta" in textos
+    assert "Notas corregidas" in textos
+    # La primera viñeta y el cuadro adicional no se tocaron.
+    assert "Primera viñeta" in textos
+    assert "Cuadro de texto adicional" in textos
+
+
+def test_correccion_con_ubicacion_inexistente_queda_en_no_aplicadas() -> None:
+    correccion = CorreccionAplicable("Diapositiva 9, título", "algo", "otra cosa")
+
+    resultado = aplicar_correcciones_pptx(io.BytesIO(_pptx_de_prueba()), [correccion])
+
+    assert resultado.no_aplicadas == [correccion]

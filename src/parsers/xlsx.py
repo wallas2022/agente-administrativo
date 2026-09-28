@@ -7,9 +7,11 @@ cualquier hoja, sin asumir un esquema de columnas -- distinto de
 from __future__ import annotations
 
 import io
+import re
 
 from openpyxl import load_workbook
 
+from parsers.correcciones import CorreccionAplicable, ResultadoCorreccion
 from parsers.segmentos import SegmentoTexto
 
 
@@ -43,3 +45,37 @@ def leer_texto_xlsx(archivo: io.BytesIO | str) -> list[SegmentoTexto]:
                         )
                     )
     return segmentos
+
+
+_PATRON_UBICACION = re.compile(r"^(.+)!([A-Z]+\d+)$")
+
+
+def aplicar_correcciones_xlsx(
+    archivo: io.BytesIO | str, correcciones: list[CorreccionAplicable]
+) -> ResultadoCorreccion:
+    """Las celdas de texto no tienen corridas con formato propio que
+    preservar (a diferencia de docx/pptx) -- un reemplazo de subcadena sobre
+    el valor de la celda alcanza."""
+    if hasattr(archivo, "seek"):
+        archivo.seek(0)
+    libro = load_workbook(archivo, data_only=False)
+
+    no_aplicadas: list[CorreccionAplicable] = []
+    for correccion in correcciones:
+        coincidencia = _PATRON_UBICACION.match(correccion.ubicacion)
+        aplicada = False
+        if coincidencia:
+            nombre_hoja, coordenada = coincidencia.groups()
+            if nombre_hoja in libro.sheetnames:
+                celda = libro[nombre_hoja][coordenada]
+                if isinstance(celda.value, str) and correccion.texto_original in celda.value:
+                    celda.value = celda.value.replace(
+                        correccion.texto_original, correccion.texto_nuevo, 1
+                    )
+                    aplicada = True
+        if not aplicada:
+            no_aplicadas.append(correccion)
+
+    buffer = io.BytesIO()
+    libro.save(buffer)
+    return ResultadoCorreccion(contenido=buffer.getvalue(), no_aplicadas=no_aplicadas)
