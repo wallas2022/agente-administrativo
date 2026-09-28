@@ -1,6 +1,11 @@
 # Dependencias de desarrollo y pruebas (no se instalan en las imágenes de producción).
 -r src/api/requirements.txt
 -r src/orquestador/requirements.txt
+# parsers/ y rag/ no estaban listados acá (gap preexistente: sus paquetes ya
+# se usaban en pruebas, pero solo se habían instalado a mano en .venv) --
+# se agregan para que `pip install -r requirements-dev.txt` alcance de verdad.
+-r src/parsers/requirements.txt
+-r src/rag/requirements.txt
 alembic==1.14.0
 pytest==8.3.4
 pytest-cov==6.0.0

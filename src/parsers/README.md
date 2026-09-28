@@ -20,4 +20,8 @@ Representación estructurada normalizada del documento, consumida por validadore
 
 RF-03, RF-06, RF-07, RF-08, RF-09, RF-10 (ver [docs/01-requerimientos/04-matriz-trazabilidad.md](../../docs/01-requerimientos/04-matriz-trazabilidad.md)).
 
-Sin lógica de negocio implementada (solo esqueleto/interfaces).
+## Estado
+
+- `excel.py`: parser del libro contable de CU-01 (esquema fijo Cuenta|Descripcion|...|Moneda|Asiento).
+- `docx.py`, `pptx.py`, `xlsx.py`, `pdf.py`, `texto_plano.py`: extractores de texto de CU-05 (RF-10, Bloque O1) — devuelven `SegmentoTexto` (texto + ubicación exacta re-localizable: párrafo, celda, diapositiva, página) para que `src/ortografia` revise el contenido sin perder dónde corregirlo (RF-14). `pdf.py` levanta `PdfSinTextoError` si el PDF no tiene capa de texto (requiere OCR, CU-06, iteración 2).
+- Resto de tipos de revisión: sin lógica de negocio implementada todavía.
