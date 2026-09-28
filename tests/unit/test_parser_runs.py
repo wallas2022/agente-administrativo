@@ -69,3 +69,17 @@ def test_solo_reemplaza_la_primera_aparicion() -> None:
     reemplazar_texto_en_parrafo(parrafo, "gato", "perro")
 
     assert parrafo.runs[0].text == "perro gato gato"
+
+
+def test_texto_original_corto_no_colisiona_con_la_misma_letra_dentro_de_otra_palabra() -> None:
+    """Bug real encontrado verificando el Bloque O4 en vivo: corregir la 'a'
+    suelta de 'procedimiento a sido' -> 'ha sido' encontraba, en cambio, la
+    'a' de 'Establecer' (la primera aparición por orden de texto), dejando
+    'Esthablecer'. localizar_ocurrencia debe preferir el límite de palabra."""
+    parrafo = _parrafo_con_corridas(
+        ("Establecer los pasos. Este procedimiento a sido aprobado.", False)
+    )
+
+    reemplazar_texto_en_parrafo(parrafo, "a", "ha")
+
+    assert parrafo.runs[0].text == "Establecer los pasos. Este procedimiento ha sido aprobado."

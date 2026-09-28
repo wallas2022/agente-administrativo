@@ -6,10 +6,13 @@ import { EstadoBadge } from "../componentes/EstadoBadge";
 import { TarjetaHallazgo, type Hallazgo } from "../componentes/TarjetaHallazgo";
 import "./Hallazgos.css";
 
+const RESUELTOS = new Set(["aceptado", "rechazado"]);
+
 type Analisis = {
   id: string;
   documento_id: string;
   nombre_documento?: string | null;
+  tipo_revision: string;
   estado: string;
   total_debe?: number | null;
   total_haber?: number | null;
@@ -30,6 +33,7 @@ export function Hallazgos() {
   const [hallazgos, setHallazgos] = useState<Hallazgo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [descargando, setDescargando] = useState(false);
+  const [procesandoLote, setProcesandoLote] = useState(false);
 
   useEffect(() => {
     if (!analisisId) return;
@@ -52,10 +56,49 @@ export function Hallazgos() {
       .catch(() => setError("No se pudo conectar con el servidor"));
   }, [analisisId]);
 
+  // RF-14 (CU-05): a diferencia de CU-01, el corregido no se genera durante
+  // el análisis -- se regenera cada vez que cambia una decisión, reflejando
+  // siempre los hallazgos "aceptados" hasta ese momento.
+  async function regenerarCorregidoSiAplica(analisisActual: Analisis) {
+    if (analisisActual.tipo_revision !== "ortografia") return;
+    const { error: errorGenerar } = await clienteApi.POST(
+      "/analisis/{analisis_id}/generar-corregido",
+      { params: { path: { analisis_id: analisisActual.id } } },
+    );
+    if (errorGenerar) return;
+    const { data } = await clienteApi.GET("/analisis/{analisis_id}", {
+      params: { path: { analisis_id: analisisActual.id } },
+    });
+    if (data) setAnalisis(data);
+  }
+
   function actualizarEstadoHallazgo(hallazgoId: string, resultado: string) {
     setHallazgos(
       (actual) => actual?.map((h) => (h.id === hallazgoId ? { ...h, estado: resultado } : h)) ?? null,
     );
+    if (analisis) void regenerarCorregidoSiAplica(analisis);
+  }
+
+  async function aceptarTodos() {
+    if (!hallazgos || !analisis) return;
+    setProcesandoLote(true);
+    try {
+      const pendientes = hallazgos.filter((h) => !RESUELTOS.has(h.estado));
+      for (const h of pendientes) {
+        const { error: errorDecision } = await clienteApi.POST("/hallazgos/{hallazgo_id}/decision", {
+          params: { path: { hallazgo_id: h.id } },
+          body: { resultado: "aceptado" },
+        });
+        if (!errorDecision) {
+          setHallazgos(
+            (actual) => actual?.map((x) => (x.id === h.id ? { ...x, estado: "aceptado" } : x)) ?? null,
+          );
+        }
+      }
+      await regenerarCorregidoSiAplica(analisis);
+    } finally {
+      setProcesandoLote(false);
+    }
   }
 
   async function manejarDescarga() {
@@ -102,31 +145,35 @@ export function Hallazgos() {
         {analisis.nombre_documento} <EstadoBadge estado={analisis.estado} />
       </p>
 
-      <div className="hallazgos__totales">
-        <div>
-          <span className="hallazgos__total-etiqueta">Debe</span>
-          <span className="hallazgos__total-valor">
-            {analisis.moneda ?? ""} {(analisis.total_debe ?? 0).toFixed(2)}
-          </span>
+      {/* CU-05 (ortografía) no tiene Debe/Haber -- RN-01/RN-03 son exclusivas
+          de CU-01, así que este bloque no aplica ahí. */}
+      {analisis.total_debe != null && (
+        <div className="hallazgos__totales">
+          <div>
+            <span className="hallazgos__total-etiqueta">Debe</span>
+            <span className="hallazgos__total-valor">
+              {analisis.moneda ?? ""} {(analisis.total_debe ?? 0).toFixed(2)}
+            </span>
+          </div>
+          <div>
+            <span className="hallazgos__total-etiqueta">Haber</span>
+            <span className="hallazgos__total-valor">
+              {analisis.moneda ?? ""} {(analisis.total_haber ?? 0).toFixed(2)}
+            </span>
+          </div>
+          <div>
+            <span className="hallazgos__total-etiqueta">Diferencia</span>
+            <span
+              className={
+                "hallazgos__total-valor" +
+                (Math.abs(diferencia) > 0.005 ? " hallazgos__total-valor--alerta" : "")
+              }
+            >
+              {analisis.moneda ?? ""} {diferencia.toFixed(2)}
+            </span>
+          </div>
         </div>
-        <div>
-          <span className="hallazgos__total-etiqueta">Haber</span>
-          <span className="hallazgos__total-valor">
-            {analisis.moneda ?? ""} {(analisis.total_haber ?? 0).toFixed(2)}
-          </span>
-        </div>
-        <div>
-          <span className="hallazgos__total-etiqueta">Diferencia</span>
-          <span
-            className={
-              "hallazgos__total-valor" +
-              (Math.abs(diferencia) > 0.005 ? " hallazgos__total-valor--alerta" : "")
-            }
-          >
-            {analisis.moneda ?? ""} {diferencia.toFixed(2)}
-          </span>
-        </div>
-      </div>
+      )}
 
       {analisis.tiene_version_corregida && (
         <button
@@ -135,9 +182,21 @@ export function Hallazgos() {
           onClick={manejarDescarga}
           disabled={descargando}
         >
-          {descargando ? "Descargando…" : "Descargar Excel marcado"}
+          {descargando ? "Descargando…" : "Descargar documento corregido"}
         </button>
       )}
+
+      {analisis.puede_decidir &&
+        hallazgosOrdenados.some((h) => !RESUELTOS.has(h.estado)) && (
+          <button
+            type="button"
+            className="hallazgos__boton-aceptar-todos"
+            onClick={aceptarTodos}
+            disabled={procesandoLote}
+          >
+            {procesandoLote ? "Aceptando…" : "Aceptar todos"}
+          </button>
+        )}
 
       {hallazgosOrdenados.length === 0 ? (
         <p className="hallazgos__mensaje">Este análisis no tiene hallazgos.</p>

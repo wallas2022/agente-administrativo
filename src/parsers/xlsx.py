@@ -12,6 +12,7 @@ import re
 from openpyxl import load_workbook
 
 from parsers.correcciones import CorreccionAplicable, ResultadoCorreccion
+from parsers.runs import reemplazar_primera_ocurrencia
 from parsers.segmentos import SegmentoTexto
 
 
@@ -68,11 +69,13 @@ def aplicar_correcciones_xlsx(
             nombre_hoja, coordenada = coincidencia.groups()
             if nombre_hoja in libro.sheetnames:
                 celda = libro[nombre_hoja][coordenada]
-                if isinstance(celda.value, str) and correccion.texto_original in celda.value:
-                    celda.value = celda.value.replace(
-                        correccion.texto_original, correccion.texto_nuevo, 1
+                if isinstance(celda.value, str):
+                    nuevo_valor = reemplazar_primera_ocurrencia(
+                        celda.value, correccion.texto_original, correccion.texto_nuevo
                     )
-                    aplicada = True
+                    if nuevo_valor is not None:
+                        celda.value = nuevo_valor
+                        aplicada = True
         if not aplicada:
             no_aplicadas.append(correccion)
 

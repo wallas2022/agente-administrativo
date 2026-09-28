@@ -17,7 +17,7 @@ from typing import Any
 from docx import Document
 
 from parsers.correcciones import CorreccionAplicable, ResultadoCorreccion
-from parsers.runs import reemplazar_texto_en_parrafo
+from parsers.runs import reemplazar_primera_ocurrencia, reemplazar_texto_en_parrafo
 from parsers.segmentos import SegmentoTexto
 
 
@@ -150,8 +150,12 @@ def construir_docx_desde_segmentos(
     for segmento in segmentos:
         texto = segmento.texto
         correccion = correcciones_por_ubicacion.get(segmento.ubicacion)
-        if correccion is not None and correccion.texto_original in texto:
-            texto = texto.replace(correccion.texto_original, correccion.texto_nuevo, 1)
+        if correccion is not None:
+            nuevo_texto = reemplazar_primera_ocurrencia(
+                texto, correccion.texto_original, correccion.texto_nuevo
+            )
+            if nuevo_texto is not None:
+                texto = nuevo_texto
         documento.add_paragraph(f"[{segmento.ubicacion}] {texto}")
 
     buffer = io.BytesIO()

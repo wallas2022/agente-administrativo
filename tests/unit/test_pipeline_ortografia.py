@@ -209,3 +209,45 @@ def test_pdf_sin_texto_marca_el_analisis_fallido_con_detalle_en_bitacora() -> No
             .one()
         )
         assert "OCR" in bitacora.detalle
+
+
+def test_error_inesperado_marca_fallido_en_vez_de_dejar_procesando_para_siempre() -> None:
+    """Encontrado en vivo (Bloque O4): una caída transitoria de la conexión
+    a Postgres a mitad del pipeline (no un PdfSinTextoError) dejaba el
+    análisis atascado en "procesando" para siempre -- ejecutar_analisis debe
+    capturar cualquier excepción del pipeline, no solo la de PDF sin texto."""
+    from comun.modelos import Bitacora
+
+    contenido = b"Texto de prueba"
+    sesion, documento_id, analisis_id, llave = _sesion_con_documento_analisis_y_version(contenido)
+
+    def lt_que_falla(_texto: str) -> list[CoincidenciaLT]:
+        raise ConnectionError("se cortó la conexión a mitad de la revisión")
+
+    with mock_aws():
+        cliente_s3 = boto3.client("s3", region_name="us-east-1")
+        cliente_s3.create_bucket(Bucket=BUCKET)
+        cliente_s3.put_object(Bucket=BUCKET, Key=llave, Body=contenido)
+
+        resultado = ejecutar_analisis(
+            sesion,
+            documento_id,
+            analisis_id,
+            cliente_s3=cliente_s3,
+            bucket=BUCKET,
+            funcion_revisar_lt=lt_que_falla,
+            funcion_llm=_llm_no_deberia_llamarse,
+        )
+
+        assert resultado == EstadoDocumento.FALLIDO.value
+        analisis = sesion.get(Analisis, analisis_id)
+        assert analisis.estado == EstadoAnalisis.FALLIDO.value
+        documento = sesion.get(Documento, documento_id)
+        assert documento.estado == EstadoDocumento.FALLIDO.value
+
+        bitacora = (
+            sesion.query(Bitacora)
+            .filter_by(entidad_id=analisis_id, accion="analisis_fallido")
+            .one()
+        )
+        assert "se cortó la conexión" in bitacora.detalle

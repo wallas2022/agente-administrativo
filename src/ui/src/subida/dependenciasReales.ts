@@ -78,7 +78,14 @@ export const dependenciasReales: DependenciasSubida = {
     });
   },
 
-  async completarCarga(documentoId, uploadId, llaveAlmacenamiento, partes, tipoRevision, periodoCierre) {
+  async completarCarga(
+    documentoId,
+    uploadId,
+    llaveAlmacenamiento,
+    partes,
+    tipoRevision,
+    periodoCierre,
+  ) {
     const { data, error } = await clienteApi.POST("/documentos/{documento_id}/completar", {
       params: {
         path: { documento_id: documentoId },

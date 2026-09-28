@@ -8,16 +8,24 @@ import "./NuevoAnalisis.css";
 
 const TIPOS_REVISION = [
   { valor: "contable", etiqueta: "Excel contable", habilitado: true },
+  { valor: "ortografia", etiqueta: "Revisión ortográfica", habilitado: true },
   { valor: "redaccion", etiqueta: "Redacción", habilitado: false },
   { valor: "actualizacion_normativa", etiqueta: "Actualización normativa", habilitado: false },
   { valor: "control", etiqueta: "Control", habilitado: false },
-  { valor: "ortografia", etiqueta: "Ortografía", habilitado: false },
   { valor: "ocr", etiqueta: "OCR", habilitado: false },
 ] as const;
 
 const EXTENSIONES_ACEPTADAS: Record<string, string[]> = {
   contable: ["xlsx"],
+  ortografia: ["docx", "pptx", "xlsx", "pdf"],
 };
+
+// CU-05 no tiene período de cierre (RN-03 es exclusivo de CU-01 contable) --
+// el backend también lo hace opcional salvo para "contable" (ver
+// api/esquemas.py, SolicitudCompletarCarga.periodo_cierre).
+function requierePeriodoCierre(tipoRevision: string): boolean {
+  return tipoRevision === "contable";
+}
 
 // Mismo patrón que SolicitudCompletarCarga.periodo_cierre en el backend. Se
 // valida también acá porque <input type="month"> no es soportado igual en
@@ -28,11 +36,18 @@ const PATRON_PERIODO_CIERRE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 type FuenteConocimiento = { id: string; nombre: string; version: string; vigente_desde: string };
 
+// Nombre de archivo sintético para el texto pegado (CU-05, RF-10) -- se
+// reutiliza toda la subida por partes ya construida para CU-01 en vez de
+// inventar un endpoint nuevo; el worker distingue el .txt por su extensión.
+const NOMBRE_TEXTO_PEGADO = "texto-pegado.txt";
+
 export function NuevoAnalisis() {
   const navegar = useNavigate();
   const [tipoRevision, setTipoRevision] = useState<string>("contable");
   const [periodoCierre, setPeriodoCierre] = useState("");
   const [archivo, setArchivo] = useState<File | null>(null);
+  const [modoOrtografia, setModoOrtografia] = useState<"archivo" | "texto">("archivo");
+  const [textoPegado, setTextoPegado] = useState("");
   const [fuentes, setFuentes] = useState<FuenteConocimiento[] | null>(null);
   // [PENDIENTE] La API todavía no acepta qué fuentes consultar por análisis
   // (SolicitudCompletarCarga no tiene ese campo); la selección queda guardada
@@ -62,30 +77,48 @@ export function NuevoAnalisis() {
     evento.preventDefault();
     setError(null);
 
-    if (!archivo) {
+    const usaTextoPegado = tipoRevision === "ortografia" && modoOrtografia === "texto";
+    let archivoAEnviar: File | null = archivo;
+
+    if (usaTextoPegado) {
+      if (!textoPegado.trim()) {
+        setError("Pega el texto que quieres revisar");
+        return;
+      }
+      archivoAEnviar = new File([textoPegado], NOMBRE_TEXTO_PEGADO, { type: "text/plain" });
+    } else if (!archivo) {
       setError("Selecciona un archivo");
       return;
     }
-    if (!periodoCierre) {
-      setError("Selecciona el período de cierre");
-      return;
+
+    if (requierePeriodoCierre(tipoRevision)) {
+      if (!periodoCierre) {
+        setError("Selecciona el período de cierre");
+        return;
+      }
+      if (!PATRON_PERIODO_CIERRE.test(periodoCierre)) {
+        setError('El período de cierre debe tener el formato "AAAA-MM", por ejemplo 2026-08');
+        return;
+      }
     }
-    if (!PATRON_PERIODO_CIERRE.test(periodoCierre)) {
-      setError('El período de cierre debe tener el formato "AAAA-MM", por ejemplo 2026-08');
-      return;
-    }
-    const extensionesValidas = EXTENSIONES_ACEPTADAS[tipoRevision] ?? [];
-    if (!extensionesValidas.includes(extensionDe(archivo.name))) {
-      setError(`El archivo debe ser: ${extensionesValidas.map((e) => `.${e}`).join(", ")}`);
-      return;
+    if (!usaTextoPegado && archivoAEnviar) {
+      const extensionesValidas = EXTENSIONES_ACEPTADAS[tipoRevision] ?? [];
+      if (!extensionesValidas.includes(extensionDe(archivoAEnviar.name))) {
+        setError(`El archivo debe ser: ${extensionesValidas.map((e) => `.${e}`).join(", ")}`);
+        return;
+      }
     }
 
     setSubiendo(true);
     setProgreso(null);
     try {
       const resultado = await subirDocumento(
-        archivo,
-        { tipoRevision, periodoCierre, onProgreso: setProgreso },
+        archivoAEnviar as File,
+        {
+          tipoRevision,
+          periodoCierre: requierePeriodoCierre(tipoRevision) ? periodoCierre : undefined,
+          onProgreso: setProgreso,
+        },
         dependenciasReales,
       );
       setActualizarPanelEn((n) => n + 1);
@@ -131,28 +164,70 @@ export function NuevoAnalisis() {
             </div>
           </fieldset>
 
-          <label className="nuevo-analisis__campo">
-            Período de cierre
-            {/* Sin `required`: la validación la hace manejarEnvio para mostrar
-                un mensaje consistente con los demás errores del formulario,
-                en vez del tooltip nativo del navegador. */}
-            <input
-              type="month"
-              placeholder="2026-08"
-              pattern="\d{4}-(0[1-9]|1[0-2])"
-              value={periodoCierre}
-              onChange={(e) => setPeriodoCierre(e.target.value)}
-            />
-          </label>
+          {requierePeriodoCierre(tipoRevision) && (
+            <label className="nuevo-analisis__campo">
+              Período de cierre
+              {/* Sin `required`: la validación la hace manejarEnvio para mostrar
+                  un mensaje consistente con los demás errores del formulario,
+                  en vez del tooltip nativo del navegador. */}
+              <input
+                type="month"
+                placeholder="2026-08"
+                pattern="\d{4}-(0[1-9]|1[0-2])"
+                value={periodoCierre}
+                onChange={(e) => setPeriodoCierre(e.target.value)}
+              />
+            </label>
+          )}
 
-          <label className="nuevo-analisis__campo">
-            Documento
-            <input
-              type="file"
-              accept=".xlsx"
-              onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
-            />
-          </label>
+          {tipoRevision === "ortografia" && (
+            <fieldset className="nuevo-analisis__campo">
+              <legend>Origen del texto</legend>
+              <div className="nuevo-analisis__opciones">
+                <label className="nuevo-analisis__opcion">
+                  <input
+                    type="radio"
+                    name="modo-ortografia"
+                    checked={modoOrtografia === "archivo"}
+                    onChange={() => setModoOrtografia("archivo")}
+                  />
+                  Subir un documento
+                </label>
+                <label className="nuevo-analisis__opcion">
+                  <input
+                    type="radio"
+                    name="modo-ortografia"
+                    checked={modoOrtografia === "texto"}
+                    onChange={() => setModoOrtografia("texto")}
+                  />
+                  Pegar texto directamente
+                </label>
+              </div>
+            </fieldset>
+          )}
+
+          {tipoRevision === "ortografia" && modoOrtografia === "texto" ? (
+            <label className="nuevo-analisis__campo">
+              Texto a revisar
+              <textarea
+                rows={8}
+                value={textoPegado}
+                onChange={(e) => setTextoPegado(e.target.value)}
+                placeholder="Pega aquí el texto que quieres revisar…"
+              />
+            </label>
+          ) : (
+            <label className="nuevo-analisis__campo">
+              Documento
+              <input
+                type="file"
+                accept={(EXTENSIONES_ACEPTADAS[tipoRevision] ?? [])
+                  .map((ext) => `.${ext}`)
+                  .join(",")}
+                onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
+              />
+            </label>
+          )}
 
           {fuentes && fuentes.length > 0 && (
             <fieldset className="nuevo-analisis__campo">

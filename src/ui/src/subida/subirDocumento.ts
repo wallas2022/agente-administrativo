@@ -21,7 +21,9 @@ export interface ProgresoSubida {
 
 export interface OpcionesSubida {
   tipoRevision: string;
-  periodoCierre: string;
+  // Solo lo exige tipo_revision=="contable" (RN-03) -- CU-05 (ortografía) no
+  // tiene período de cierre. Ver api/esquemas.py, SolicitudCompletarCarga.
+  periodoCierre?: string;
   onProgreso?: (progreso: ProgresoSubida) => void;
 }
 
@@ -61,7 +63,7 @@ export interface DependenciasSubida {
     llaveAlmacenamiento: string,
     partes: ParteSubida[],
     tipoRevision: string,
-    periodoCierre: string,
+    periodoCierre: string | undefined,
   ): Promise<{ documento_id: string; analisis_id: string; estado: string }>;
 }
 

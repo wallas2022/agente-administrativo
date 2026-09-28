@@ -46,6 +46,32 @@ def _registrar_bitacora(
     )
 
 
+def _marcar_fallido(
+    sesion: Session, *, documento: Documento, analisis: Analisis, detalle: str
+) -> str:
+    """Cualquier error del pipeline (no solo PdfSinTextoError) marca el
+    análisis "fallido" en vez de dejarlo atascado en "procesando" para
+    siempre -- encontrado en vivo (Bloque O4): una caída transitoria de la
+    conexión a Postgres a mitad de una inserción dejaba el análisis sin
+    forma de que la UI supiera que algo salió mal. `rollback()` primero
+    porque la sesión puede haber quedado en una transacción abortada (el
+    pool ya usa `pool_pre_ping`, así que la siguiente consulta reconecta
+    sola si la conexión murió)."""
+    sesion.rollback()
+    documento.estado = EstadoDocumento.FALLIDO.value
+    analisis.estado = EstadoAnalisis.FALLIDO.value
+    analisis.fecha_fin = datetime.now(UTC)
+    _registrar_bitacora(
+        sesion,
+        usuario_id=analisis.usuario_id,
+        accion="analisis_fallido",
+        entidad_id=analisis.id,
+        detalle=detalle,
+    )
+    sesion.commit()
+    return documento.estado
+
+
 def ejecutar_analisis(
     sesion: Session,
     documento_id: uuid.UUID,
@@ -104,19 +130,24 @@ def ejecutar_analisis(
         def _subir_version_corregida(llave: str, contenido: bytes) -> None:
             almacenamiento.subir_objeto(cliente_s3, bucket, llave, contenido)
 
-        hallazgos = procesar_documento_contable(
-            sesion,
-            documento=documento,
-            analisis=analisis,
-            version_original=version_original,
-            contenido_original=contenido_original,
-            cliente_qdrant=cliente_qdrant,
-            funcion_embedding=funcion_embedding,
-            funcion_llm=funcion_llm,
-            modelo_llm=modelo_llm,
-            subir_version_corregida=_subir_version_corregida,
-            coleccion_rag=coleccion_rag,
-        )
+        try:
+            hallazgos = procesar_documento_contable(
+                sesion,
+                documento=documento,
+                analisis=analisis,
+                version_original=version_original,
+                contenido_original=contenido_original,
+                cliente_qdrant=cliente_qdrant,
+                funcion_embedding=funcion_embedding,
+                funcion_llm=funcion_llm,
+                modelo_llm=modelo_llm,
+                subir_version_corregida=_subir_version_corregida,
+                coleccion_rag=coleccion_rag,
+            )
+        except Exception as error:  # ver _marcar_fallido
+            return _marcar_fallido(
+                sesion, documento=documento, analisis=analisis, detalle=str(error)
+            )
     elif (
         tipo_revision is not None
         and tipo_revision.nombre == "ortografia"
@@ -140,18 +171,16 @@ def ejecutar_analisis(
                 funcion_llm=funcion_llm,
             )
         except PdfSinTextoError as error:
-            documento.estado = EstadoDocumento.FALLIDO.value
-            analisis.estado = EstadoAnalisis.FALLIDO.value
-            analisis.fecha_fin = datetime.now(UTC)
-            _registrar_bitacora(
-                sesion,
-                usuario_id=analisis.usuario_id,
-                accion="analisis_fallido",
-                entidad_id=analisis.id,
-                detalle=str(error),
+            # Mensaje amable y específico (no inventa nada: refleja RF-11 --
+            # "requiere OCR, iteración 2" -- en vez del str() genérico de
+            # cualquier otra excepción).
+            return _marcar_fallido(
+                sesion, documento=documento, analisis=analisis, detalle=str(error)
             )
-            sesion.commit()
-            return documento.estado
+        except Exception as error:  # ver _marcar_fallido
+            return _marcar_fallido(
+                sesion, documento=documento, analisis=analisis, detalle=str(error)
+            )
 
     documento.estado = (
         EstadoDocumento.CON_HALLAZGOS.value if hallazgos else EstadoDocumento.EN_REVISION.value

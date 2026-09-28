@@ -26,6 +26,26 @@
   font-weight: 500;
 }
 
+.tarjeta-hallazgo__ortografia {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.tarjeta-hallazgo__ortografia s {
+  color: var(--color-alto-texto);
+  text-decoration-thickness: 2px;
+}
+
+.tarjeta-hallazgo__ortografia strong {
+  color: var(--color-acento);
+}
+
+.tarjeta-hallazgo__explicacion-breve {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-texto-tenue);
+}
+
 .tarjeta-hallazgo__monto {
   margin: 0;
   font-family: var(--fuente-mono);

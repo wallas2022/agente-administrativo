@@ -205,6 +205,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analisis/{analisis_id}/generar-corregido": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generar Corregido
+         * @description RF-14 (CU-05): aplica solo los hallazgos ya "aceptados" (CU-07) sobre
+         *     el documento original y sube el resultado como nueva `VersionDocumento`
+         *     corregida. A diferencia de CU-01, esto no ocurre automáticamente durante
+         *     el análisis -- el Revisor lo dispara explícitamente después de decidir
+         *     (docs/03-diseno/secuencia/cu-05-ortografia.md, supuesto 4). Sin LLM de
+         *     por medio (las correcciones ya están decididas), se hace síncrono.
+         */
+        post: operations["generar_corregido_analisis__analisis_id__generar_corregido_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/fuentes-conocimiento": {
         parameters: {
             query?: never;
@@ -235,10 +260,12 @@ export interface paths {
         };
         /**
          * Descargar Version Corregida
-         * @description Pantalla 3 (U4): descarga del Excel con las celdas marcadas
-         *     (validadores.contable.salida). La API hace de intermediaria en vez de dar
-         *     un enlace directo a LocalStack/MinIO porque ese endpoint interno
-         *     (`localstack:4566`) no es alcanzable desde el navegador.
+         * @description Descarga la versión corregida del documento -- el Excel con celdas
+         *     marcadas de CU-01 (validadores.contable.salida) o el documento con el
+         *     texto ya corregido de CU-05 (ortografia.generar_corregido). La API hace
+         *     de intermediaria en vez de dar un enlace directo a LocalStack/MinIO
+         *     porque ese endpoint interno (`localstack:4566`) no es alcanzable desde
+         *     el navegador.
          */
         get: operations["descargar_version_corregida_documentos__documento_id__version_corregida_get"];
         put?: never;
@@ -377,6 +404,11 @@ export interface components {
              */
             fecha: string;
         };
+        /** RespuestaGenerarCorregido */
+        RespuestaGenerarCorregido: {
+            /** Generado */
+            generado: boolean;
+        };
         /** RespuestaIniciarCarga */
         RespuestaIniciarCarga: {
             /** Documento Id */
@@ -405,7 +437,7 @@ export interface components {
             /** Tipo Revision */
             tipo_revision: string;
             /** Periodo Cierre */
-            periodo_cierre: string;
+            periodo_cierre?: string | null;
         };
         /** SolicitudDecision */
         SolicitudDecision: {
@@ -791,6 +823,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RespuestaDecision"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generar_corregido_analisis__analisis_id__generar_corregido_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                analisis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaGenerarCorregido"];
                 };
             };
             /** @description Validation Error */

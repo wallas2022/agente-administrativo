@@ -7,7 +7,39 @@ perderse al corregir.
 
 from __future__ import annotations
 
+import re
 from typing import Any
+
+
+def localizar_ocurrencia(texto_completo: str, texto_buscado: str) -> int:
+    """Encuentra dónde empieza `texto_buscado` dentro de `texto_completo`,
+    prefiriendo una coincidencia en límite de palabra (`\\b`).
+
+    Sin esto, un `texto_buscado` corto y común -- p. ej. "a" (RN de
+    LanguageTool "a" vs "ha" antes de participio) -- podía encontrar una "a"
+    suelta dentro de OTRA palabra (p. ej. la "a" de "Establecer") en vez de
+    la palabra "a" real que LanguageTool marcó, corrompiendo el texto (bug
+    real encontrado verificando el Bloque O4 en vivo: "Establecer" quedó
+    "Esthablecer"). Si no hay coincidencia en límite de palabra (p. ej.
+    `texto_buscado` con espacios o puntuación en el borde), cae a una
+    búsqueda de subcadena simple como respaldo.
+    """
+    coincidencia = re.search(r"\b" + re.escape(texto_buscado) + r"\b", texto_completo)
+    if coincidencia:
+        return coincidencia.start()
+    return texto_completo.find(texto_buscado)
+
+
+def reemplazar_primera_ocurrencia(texto: str, texto_original: str, texto_nuevo: str) -> str | None:
+    """Igual que `str.replace(texto_original, texto_nuevo, 1)`, pero usando
+    `localizar_ocurrencia` (prefiere límite de palabra) -- para xlsx/texto
+    plano, que no tienen corridas que preservar. Devuelve None si
+    `texto_original` no aparece."""
+    inicio = localizar_ocurrencia(texto, texto_original)
+    if inicio == -1:
+        return None
+    fin = inicio + len(texto_original)
+    return texto[:inicio] + texto_nuevo + texto[fin:]
 
 
 def reemplazar_texto_en_parrafo(parrafo: Any, texto_original: str, texto_nuevo: str) -> bool:
@@ -25,7 +57,7 @@ def reemplazar_texto_en_parrafo(parrafo: Any, texto_original: str, texto_nuevo: 
     """
     corridas = list(parrafo.runs)
     texto_completo = "".join(c.text for c in corridas)
-    inicio = texto_completo.find(texto_original)
+    inicio = localizar_ocurrencia(texto_completo, texto_original)
     if inicio == -1:
         return False
     fin = inicio + len(texto_original)

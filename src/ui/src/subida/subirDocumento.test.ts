@@ -190,6 +190,22 @@ describe("subirDocumento", () => {
     expect(deps.iniciarCarga).not.toHaveBeenCalled();
   });
 
+  it("sube un análisis de ortografía sin período de cierre", async () => {
+    const deps = depsFalsas();
+    const archivo = archivoDePrueba("texto-pegado.txt", 100);
+
+    await subirDocumento(archivo, { tipoRevision: "ortografia" }, deps);
+
+    expect(deps.completarCarga).toHaveBeenCalledWith(
+      "doc-1",
+      "upload-1",
+      "area/doc-1/archivo.xlsx",
+      [{ numeroParte: 1, etag: "etag-1-100" }],
+      "ortografia",
+      undefined,
+    );
+  });
+
   it("informa el progreso durante la subida", async () => {
     const deps = depsFalsas();
     const archivo = archivoDePrueba("cierre.xlsx", 1024);
