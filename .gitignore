@@ -54,3 +54,7 @@ htmlcov/
 # Paquetes offline generados por infra/scripts/empaquetar-offline.sh
 /infra/agente-*.tar.gz
 /infra/SHA256SUMS
+
+# Fuente de diseño editable del logo -- pesada y no necesaria para construir
+# o correr la app; el PNG/JPG exportado sí se versiona.
+*.psd
