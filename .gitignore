@@ -45,6 +45,7 @@ Thumbs.db
 
 # Estado local de herramientas de asistencia (no es contenido del proyecto)
 .claude/
+Claude outputs/
 
 # Salidas de pruebas
 /tests/**/output/
