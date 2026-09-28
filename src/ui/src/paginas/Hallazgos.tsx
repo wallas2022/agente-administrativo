@@ -8,6 +8,12 @@ import "./Hallazgos.css";
 
 const RESUELTOS = new Set(["aceptado", "rechazado"]);
 
+// CU-05 (RNF-04, Bloque O6): un caso todavía "en_validacion" (el LLM no ha
+// terminado) o ya "descartado" (falso positivo) no es decidible -- "Aceptar
+// todos" no debe tocarlos.
+const NO_DECIDIBLES = new Set(["en_validacion", "descartado"]);
+const esDecidible = (h: Hallazgo) => !RESUELTOS.has(h.estado) && !NO_DECIDIBLES.has(h.estado);
+
 type Analisis = {
   id: string;
   documento_id: string;
@@ -37,23 +43,49 @@ export function Hallazgos() {
 
   useEffect(() => {
     if (!analisisId) return;
-    Promise.all([
-      clienteApi.GET("/analisis/{analisis_id}", { params: { path: { analisis_id: analisisId } } }),
-      clienteApi.GET("/analisis/{analisis_id}/hallazgos", {
-        params: { path: { analisis_id: analisisId } },
-      }),
-    ])
-      .then(([respuestaAnalisis, respuestaHallazgos]) => {
-        if (respuestaAnalisis.error || !respuestaAnalisis.data) {
-          setError("No se pudo consultar el análisis");
-          return;
-        }
-        setAnalisis(respuestaAnalisis.data);
-        if (!respuestaHallazgos.error && respuestaHallazgos.data) {
-          setHallazgos(respuestaHallazgos.data);
-        }
-      })
-      .catch(() => setError("No se pudo conectar con el servidor"));
+    let cancelado = false;
+    let temporizador: ReturnType<typeof setTimeout> | undefined;
+
+    async function cargar() {
+      const [respuestaAnalisis, respuestaHallazgos] = await Promise.all([
+        clienteApi.GET("/analisis/{analisis_id}", {
+          params: { path: { analisis_id: analisisId as string } },
+        }),
+        clienteApi.GET("/analisis/{analisis_id}/hallazgos", {
+          params: { path: { analisis_id: analisisId as string } },
+        }),
+      ]);
+      if (cancelado) return;
+
+      if (respuestaAnalisis.error || !respuestaAnalisis.data) {
+        setError("No se pudo consultar el análisis");
+        return;
+      }
+      setAnalisis(respuestaAnalisis.data);
+
+      let hayEnValidacion = false;
+      if (!respuestaHallazgos.error && respuestaHallazgos.data) {
+        setHallazgos(respuestaHallazgos.data);
+        hayEnValidacion = respuestaHallazgos.data.some((h) => h.estado === "en_validacion");
+      }
+
+      // CU-05 (RNF-04, Bloque O6): la validación LLM de casos dudosos corre
+      // en segundo plano después de que el análisis ya está "terminado" --
+      // se sigue consultando para reflejar "Confirmado"/"Descartado" sin que
+      // el usuario tenga que recargar la página.
+      if (hayEnValidacion) {
+        temporizador = setTimeout(cargar, 5000);
+      }
+    }
+
+    cargar().catch(() => {
+      if (!cancelado) setError("No se pudo conectar con el servidor");
+    });
+
+    return () => {
+      cancelado = true;
+      if (temporizador) clearTimeout(temporizador);
+    };
   }, [analisisId]);
 
   // RF-14 (CU-05): a diferencia de CU-01, el corregido no se genera durante
@@ -83,7 +115,7 @@ export function Hallazgos() {
     if (!hallazgos || !analisis) return;
     setProcesandoLote(true);
     try {
-      const pendientes = hallazgos.filter((h) => !RESUELTOS.has(h.estado));
+      const pendientes = hallazgos.filter(esDecidible);
       for (const h of pendientes) {
         const { error: errorDecision } = await clienteApi.POST("/hallazgos/{hallazgo_id}/decision", {
           params: { path: { hallazgo_id: h.id } },
@@ -187,7 +219,7 @@ export function Hallazgos() {
       )}
 
       {analisis.puede_decidir &&
-        hallazgosOrdenados.some((h) => !RESUELTOS.has(h.estado)) && (
+        hallazgosOrdenados.some(esDecidible) && (
           <button
             type="button"
             className="hallazgos__boton-aceptar-todos"

@@ -30,7 +30,18 @@
   color: var(--color-alto-texto);
 }
 
-.estado-badge--aprobado {
+.estado-badge--aprobado,
+.estado-badge--confirmado {
   background: var(--color-acento-texto);
   color: var(--color-acento);
+}
+
+.estado-badge--en_validacion {
+  background: var(--color-bajo-fondo);
+  color: var(--color-bajo-texto);
+}
+
+.estado-badge--descartado {
+  background: var(--color-borde);
+  color: var(--color-texto-tenue);
 }

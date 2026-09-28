@@ -1,7 +1,7 @@
 import json
 
 from ortografia.cliente_languagetool import CoincidenciaLT
-from ortografia.revision import revisar_segmentos
+from ortografia.revision import clasificar_segmentos, revisar_segmentos, validar_candidatos_con_llm
 from parsers.segmentos import SegmentoTexto
 
 
@@ -180,3 +180,101 @@ def test_sin_segmentos_no_llama_a_languagetool_ni_al_llm() -> None:
 
     assert hallazgos == []
     assert llamadas_lt == []
+
+
+def test_clasificar_segmentos_no_llama_al_llm() -> None:
+    segmento = _segmento("Es necesario que se de seguimiento al hallazgo.")
+
+    def revisar_lt(_texto: str) -> list[CoincidenciaLT]:
+        return [
+            _coincidencia("de", categoria="DIACRITICS", sugerencias=["dé"], regla_id="DE_TILDE")
+        ]
+
+    resultado = clasificar_segmentos(
+        [segmento], glosario=set(), funcion_revisar_lt=revisar_lt
+    )
+
+    assert resultado.deterministas == []
+    assert len(resultado.dudosos) == 1
+    assert resultado.dudosos[0].texto_original == "de"
+    assert resultado.dudosos[0].ubicacion == "Párrafo 1"
+    assert resultado.dudosos[0].sugerencia_lt == "dé"
+
+
+def test_validar_candidatos_con_llm_confirma_y_descarta() -> None:
+    segmento = _segmento("Es necesario que se de seguimiento al hallazgo.")
+
+    def revisar_lt(_texto: str) -> list[CoincidenciaLT]:
+        return [
+            _coincidencia("de", categoria="DIACRITICS", sugerencias=["dé"], regla_id="DE_TILDE")
+        ]
+
+    clasificacion = clasificar_segmentos([segmento], glosario=set(), funcion_revisar_lt=revisar_lt)
+
+    def llm_falso(_prompt: str) -> str:
+        return json.dumps([{"indice": 0, "es_error": True, "sugerencia": "dé"}])
+
+    resultados = validar_candidatos_con_llm(
+        clasificacion.dudosos,
+        contexto_por_ubicacion={segmento.ubicacion: segmento.texto},
+        funcion_llm=llm_falso,
+    )
+
+    assert len(resultados) == 1
+    assert resultados[0].es_error is True
+    assert resultados[0].correccion_sugerida == "dé"
+    assert resultados[0].candidato.texto_original == "de"
+
+
+def test_mes_en_titulo_no_genera_hallazgo_ni_caso_dudoso() -> None:
+    segmento = _segmento(
+        "Informe de conciliación bancaria - Agosto 2026", ubicacion="Párrafo 0"
+    )
+
+    def revisar_lt(_texto: str) -> list[CoincidenciaLT]:
+        return [
+            _coincidencia(
+                "Agosto", categoria="CASING", sugerencias=["agosto"], regla_id="MIN_MESES"
+            )
+        ]
+
+    resultado = clasificar_segmentos([segmento], glosario=set(), funcion_revisar_lt=revisar_lt)
+
+    assert resultado.deterministas == []
+    assert resultado.dudosos == []
+
+
+def test_mes_en_titulo_de_diapositiva_no_genera_hallazgo() -> None:
+    segmento = _segmento(
+        "Resultados del cierre - Agosto 2026", ubicacion="Diapositiva 1, título"
+    )
+
+    def revisar_lt(_texto: str) -> list[CoincidenciaLT]:
+        return [
+            _coincidencia(
+                "Agosto", categoria="CASING", sugerencias=["agosto"], regla_id="MIN_MESES"
+            )
+        ]
+
+    resultado = clasificar_segmentos([segmento], glosario=set(), funcion_revisar_lt=revisar_lt)
+
+    assert resultado.deterministas == []
+    assert resultado.dudosos == []
+
+
+def test_mes_en_mayuscula_fuera_de_titulo_sigue_marcandose() -> None:
+    segmento = _segmento(
+        "El corte se hizo en Agosto según el calendario.", ubicacion="Párrafo 3"
+    )
+
+    def revisar_lt(_texto: str) -> list[CoincidenciaLT]:
+        return [
+            _coincidencia(
+                "Agosto", categoria="CASING", sugerencias=["agosto"], regla_id="MIN_MESES"
+            )
+        ]
+
+    resultado = clasificar_segmentos([segmento], glosario=set(), funcion_revisar_lt=revisar_lt)
+
+    assert len(resultado.dudosos) == 1
+    assert resultado.dudosos[0].texto_original == "Agosto"

@@ -10,8 +10,10 @@ siguen el flujo genérico sin validadores hasta que se implementen sus
 propios adaptadores.
 """
 
+import logging
 import os
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
@@ -20,10 +22,17 @@ from comun import almacenamiento
 from comun.cola import app
 from comun.db import obtener_fabrica_sesion
 from comun.estados import EstadoAnalisis, EstadoDocumento
-from comun.modelos import Analisis, Bitacora, Documento, TipoRevision, VersionDocumento
+from comun.modelos import Analisis, Bitacora, Documento, Hallazgo, TipoRevision, VersionDocumento
 from orquestador.pipeline_contable import FuncionEmbedding, FuncionLLM, procesar_documento_contable
-from orquestador.pipeline_ortografia import FuncionRevisarLT, procesar_documento_ortografia
+from orquestador.pipeline_ortografia import (
+    FuncionRevisarLT,
+    extraer_segmentos,
+    procesar_documento_ortografia,
+    resolver_dudosos_ortografia,
+)
 from parsers.pdf import PdfSinTextoError
+
+FuncionEncolarValidacionDudosos = Callable[[str], str]
 
 
 def _registrar_bitacora(
@@ -85,6 +94,7 @@ def ejecutar_analisis(
     modelo_llm: str | None = None,
     coleccion_rag: str | None = None,
     funcion_revisar_lt: FuncionRevisarLT | None = None,
+    funcion_encolar_validacion_dudosos: FuncionEncolarValidacionDudosos | None = None,
 ) -> str:
     """Lógica pura (sin Celery) para poder probarla con una sesión en memoria.
 
@@ -112,6 +122,7 @@ def ejecutar_analisis(
     )
 
     hallazgos: list = []
+    dudosos: list[Hallazgo] = []
     if (
         tipo_revision is not None
         and tipo_revision.nombre == "contable"
@@ -155,21 +166,32 @@ def ejecutar_analisis(
         and cliente_s3 is not None
         and bucket is not None
         and funcion_revisar_lt is not None
-        and funcion_llm is not None
     ):
         contenido_original = almacenamiento.descargar_objeto(
             cliente_s3, bucket, version_original.ruta_almacenamiento
         )
         try:
-            hallazgos = procesar_documento_ortografia(
+            # Fase 1 (RNF-04, Bloque O6): solo LanguageTool + glosario --
+            # publica de inmediato, sin esperar al LLM.
+            deterministas, dudosos, contexto_por_ubicacion = procesar_documento_ortografia(
                 sesion,
                 analisis=analisis,
                 version_original=version_original,
                 contenido_original=contenido_original,
                 tipo_archivo=documento.tipo_archivo,
                 funcion_revisar_lt=funcion_revisar_lt,
-                funcion_llm=funcion_llm,
             )
+            hallazgos = deterministas + dudosos
+            if dudosos and funcion_encolar_validacion_dudosos is None and funcion_llm is not None:
+                # Sin forma de encolar en segundo plano (p. ej. pruebas o un
+                # entorno sin Celery): resuelve los dudosos ya mismo, para no
+                # cambiar el comportamiento donde nadie pidió la fase 2 async.
+                resolver_dudosos_ortografia(
+                    sesion,
+                    hallazgos=dudosos,
+                    contexto_por_ubicacion=contexto_por_ubicacion,
+                    funcion_llm=funcion_llm,
+                )
         except PdfSinTextoError as error:
             # Mensaje amable y específico (no inventa nada: refleja RF-11 --
             # "requiere OCR, iteración 2" -- en vez del str() genérico de
@@ -194,11 +216,19 @@ def ejecutar_analisis(
         entidad_id=analisis.id,
     )
     sesion.commit()
+
+    if dudosos and funcion_encolar_validacion_dudosos is not None:
+        # Recién después de comitear el estado terminal (RNF-04, Bloque O6):
+        # la tarea en segundo plano corre en otra sesión/proceso y debe ver
+        # los hallazgos "en_validacion" ya persistidos.
+        funcion_encolar_validacion_dudosos(str(analisis.id))
+
     return documento.estado
 
 
 @app.task(name="orquestador.tareas.analizar_documento")
 def analizar_documento(documento_id: str, analisis_id: str) -> str:
+    from comun.cola import encolar_validacion_dudosos_ortografia
     from ortografia.cliente_languagetool import revisar_texto
     from rag.cliente_embeddings import obtener_embedding
     from rag.cliente_llm import generar_texto
@@ -223,6 +253,115 @@ def analizar_documento(documento_id: str, analisis_id: str) -> str:
             modelo_llm=os.environ.get("LLM_MODEL_PRINCIPAL", ""),
             coleccion_rag=os.environ.get("QDRANT_COLECCION"),
             funcion_revisar_lt=revisar_texto,
+            funcion_encolar_validacion_dudosos=encolar_validacion_dudosos_ortografia,
+        )
+    finally:
+        sesion.close()
+
+
+def ejecutar_validacion_dudosos_ortografia(
+    sesion: Session,
+    analisis_id: uuid.UUID,
+    *,
+    cliente_s3: object,
+    bucket: str,
+    funcion_llm: FuncionLLM,
+) -> None:
+    """Lógica pura (sin Celery) de la fase 2 -- mismo patrón que
+    `ejecutar_analisis`, para poder probarla con una sesión en memoria. El
+    análisis ya llegó a un estado terminal en la fase 1 (RNF-04, Bloque O6):
+    un error acá NO lo revierte -- los hallazgos afectados simplemente
+    quedan "en_validacion" (documentado en la bitácora) en vez de "fallido"."""
+    analisis = sesion.get(Analisis, analisis_id)
+    if analisis is None:
+        return
+
+    hallazgos = (
+        sesion.query(Hallazgo).filter_by(analisis_id=analisis.id, estado="en_validacion").all()
+    )
+    if not hallazgos:
+        return
+
+    documento = sesion.get(Documento, analisis.documento_id)
+    if documento is None:
+        return
+    version_original = (
+        sesion.query(VersionDocumento)
+        .filter_by(documento_id=documento.id)
+        .order_by(VersionDocumento.numero_version.desc())
+        .first()
+    )
+    if version_original is None:
+        return
+    try:
+        contenido_original = almacenamiento.descargar_objeto(
+            cliente_s3, bucket, version_original.ruta_almacenamiento
+        )
+        contexto_por_ubicacion = {
+            s.ubicacion: s.texto
+            for s in extraer_segmentos(documento.tipo_archivo, contenido_original)
+        }
+        resolver_dudosos_ortografia(
+            sesion,
+            hallazgos=hallazgos,
+            contexto_por_ubicacion=contexto_por_ubicacion,
+            funcion_llm=funcion_llm,
+        )
+        _registrar_bitacora(
+            sesion,
+            usuario_id=analisis.usuario_id,
+            accion="ortografia_dudosos_validados",
+            entidad_id=analisis.id,
+            detalle=f"{len(hallazgos)} caso(s) dudoso(s) resuelto(s) por el LLM",
+        )
+        sesion.commit()
+    except Exception as error:
+        # Encontrado en vivo (Bloque O6): con la BD ya inestable por la misma
+        # presión de memoria documentada en local-S1/S2, el propio
+        # rollback()/commit() de este bloque puede fallar también -- sin
+        # este segundo try/except, esa segunda falla se propaga sin control
+        # y revienta la tarea de Celery (los hallazgos quedan "en_validacion"
+        # sin ningún rastro de qué pasó, el mismo problema de raíz que
+        # _marcar_fallido ya resuelve para la fase 1).
+        detalle = str(error)
+        try:
+            sesion.rollback()
+            _registrar_bitacora(
+                sesion,
+                usuario_id=analisis.usuario_id,
+                accion="ortografia_dudosos_fallo",
+                entidad_id=analisis.id,
+                detalle=detalle,
+            )
+            sesion.commit()
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "No se pudo registrar en la bitácora el fallo de validación de "
+                "dudosos de analisis_id=%s (detalle original: %s)",
+                analisis_id,
+                detalle,
+            )
+
+
+@app.task(name="orquestador.tareas.validar_dudosos_ortografia")
+def validar_dudosos_ortografia(analisis_id: str) -> None:
+    from rag.cliente_llm import generar_texto
+
+    sesion = obtener_fabrica_sesion()()
+    try:
+        modelo_ortografia = os.environ.get("LLM_MODEL_ORTOGRAFIA") or os.environ.get(
+            "LLM_MODEL_PRINCIPAL", ""
+        )
+
+        def _funcion_llm(prompt: str) -> str:
+            return generar_texto(prompt, modelo=modelo_ortografia)
+
+        ejecutar_validacion_dudosos_ortografia(
+            sesion,
+            uuid.UUID(analisis_id),
+            cliente_s3=almacenamiento.obtener_cliente_s3(),
+            bucket=os.environ.get("MINIO_BUCKET_DOCUMENTOS", "documentos"),
+            funcion_llm=_funcion_llm,
         )
     finally:
         sesion.close()

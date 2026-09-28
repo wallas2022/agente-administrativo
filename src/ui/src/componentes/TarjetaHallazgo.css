@@ -74,6 +74,13 @@
   white-space: pre-wrap;
 }
 
+.tarjeta-hallazgo__nota {
+  margin: 0;
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--color-texto-tenue);
+}
+
 .tarjeta-hallazgo__fuente {
   margin: 0;
   font-size: 0.8rem;

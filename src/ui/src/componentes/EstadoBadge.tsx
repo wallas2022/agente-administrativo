@@ -9,6 +9,12 @@ const ETIQUETAS: Record<string, string> = {
   aprobado: "Aprobado",
   rechazado: "Rechazado",
   cerrado: "Cerrado",
+  // Estados de Hallazgo (no de Analisis/Documento) exclusivos de CU-05
+  // (RNF-04, Bloque O6): un caso dudoso de LanguageTool que el LLM todavía
+  // no confirma o descarta, y su resolución.
+  en_validacion: "En validación",
+  confirmado: "Confirmado",
+  descartado: "Descartado",
 };
 
 /** docs/03-diseno/estados/estados-analisis.md */

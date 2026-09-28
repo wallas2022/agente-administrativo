@@ -3,6 +3,7 @@ revisión ortográfica (RN-06) → persistencia, disparado por `ejecutar_analisi
 cuando `tipo_revision == "ortografia"`.
 """
 
+import json
 import uuid
 from datetime import UTC, date, datetime, timedelta
 
@@ -16,6 +17,7 @@ from comun.modelos import (
     Analisis,
     Area,
     Base,
+    Bitacora,
     Documento,
     Hallazgo,
     Rol,
@@ -23,7 +25,7 @@ from comun.modelos import (
     Usuario,
     VersionDocumento,
 )
-from orquestador.tareas import ejecutar_analisis
+from orquestador.tareas import ejecutar_analisis, ejecutar_validacion_dudosos_ortografia
 from ortografia.cliente_languagetool import CoincidenciaLT
 
 BUCKET = "documentos"
@@ -103,6 +105,22 @@ def _lt_falso_una_coincidencia_typos(texto: str) -> list[CoincidenciaLT]:
 
 def _llm_no_deberia_llamarse(_prompt: str) -> str:
     raise AssertionError("no debía llamarse al LLM: no hay casos dudosos en este documento")
+
+
+def _lt_falso_un_caso_dudoso(texto: str) -> list[CoincidenciaLT]:
+    if "de seguimiento" not in texto:
+        return []
+    return [
+        CoincidenciaLT(
+            texto="de",
+            offset=texto.index("de seguimiento"),
+            longitud=2,
+            mensaje="Posible falta de tilde diacrítica",
+            sugerencias=["dé"],
+            regla_id="DE_TILDE",
+            categoria="DIACRITICS",
+        )
+    ]
 
 
 def test_ejecutar_analisis_ortografia_persiste_hallazgo_determinista() -> None:
@@ -251,3 +269,228 @@ def test_error_inesperado_marca_fallido_en_vez_de_dejar_procesando_para_siempre(
             .one()
         )
         assert "se cortó la conexión" in bitacora.detalle
+
+
+def test_ejecutar_analisis_ortografia_con_dudosos_los_deja_en_validacion_y_encola_fase_2() -> None:
+    """RNF-04 (Bloque O6): con una forma de encolar la fase 2, el análisis
+    llega a un estado terminal sin llamar al LLM -- el caso dudoso queda
+    "en_validacion" y se encola para resolverse en segundo plano."""
+    contenido = b"Es necesario que se de seguimiento al hallazgo."
+    sesion, documento_id, analisis_id, llave = _sesion_con_documento_analisis_y_version(contenido)
+
+    llamadas_encolar: list[str] = []
+
+    with mock_aws():
+        cliente_s3 = boto3.client("s3", region_name="us-east-1")
+        cliente_s3.create_bucket(Bucket=BUCKET)
+        cliente_s3.put_object(Bucket=BUCKET, Key=llave, Body=contenido)
+
+        resultado = ejecutar_analisis(
+            sesion,
+            documento_id,
+            analisis_id,
+            cliente_s3=cliente_s3,
+            bucket=BUCKET,
+            funcion_revisar_lt=_lt_falso_un_caso_dudoso,
+            funcion_llm=_llm_no_deberia_llamarse,
+            funcion_encolar_validacion_dudosos=llamadas_encolar.append,
+        )
+
+        assert resultado == EstadoDocumento.CON_HALLAZGOS.value
+        assert llamadas_encolar == [str(analisis_id)]
+
+        hallazgo = sesion.query(Hallazgo).filter_by(analisis_id=analisis_id).one()
+        assert hallazgo.estado == "en_validacion"
+        assert hallazgo.texto_original == "de"
+        assert hallazgo.correccion_sugerida == "dé"
+        assert hallazgo.fuente_citada == "DE_TILDE"
+
+        analisis = sesion.get(Analisis, analisis_id)
+        assert analisis.estado == EstadoAnalisis.COMPLETADO.value
+
+
+def test_ejecutar_analisis_ortografia_sin_encolar_resuelve_dudosos_de_forma_sincrona() -> None:
+    """Sin `funcion_encolar_validacion_dudosos` (p. ej. un entorno sin
+    Celery), la fase 2 corre en el mismo `ejecutar_analisis` -- no cambia el
+    comportamiento previo a RNF-04/Bloque O6 para quien no pidió la fase
+    asíncrona."""
+    contenido = b"Es necesario que se de seguimiento al hallazgo."
+    sesion, documento_id, analisis_id, llave = _sesion_con_documento_analisis_y_version(contenido)
+
+    def llm_confirma(_prompt: str) -> str:
+        return json.dumps(
+            [{"indice": 0, "es_error": True, "sugerencia": "dé", "explicacion": "falta la tilde"}]
+        )
+
+    with mock_aws():
+        cliente_s3 = boto3.client("s3", region_name="us-east-1")
+        cliente_s3.create_bucket(Bucket=BUCKET)
+        cliente_s3.put_object(Bucket=BUCKET, Key=llave, Body=contenido)
+
+        resultado = ejecutar_analisis(
+            sesion,
+            documento_id,
+            analisis_id,
+            cliente_s3=cliente_s3,
+            bucket=BUCKET,
+            funcion_revisar_lt=_lt_falso_un_caso_dudoso,
+            funcion_llm=llm_confirma,
+        )
+
+        assert resultado == EstadoDocumento.CON_HALLAZGOS.value
+        hallazgo = sesion.query(Hallazgo).filter_by(analisis_id=analisis_id).one()
+        assert hallazgo.estado == "confirmado"
+        assert hallazgo.correccion_sugerida == "dé"
+        assert hallazgo.fuente_citada is None
+
+
+def test_ejecutar_validacion_dudosos_ortografia_confirma_y_descarta() -> None:
+    contenido = "Es necesario que se de seguimiento; en Agosto se revisó todo.".encode()
+    sesion, documento_id, analisis_id, llave = _sesion_con_documento_analisis_y_version(contenido)
+
+    llamadas_encolar: list[str] = []
+    with mock_aws():
+        cliente_s3 = boto3.client("s3", region_name="us-east-1")
+        cliente_s3.create_bucket(Bucket=BUCKET)
+        cliente_s3.put_object(Bucket=BUCKET, Key=llave, Body=contenido)
+
+        ejecutar_analisis(
+            sesion,
+            documento_id,
+            analisis_id,
+            cliente_s3=cliente_s3,
+            bucket=BUCKET,
+            funcion_revisar_lt=_lt_falso_un_caso_dudoso,
+            funcion_llm=_llm_no_deberia_llamarse,
+            funcion_encolar_validacion_dudosos=llamadas_encolar.append,
+        )
+
+        def llm_confirma(_prompt: str) -> str:
+            return json.dumps(
+                [{"indice": 0, "es_error": True, "sugerencia": "dé", "explicacion": "corregido"}]
+            )
+
+        ejecutar_validacion_dudosos_ortografia(
+            sesion,
+            analisis_id,
+            cliente_s3=cliente_s3,
+            bucket=BUCKET,
+            funcion_llm=llm_confirma,
+        )
+
+        hallazgo = sesion.query(Hallazgo).filter_by(analisis_id=analisis_id).one()
+        assert hallazgo.estado == "confirmado"
+        assert hallazgo.correccion_sugerida == "dé"
+        assert hallazgo.fuente_citada is None
+
+        bitacora = (
+            sesion.query(Bitacora)
+            .filter_by(entidad_id=analisis_id, accion="ortografia_dudosos_validados")
+            .one()
+        )
+        assert "1 caso" in bitacora.detalle
+
+        # documento/analisis ya estaban en su estado terminal desde la fase 1
+        # y la fase 2 no los toca.
+        analisis = sesion.get(Analisis, analisis_id)
+        assert analisis.estado == EstadoAnalisis.COMPLETADO.value
+
+
+def test_ejecutar_validacion_dudosos_ortografia_error_no_marca_fallido_deja_en_validacion() -> None:
+    """Un error en la fase 2 (p. ej. el LLM no responde) NO debe revertir el
+    estado terminal que el análisis ya alcanzó en la fase 1 -- el hallazgo
+    simplemente queda "en_validacion" y el error queda en la bitácora."""
+    contenido = b"Es necesario que se de seguimiento al hallazgo."
+    sesion, documento_id, analisis_id, llave = _sesion_con_documento_analisis_y_version(contenido)
+
+    llamadas_encolar: list[str] = []
+    with mock_aws():
+        cliente_s3 = boto3.client("s3", region_name="us-east-1")
+        cliente_s3.create_bucket(Bucket=BUCKET)
+        cliente_s3.put_object(Bucket=BUCKET, Key=llave, Body=contenido)
+
+        ejecutar_analisis(
+            sesion,
+            documento_id,
+            analisis_id,
+            cliente_s3=cliente_s3,
+            bucket=BUCKET,
+            funcion_revisar_lt=_lt_falso_un_caso_dudoso,
+            funcion_llm=_llm_no_deberia_llamarse,
+            funcion_encolar_validacion_dudosos=llamadas_encolar.append,
+        )
+
+        def llm_que_falla(_prompt: str) -> str:
+            raise ConnectionError("el LLM no respondió a tiempo")
+
+        ejecutar_validacion_dudosos_ortografia(
+            sesion,
+            analisis_id,
+            cliente_s3=cliente_s3,
+            bucket=BUCKET,
+            funcion_llm=llm_que_falla,
+        )
+
+        hallazgo = sesion.query(Hallazgo).filter_by(analisis_id=analisis_id).one()
+        assert hallazgo.estado == "en_validacion"
+
+        analisis = sesion.get(Analisis, analisis_id)
+        assert analisis.estado == EstadoAnalisis.COMPLETADO.value
+        documento = sesion.get(Documento, documento_id)
+        assert documento.estado == EstadoDocumento.CON_HALLAZGOS.value
+
+        bitacora = (
+            sesion.query(Bitacora)
+            .filter_by(entidad_id=analisis_id, accion="ortografia_dudosos_fallo")
+            .one()
+        )
+        assert "el LLM no respondió a tiempo" in bitacora.detalle
+
+
+def test_ejecutar_validacion_dudosos_ortografia_si_hasta_el_rollback_falla_no_revienta() -> None:
+    """Encontrado en vivo (Bloque O6): con Postgres ya inestable, el propio
+    `sesion.rollback()` del manejo de errores puede fallar también -- eso NO
+    debe propagarse sin control y tumbar la tarea de Celery."""
+    contenido = b"Es necesario que se de seguimiento al hallazgo."
+    sesion, documento_id, analisis_id, llave = _sesion_con_documento_analisis_y_version(contenido)
+
+    llamadas_encolar: list[str] = []
+    with mock_aws():
+        cliente_s3 = boto3.client("s3", region_name="us-east-1")
+        cliente_s3.create_bucket(Bucket=BUCKET)
+        cliente_s3.put_object(Bucket=BUCKET, Key=llave, Body=contenido)
+
+        ejecutar_analisis(
+            sesion,
+            documento_id,
+            analisis_id,
+            cliente_s3=cliente_s3,
+            bucket=BUCKET,
+            funcion_revisar_lt=_lt_falso_un_caso_dudoso,
+            funcion_llm=_llm_no_deberia_llamarse,
+            funcion_encolar_validacion_dudosos=llamadas_encolar.append,
+        )
+
+        def llm_que_falla(_prompt: str) -> str:
+            raise ConnectionError("el LLM no respondió a tiempo")
+
+        rollback_original = sesion.rollback
+
+        def rollback_que_tambien_falla() -> None:
+            rollback_original()
+            raise ConnectionError("la conexión a Postgres también se cayó")
+
+        sesion.rollback = rollback_que_tambien_falla  # type: ignore[method-assign]
+        try:
+            ejecutar_validacion_dudosos_ortografia(
+                sesion,
+                analisis_id,
+                cliente_s3=cliente_s3,
+                bucket=BUCKET,
+                funcion_llm=llm_que_falla,
+            )
+        finally:
+            sesion.rollback = rollback_original  # type: ignore[method-assign]
+
+        hallazgo = sesion.query(Hallazgo).filter_by(analisis_id=analisis_id).one()
+        assert hallazgo.estado == "en_validacion"

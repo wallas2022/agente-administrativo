@@ -18,6 +18,11 @@ export interface Hallazgo {
 
 const RESUELTOS = new Set(["aceptado", "rechazado"]);
 
+// CU-05 (RNF-04, Bloque O6): mientras el LLM valida un caso dudoso
+// ("en_validacion") o después de descartarlo ("descartado") no hay nada que
+// el Revisor pueda decidir todavía -- ni Aceptar/Rechazar ni Deshacer.
+const NO_DECIDIBLES = new Set(["en_validacion", "descartado"]);
+
 // ortografia.revision (Bloque O2) formatea descripcion como «texto marcado»:
 // mensaje -- se detecta ese patrón para mostrar el error tachado → la
 // sugerencia, en vez del párrafo genérico de CU-01 (causa/corrección).
@@ -86,6 +91,14 @@ export function TarjetaHallazgo({
           {infoOrtografica.explicacion && (
             <p className="tarjeta-hallazgo__explicacion-breve">{infoOrtografica.explicacion}</p>
           )}
+          {hallazgo.estado === "en_validacion" && (
+            <p className="tarjeta-hallazgo__nota">Verificando con IA…</p>
+          )}
+          {hallazgo.estado === "descartado" && (
+            <p className="tarjeta-hallazgo__nota">
+              El LLM descartó este caso: no parece un error en este contexto.
+            </p>
+          )}
         </>
       ) : (
         <>
@@ -106,7 +119,10 @@ export function TarjetaHallazgo({
         </>
       )}
 
-      {hallazgo.fuente_citada && (
+      {/* fuente_citada en CU-05 "en_validacion" es el id de regla interno de
+          LanguageTool (implementación, ver pipeline_ortografia.py) -- nunca
+          una fuente RAG real, así que no se muestra para ortografía. */}
+      {!infoOrtografica && hallazgo.fuente_citada && (
         <p className="tarjeta-hallazgo__fuente">Fuente: {hallazgo.fuente_citada}</p>
       )}
 
@@ -116,7 +132,7 @@ export function TarjetaHallazgo({
         </p>
       )}
 
-      {puedeDecidir && (
+      {puedeDecidir && !NO_DECIDIBLES.has(hallazgo.estado) && (
         <div className="tarjeta-hallazgo__acciones">
           {RESUELTOS.has(hallazgo.estado) ? (
             <button type="button" disabled={enviando} onClick={() => decidir("deshecho")}>

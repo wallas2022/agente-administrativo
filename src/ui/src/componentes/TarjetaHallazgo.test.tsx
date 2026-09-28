@@ -69,4 +69,46 @@ describe("TarjetaHallazgo", () => {
     expect(screen.getByText("aprovado")).toBeInTheDocument();
     expect(screen.queryByText("aprobado")).not.toBeInTheDocument();
   });
+
+  it("un caso 'en_validacion' no muestra botones de decisión ni la fuente interna de LanguageTool", () => {
+    render(
+      <TarjetaHallazgo
+        hallazgo={hallazgoOrtografico({ estado: "en_validacion", fuente_citada: "DE_TILDE" })}
+        puedeDecidir={true}
+        alDecidir={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Verificando con IA…")).toBeInTheDocument();
+    expect(screen.queryByText("Aceptar")).not.toBeInTheDocument();
+    expect(screen.queryByText("Rechazar")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Fuente:/)).not.toBeInTheDocument();
+  });
+
+  it("un caso 'descartado' no muestra botones de decisión", () => {
+    render(
+      <TarjetaHallazgo
+        hallazgo={hallazgoOrtografico({ estado: "descartado" })}
+        puedeDecidir={true}
+        alDecidir={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(/El LLM descartó este caso/)).toBeInTheDocument();
+    expect(screen.queryByText("Aceptar")).not.toBeInTheDocument();
+    expect(screen.queryByText("Deshacer")).not.toBeInTheDocument();
+  });
+
+  it("un caso 'confirmado' se puede aceptar o rechazar igual que uno pendiente", () => {
+    render(
+      <TarjetaHallazgo
+        hallazgo={hallazgoOrtografico({ estado: "confirmado" })}
+        puedeDecidir={true}
+        alDecidir={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Aceptar")).toBeInTheDocument();
+    expect(screen.getByText("Rechazar")).toBeInTheDocument();
+  });
 });

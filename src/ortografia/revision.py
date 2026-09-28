@@ -1,4 +1,4 @@
-"""Motor de revisión ortográfica (RF-10, RF-17, RN-06, CU-05, Bloque O2).
+"""Motor de revisión ortográfica (RF-10, RF-17, RN-06, CU-05, Bloques O2/O6).
 
 RNF-03 (aplicado por analogía a este caso de uso): LanguageTool es el
 detector determinista -- decide qué está mal escrito y con qué severidad.
@@ -16,6 +16,12 @@ docs/04-pruebas/resultados/local-S2.md):
 - Cualquier otra categoría (p. ej. "DIACRITICS": de/dé, se/sé, además;
   "MISSPELLING" de grammar.xml: a/ha) depende del contexto gramatical de la
   oración -- se manda a validar con el LLM antes de convertirse en hallazgo.
+
+RNF-04 (Bloque O6): la clasificación (`clasificar_segmentos`) es síncrona y
+rápida (solo LanguageTool); la validación de los dudosos con LLM
+(`validar_candidatos_con_llm`) es la parte lenta y corre aparte -- en
+producción, en segundo plano (ver `orquestador.tareas`), para no bloquear
+la publicación de los hallazgos deterministas.
 """
 
 from __future__ import annotations
@@ -37,6 +43,17 @@ CATEGORIAS_DETERMINISTAS = frozenset({"TYPOS"})
 
 _PATRON_SOLO_NUMERO_O_CODIGO = re.compile(r"^[\d.,\s]+$")
 
+# Regla propia (Bloque O6): LanguageTool marca cualquier mes con mayúscula
+# inicial (regla "MIN_MESES", categoría "CASING") como error, sin distinguir
+# un título/encabezado (donde SÍ es una convención tipográfica válida, p.
+# ej. "Informe... — Agosto 2026") de una oración corrida. Encontrado en
+# datos reales: docs/04-pruebas/resultados/local-S2.md documenta este
+# mismo caso ("Agosto") como el único falso positivo de PP-03, y ni
+# gpt-oss:20b ni llama3.2:3b lo descartaron de forma consistente (ver
+# comparación de modelos en ese mismo archivo) -- se resuelve acá con una
+# regla determinista, sin gastar una llamada al LLM.
+_REGLA_MES_MAYUSCULA = "MIN_MESES"
+
 
 @dataclass(frozen=True)
 class HallazgoOrtografico:
@@ -48,12 +65,59 @@ class HallazgoOrtografico:
     regla_codigo: str = "RN-06"
 
 
+@dataclass(frozen=True)
+class CandidatoDudoso:
+    """Un caso que LanguageTool marcó pero que depende del contexto
+    gramatical -- todavía sin confirmar. Se persiste como `Hallazgo` con
+    `estado="en_validacion"` (ver `orquestador.pipeline_ortografia`) para
+    que la UI lo muestre de inmediato, antes de que el LLM lo confirme o
+    lo descarte."""
+
+    ubicacion: str
+    texto_original: str
+    sugerencia_lt: str
+    mensaje_lt: str
+    regla_id: str
+
+
+@dataclass(frozen=True)
+class ResultadoValidacionDudoso:
+    candidato: CandidatoDudoso
+    es_error: bool
+    correccion_sugerida: str
+    explicacion: str
+
+
+@dataclass(frozen=True)
+class ResultadoClasificacion:
+    deterministas: list[HallazgoOrtografico]
+    dudosos: list[CandidatoDudoso]
+
+
 def _es_termino_de_glosario(texto: str, glosario_normalizado: set[str]) -> bool:
     return texto.strip().lower() in glosario_normalizado
 
 
 def _es_numero_o_codigo(texto: str) -> bool:
     return bool(_PATRON_SOLO_NUMERO_O_CODIGO.match(texto.strip()))
+
+
+_UBICACIONES_EXACTAS_DE_TITULO = frozenset({"Párrafo 0", "Página 1, bloque 1"})
+_PATRON_UBICACION_DE_TITULO = re.compile(
+    r"^(Encabezado \d+,|Pie de página \d+,|Diapositiva \d+, título)"
+)
+
+
+def _es_ubicacion_de_titulo_o_encabezado(ubicacion: str) -> bool:
+    if ubicacion in _UBICACIONES_EXACTAS_DE_TITULO:
+        return True
+    return bool(_PATRON_UBICACION_DE_TITULO.match(ubicacion))
+
+
+def _es_mes_en_titulo_o_encabezado(coincidencia: CoincidenciaLT, ubicacion: str) -> bool:
+    return coincidencia.regla_id == _REGLA_MES_MAYUSCULA and _es_ubicacion_de_titulo_o_encabezado(
+        ubicacion
+    )
 
 
 def _hallazgo_determinista(
@@ -69,16 +133,57 @@ def _hallazgo_determinista(
     )
 
 
-def _construir_prompt_lote(candidatos: list[tuple[SegmentoTexto, CoincidenciaLT]]) -> str:
+def clasificar_segmentos(
+    segmentos: list[SegmentoTexto], *, glosario: set[str], funcion_revisar_lt: FuncionRevisarLT
+) -> ResultadoClasificacion:
+    """Fase 1 (RNF-04, Bloque O6): solo LanguageTool -- rápida, sin LLM.
+    Los términos del glosario del área, los números/códigos y los meses en
+    mayúscula dentro de un título/encabezado se excluyen antes de
+    clasificar el resto en deterministas (listos como hallazgo) o dudosos
+    (todavía sin confirmar)."""
+    glosario_normalizado = {t.strip().lower() for t in glosario}
+    deterministas: list[HallazgoOrtografico] = []
+    dudosos: list[CandidatoDudoso] = []
+
+    for segmento in segmentos:
+        for coincidencia in funcion_revisar_lt(segmento.texto):
+            if _es_termino_de_glosario(coincidencia.texto, glosario_normalizado):
+                continue
+            if _es_numero_o_codigo(coincidencia.texto):
+                continue
+            if _es_mes_en_titulo_o_encabezado(coincidencia, segmento.ubicacion):
+                continue
+            if coincidencia.categoria in CATEGORIAS_DETERMINISTAS:
+                deterministas.append(_hallazgo_determinista(segmento, coincidencia))
+            else:
+                sugerencia = (
+                    coincidencia.sugerencias[0] if coincidencia.sugerencias else coincidencia.texto
+                )
+                dudosos.append(
+                    CandidatoDudoso(
+                        ubicacion=segmento.ubicacion,
+                        texto_original=coincidencia.texto,
+                        sugerencia_lt=sugerencia,
+                        mensaje_lt=coincidencia.mensaje,
+                        regla_id=coincidencia.regla_id,
+                    )
+                )
+
+    return ResultadoClasificacion(deterministas=deterministas, dudosos=dudosos)
+
+
+def _construir_prompt_lote(
+    candidatos: list[CandidatoDudoso], contexto_por_ubicacion: dict[str, str]
+) -> str:
     bloques = []
-    for indice, (segmento, coincidencia) in enumerate(candidatos):
-        sugerencias = ", ".join(f'"{s}"' for s in coincidencia.sugerencias[:3]) or "(ninguna)"
+    for indice, candidato in enumerate(candidatos):
+        contexto = contexto_por_ubicacion.get(candidato.ubicacion, candidato.texto_original)
         bloques.append(
             f"### Caso {indice}\n"
-            f"- Contexto: {segmento.texto}\n"
-            f'- Fragmento marcado: "{coincidencia.texto}"\n'
-            f"- Regla que lo marcó: {coincidencia.regla_id} ({coincidencia.mensaje})\n"
-            f"- Sugerencia(s) de LanguageTool: {sugerencias}"
+            f"- Contexto: {contexto}\n"
+            f'- Fragmento marcado: "{candidato.texto_original}"\n'
+            f"- Regla que lo marcó: {candidato.regla_id} ({candidato.mensaje_lt})\n"
+            f'- Sugerencia de LanguageTool: "{candidato.sugerencia_lt}"'
         )
     return (
         "Eres un asistente que revisa ortografía y gramática en español (es-GT).\n"
@@ -123,43 +228,44 @@ def _parsear_json_lote(texto_crudo: str) -> dict[int, dict[str, object]]:
     return resultado
 
 
-def _validar_dudosos_con_llm(
-    candidatos: list[tuple[SegmentoTexto, CoincidenciaLT]],
+def validar_candidatos_con_llm(
+    candidatos: list[CandidatoDudoso],
     *,
+    contexto_por_ubicacion: dict[str, str],
     funcion_llm: FuncionLLM,
-) -> list[HallazgoOrtografico]:
-    """Una sola llamada al LLM para todos los casos dudosos -- si el LLM no
-    responde JSON válido para un caso, ese caso se descarta (no se reporta
-    como hallazgo): más vale un falso negativo puntual que arriesgar un
-    falso positivo sin que LanguageTool ni el LLM lo hayan confirmado."""
+) -> list[ResultadoValidacionDudoso]:
+    """Fase 2 (RNF-04, Bloque O6): una sola llamada al LLM para todos los
+    casos dudosos de un documento -- corre aparte de la clasificación
+    (`clasificar_segmentos`), típicamente en segundo plano. Si el LLM no
+    responde JSON válido para un caso, se descarta (es_error=False): más
+    vale un falso negativo puntual que arriesgar un falso positivo sin que
+    LanguageTool ni el LLM lo hayan confirmado."""
     if not candidatos:
         return []
 
-    prompt = _construir_prompt_lote(candidatos)
+    prompt = _construir_prompt_lote(candidatos, contexto_por_ubicacion)
     texto_crudo = funcion_llm(prompt)
     por_indice = _parsear_json_lote(texto_crudo)
 
-    hallazgos: list[HallazgoOrtografico] = []
-    for indice, (segmento, coincidencia) in enumerate(candidatos):
+    resultados: list[ResultadoValidacionDudoso] = []
+    for indice, candidato in enumerate(candidatos):
         entrada = por_indice.get(indice)
-        if not entrada or not entrada.get("es_error"):
-            continue
-        sugerencia = str(entrada.get("sugerencia") or "").strip()
+        es_error = bool(entrada and entrada.get("es_error"))
+        sugerencia = str(entrada.get("sugerencia") or "").strip() if entrada else ""
         if not sugerencia:
-            sugerencia = (
-                coincidencia.sugerencias[0] if coincidencia.sugerencias else coincidencia.texto
-            )
-        explicacion = str(entrada.get("explicacion") or coincidencia.mensaje).strip()
-        hallazgos.append(
-            HallazgoOrtografico(
-                severidad="media",
-                ubicacion=segmento.ubicacion,
-                descripcion=f"«{coincidencia.texto}»: {explicacion}",
+            sugerencia = candidato.sugerencia_lt
+        explicacion = str(entrada.get("explicacion") or "").strip() if entrada else ""
+        if not explicacion:
+            explicacion = candidato.mensaje_lt
+        resultados.append(
+            ResultadoValidacionDudoso(
+                candidato=candidato,
+                es_error=es_error,
                 correccion_sugerida=sugerencia,
-                texto_original=coincidencia.texto,
+                explicacion=explicacion,
             )
         )
-    return hallazgos
+    return resultados
 
 
 def revisar_segmentos(
@@ -169,25 +275,32 @@ def revisar_segmentos(
     funcion_revisar_lt: FuncionRevisarLT,
     funcion_llm: FuncionLLM,
 ) -> list[HallazgoOrtografico]:
-    """RN-06: cada `SegmentoTexto` (párrafo, celda, viñeta, etc. -- ver
-    `parsers.segmentos`) pasa por LanguageTool; los términos del glosario del
-    área y los números/códigos se excluyen antes de clasificar el resto en
-    deterministas (van directo a hallazgo) o dudosos (se acumulan y se
-    validan todos juntos con una sola llamada al LLM al final)."""
-    glosario_normalizado = {t.strip().lower() for t in glosario}
-    hallazgos: list[HallazgoOrtografico] = []
-    candidatos_dudosos: list[tuple[SegmentoTexto, CoincidenciaLT]] = []
+    """Atajo síncrono (clasificar + validar dudosos en un solo paso) para
+    quien no necesita las dos fases por separado -- pruebas y mediciones
+    (PP-03, Bloque O5/O6). En producción, `orquestador.tareas` usa
+    `clasificar_segmentos` y `validar_candidatos_con_llm` por separado
+    (RNF-04, Bloque O6)."""
+    clasificacion = clasificar_segmentos(
+        segmentos, glosario=glosario, funcion_revisar_lt=funcion_revisar_lt
+    )
+    contexto_por_ubicacion = {s.ubicacion: s.texto for s in segmentos}
+    resultados = validar_candidatos_con_llm(
+        clasificacion.dudosos,
+        contexto_por_ubicacion=contexto_por_ubicacion,
+        funcion_llm=funcion_llm,
+    )
 
-    for segmento in segmentos:
-        for coincidencia in funcion_revisar_lt(segmento.texto):
-            if _es_termino_de_glosario(coincidencia.texto, glosario_normalizado):
-                continue
-            if _es_numero_o_codigo(coincidencia.texto):
-                continue
-            if coincidencia.categoria in CATEGORIAS_DETERMINISTAS:
-                hallazgos.append(_hallazgo_determinista(segmento, coincidencia))
-            else:
-                candidatos_dudosos.append((segmento, coincidencia))
-
-    hallazgos += _validar_dudosos_con_llm(candidatos_dudosos, funcion_llm=funcion_llm)
+    hallazgos = list(clasificacion.deterministas)
+    for resultado in resultados:
+        if not resultado.es_error:
+            continue
+        hallazgos.append(
+            HallazgoOrtografico(
+                severidad="media",
+                ubicacion=resultado.candidato.ubicacion,
+                descripcion=f"«{resultado.candidato.texto_original}»: {resultado.explicacion}",
+                correccion_sugerida=resultado.correccion_sugerida,
+                texto_original=resultado.candidato.texto_original,
+            )
+        )
     return hallazgos
