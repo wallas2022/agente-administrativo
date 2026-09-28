@@ -6,10 +6,20 @@ WORKDIR /app
 
 COPY comun/requirements.txt ./comun/requirements.txt
 COPY api/requirements.txt ./api/requirements.txt
-RUN pip install --no-cache-dir -r api/requirements.txt
+COPY parsers/requirements.txt ./parsers/requirements.txt
+COPY ortografia/requirements.txt ./ortografia/requirements.txt
+RUN pip install --no-cache-dir \
+    -r api/requirements.txt \
+    -r parsers/requirements.txt \
+    -r ortografia/requirements.txt
 
 COPY comun ./comun
 COPY api ./api
+# CU-05 (Bloque O4): POST /analisis/{id}/generar-corregido aplica las
+# correcciones aceptadas de forma síncrona (sin LLM de por medio), así que
+# la API necesita estos paquetes -- no solo el worker.
+COPY parsers ./parsers
+COPY ortografia ./ortografia
 
 EXPOSE 8000
 

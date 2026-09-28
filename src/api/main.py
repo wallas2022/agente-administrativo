@@ -7,6 +7,7 @@ negocio todavía (Sprint 1). Relacionado con docs/03-diseno/c4/02-contenedores.m
 docs/03-diseno/secuencia/cu-01-excel-contable.md.
 """
 
+import mimetypes
 import os
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -28,6 +29,7 @@ from api.esquemas import (
     RespuestaAnalisis,
     RespuestaCompletarCarga,
     RespuestaDecision,
+    RespuestaGenerarCorregido,
     RespuestaIniciarCarga,
     RespuestaToken,
     SolicitudCompletarCarga,
@@ -57,6 +59,7 @@ from comun.seguridad import (
     decodificar_token_acceso,
 )
 from comun.semillas import sembrar_datos_de_prueba
+from ortografia.generar_corregido import generar_documento_corregido
 
 
 @asynccontextmanager
@@ -268,6 +271,15 @@ def completar_carga(
     documento = sesion.get(Documento, uuid.UUID(documento_id))
     if documento is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento no encontrado")
+
+    # RN-03 necesita periodo_cierre para comparar la fecha de cada partida --
+    # sin este chequeo, la falta del campo solo se descubriría más tarde,
+    # como una excepción dentro del worker (ver pipeline_contable.py).
+    if datos.tipo_revision == "contable" and not datos.periodo_cierre:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="periodo_cierre es obligatorio para tipo_revision='contable'",
+        )
 
     partes: list[almacenamiento.ParteSubida] = [
         {"PartNumber": p.numero_parte, "ETag": p.etag} for p in datos.partes
@@ -505,6 +517,90 @@ def decidir_hallazgo(
     )
 
 
+@app.post("/analisis/{analisis_id}/generar-corregido", response_model=RespuestaGenerarCorregido)
+def generar_corregido(
+    analisis_id: str,
+    usuario: Annotated[
+        Usuario, Depends(requiere_rol(RolUsuario.REVISOR, RolUsuario.ADMINISTRADOR))
+    ],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+    cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
+) -> RespuestaGenerarCorregido:
+    """RF-14 (CU-05): aplica solo los hallazgos ya "aceptados" (CU-07) sobre
+    el documento original y sube el resultado como nueva `VersionDocumento`
+    corregida. A diferencia de CU-01, esto no ocurre automáticamente durante
+    el análisis -- el Revisor lo dispara explícitamente después de decidir
+    (docs/03-diseno/secuencia/cu-05-ortografia.md, supuesto 4). Sin LLM de
+    por medio (las correcciones ya están decididas), se hace síncrono."""
+    analisis = sesion.get(Analisis, uuid.UUID(analisis_id))
+    if analisis is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Análisis no encontrado")
+    documento = sesion.get(Documento, analisis.documento_id)
+    if documento is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento no encontrado")
+
+    if documento.usuario_carga_id == usuario.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Quien cargó el documento no puede generar el corregido (RN-07)",
+        )
+    if _nombre_rol(usuario) not in (RolUsuario.ADMINISTRADOR.value, RolUsuario.AUDITOR.value):
+        if documento.area_id != usuario.area_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No puede generar el corregido de un análisis de otra área",
+            )
+
+    tipo_revision = sesion.get(TipoRevision, analisis.tipo_revision_id)
+    if tipo_revision is None or tipo_revision.nombre != "ortografia":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Solo aplica a análisis de tipo 'ortografia'",
+        )
+
+    hallazgos = sesion.query(Hallazgo).filter_by(analisis_id=analisis.id).all()
+    version_original = (
+        sesion.query(VersionDocumento)
+        .filter_by(documento_id=documento.id, es_corregida=False)
+        .order_by(VersionDocumento.numero_version.asc())
+        .first()
+    )
+    if version_original is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No se encontró el documento original"
+        )
+
+    contenido_original = almacenamiento.descargar_objeto(
+        cliente_s3, BUCKET_DOCUMENTOS, version_original.ruta_almacenamiento
+    )
+    resultado = generar_documento_corregido(
+        tipo_archivo=documento.tipo_archivo,
+        contenido_original=contenido_original,
+        hallazgos=hallazgos,
+    )
+    if resultado is None:
+        return RespuestaGenerarCorregido(generado=False)
+
+    contenido_corregido, extension = resultado
+    ultima_version = (
+        max(v.numero_version for v in documento.versiones) if documento.versiones else 1
+    )
+    base, _, _ = version_original.ruta_almacenamiento.rpartition(".")
+    llave_corregida = f"{base}.corregido.{extension}"
+    almacenamiento.subir_objeto(cliente_s3, BUCKET_DOCUMENTOS, llave_corregida, contenido_corregido)
+    sesion.add(
+        VersionDocumento(
+            documento_id=documento.id,
+            numero_version=ultima_version + 1,
+            ruta_almacenamiento=llave_corregida,
+            es_corregida=True,
+            fecha_creacion=datetime.now(UTC),
+        )
+    )
+    sesion.commit()
+    return RespuestaGenerarCorregido(generado=True)
+
+
 @app.get("/fuentes-conocimiento", response_model=list[FuenteConocimientoEsquema])
 def listar_fuentes_conocimiento(
     usuario: Annotated[Usuario, Depends(usuario_actual)],
@@ -533,10 +629,12 @@ def descargar_version_corregida(
     sesion: Annotated[Session, Depends(obtener_sesion)],
     cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
 ) -> Response:
-    """Pantalla 3 (U4): descarga del Excel con las celdas marcadas
-    (validadores.contable.salida). La API hace de intermediaria en vez de dar
-    un enlace directo a LocalStack/MinIO porque ese endpoint interno
-    (`localstack:4566`) no es alcanzable desde el navegador."""
+    """Descarga la versión corregida del documento -- el Excel con celdas
+    marcadas de CU-01 (validadores.contable.salida) o el documento con el
+    texto ya corregido de CU-05 (ortografia.generar_corregido). La API hace
+    de intermediaria en vez de dar un enlace directo a LocalStack/MinIO
+    porque ese endpoint interno (`localstack:4566`) no es alcanzable desde
+    el navegador."""
     documento = sesion.get(Documento, uuid.UUID(documento_id))
     if documento is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento no encontrado")
@@ -562,10 +660,13 @@ def descargar_version_corregida(
     contenido = almacenamiento.descargar_objeto(
         cliente_s3, BUCKET_DOCUMENTOS, version.ruta_almacenamiento
     )
-    base, _, extension = documento.nombre_original.rpartition(".")
-    nombre_descarga = f"{base or documento.nombre_original}.marcado.{extension or 'xlsx'}"
+    # El nombre de descarga sale de la propia llave de almacenamiento (no de
+    # documento.nombre_original + una extensión fija): la extensión real del
+    # corregido puede diferir de la original (CU-05, PDF -> docx).
+    nombre_descarga = version.ruta_almacenamiento.rsplit("/", 1)[-1]
+    tipo_mime = mimetypes.guess_type(nombre_descarga)[0] or "application/octet-stream"
     return Response(
         content=contenido,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type=tipo_mime,
         headers={"Content-Disposition": f'attachment; filename="{nombre_descarga}"'},
     )

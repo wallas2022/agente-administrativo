@@ -37,8 +37,9 @@ class SolicitudCompletarCarga(BaseModel):
     partes: list[ParteSubidaEsquema]
     tipo_revision: str
     # "AAAA-MM": período contable que se está cerrando/revisando (RN-03), no la
-    # fecha en que se ejecuta el análisis.
-    periodo_cierre: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    # fecha en que se ejecuta el análisis. Solo aplica a tipo_revision=="contable"
+    # -- CU-05 (ortografía) no tiene período de cierre.
+    periodo_cierre: str | None = Field(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
 
 
 class RespuestaCompletarCarga(BaseModel):
@@ -89,6 +90,12 @@ class RespuestaDecision(BaseModel):
     hallazgo_id: str
     resultado: str
     fecha: datetime
+
+
+class RespuestaGenerarCorregido(BaseModel):
+    # False cuando ningún hallazgo está "aceptado" todavía -- no hay nada
+    # que aplicar (RF-14, CU-05).
+    generado: bool
 
 
 class BitacoraEsquema(BaseModel):

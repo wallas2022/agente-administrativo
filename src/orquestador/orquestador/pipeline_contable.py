@@ -18,6 +18,7 @@ from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
 
 from comun.modelos import Analisis, Documento, Hallazgo, VersionDocumento
+from orquestador.rutas_kb import encontrar_raiz_con_kb
 from parsers.excel import leer_libro_contable
 from rag.busqueda import buscar_fragmentos
 from validadores.contable.explicacion import (
@@ -32,29 +33,8 @@ from validadores.contable.reglas import HallazgoDetectado, validar_libro_contabl
 from validadores.contable.salida import marcar_celdas_en_libro
 
 
-def _encontrar_raiz_con_kb(profundidad_maxima: int = 6) -> Path:
-    """Busca hacia arriba desde este archivo un directorio que contenga `kb/`.
-
-    La ubicación de `kb/` respecto a este módulo cambia según el entorno: en
-    local, el paquete vive anidado en `src/orquestador/orquestador/` (3
-    niveles bajo la raíz del repo); en la imagen Docker, `orquestador/Dockerfile`
-    lo aplana a `/app/orquestador/` y copia `kb/` como `/app/kb/` (1 nivel).
-    Recorrer hacia arriba evita hardcodear ese índice.
-    """
-    actual = Path(__file__).resolve().parent
-    for _ in range(profundidad_maxima):
-        if (actual / "kb").is_dir():
-            return actual
-        if actual.parent == actual:
-            break
-        actual = actual.parent
-    raise FileNotFoundError(
-        f"No se encontró un directorio 'kb/' subiendo desde {Path(__file__).resolve()}"
-    )
-
-
 def _ruta_catalogo_por_defecto() -> Path:
-    return _encontrar_raiz_con_kb() / "kb" / "fuentes" / "catalogo-cuentas-contabilidad.csv"
+    return encontrar_raiz_con_kb() / "kb" / "fuentes" / "catalogo-cuentas-contabilidad.csv"
 
 
 COLECCION_RAG = "kb-contable"

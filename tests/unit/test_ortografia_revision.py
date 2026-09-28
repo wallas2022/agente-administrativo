@@ -43,6 +43,7 @@ def test_coincidencia_typos_genera_hallazgo_determinista_sin_llm() -> None:
     assert len(hallazgos) == 1
     assert hallazgos[0].ubicacion == "Párrafo 1"
     assert hallazgos[0].correccion_sugerida == "aprobado"
+    assert hallazgos[0].texto_original == "aprovado"
     assert "aprovado" in hallazgos[0].descripcion
     assert hallazgos[0].regla_codigo == "RN-06"
 
@@ -105,6 +106,7 @@ def test_caso_dudoso_confirmado_por_el_llm_genera_hallazgo() -> None:
 
     assert len(hallazgos) == 1
     assert hallazgos[0].correccion_sugerida == "dé"
+    assert hallazgos[0].texto_original == "de"
     assert "diacrítica" in hallazgos[0].descripcion
 
 

@@ -44,6 +44,7 @@ class HallazgoOrtografico:
     ubicacion: str
     descripcion: str
     correccion_sugerida: str
+    texto_original: str
     regla_codigo: str = "RN-06"
 
 
@@ -64,6 +65,7 @@ def _hallazgo_determinista(
         ubicacion=segmento.ubicacion,
         descripcion=f"«{coincidencia.texto}»: {coincidencia.mensaje}",
         correccion_sugerida=sugerencia,
+        texto_original=coincidencia.texto,
     )
 
 
@@ -154,6 +156,7 @@ def _validar_dudosos_con_llm(
                 ubicacion=segmento.ubicacion,
                 descripcion=f"«{coincidencia.texto}»: {explicacion}",
                 correccion_sugerida=sugerencia,
+                texto_original=coincidencia.texto,
             )
         )
     return hallazgos

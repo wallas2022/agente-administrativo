@@ -3,8 +3,11 @@
 Orquestación de estados de F1/L2 (docs/03-diseno/estados/estados-analisis.md).
 Sprint 1 (CU-01) agrega el adaptador de `tipo_revision == "contable"`, que
 delega en `pipeline_contable.procesar_documento_contable` (parser → reglas →
-RAG → explicación → salida). Otros tipos de revisión siguen el flujo genérico
-sin validadores hasta que se implementen sus propios adaptadores.
+RAG → explicación → salida). CU-05 (Bloque O4) agrega el de `"ortografia"`,
+que delega en `pipeline_ortografia.procesar_documento_ortografia` (extracción
+→ LanguageTool + glosario + LLM → persistencia). Otros tipos de revisión
+siguen el flujo genérico sin validadores hasta que se implementen sus
+propios adaptadores.
 """
 
 import os
@@ -19,10 +22,17 @@ from comun.db import obtener_fabrica_sesion
 from comun.estados import EstadoAnalisis, EstadoDocumento
 from comun.modelos import Analisis, Bitacora, Documento, TipoRevision, VersionDocumento
 from orquestador.pipeline_contable import FuncionEmbedding, FuncionLLM, procesar_documento_contable
+from orquestador.pipeline_ortografia import FuncionRevisarLT, procesar_documento_ortografia
+from parsers.pdf import PdfSinTextoError
 
 
 def _registrar_bitacora(
-    sesion: Session, *, usuario_id: uuid.UUID, accion: str, entidad_id: uuid.UUID
+    sesion: Session,
+    *,
+    usuario_id: uuid.UUID,
+    accion: str,
+    entidad_id: uuid.UUID,
+    detalle: str | None = None,
 ) -> None:
     sesion.add(
         Bitacora(
@@ -31,6 +41,7 @@ def _registrar_bitacora(
             entidad_tipo="analisis",
             entidad_id=entidad_id,
             fecha_hora=datetime.now(UTC),
+            detalle=detalle,
         )
     )
 
@@ -47,12 +58,13 @@ def ejecutar_analisis(
     funcion_llm: FuncionLLM | None = None,
     modelo_llm: str | None = None,
     coleccion_rag: str | None = None,
+    funcion_revisar_lt: FuncionRevisarLT | None = None,
 ) -> str:
     """Lógica pura (sin Celery) para poder probarla con una sesión en memoria.
 
     Los parámetros de infraestructura (`cliente_s3`, `cliente_qdrant`, etc.)
-    son opcionales: sin ellos, cualquier análisis (incluido uno contable) usa
-    el flujo genérico sin validadores, como en L2.
+    son opcionales: sin ellos, cualquier análisis (incluido uno contable o de
+    ortografía) usa el flujo genérico sin validadores, como en L2.
     """
     documento = sesion.get(Documento, documento_id)
     analisis = sesion.get(Analisis, analisis_id)
@@ -105,6 +117,41 @@ def ejecutar_analisis(
             subir_version_corregida=_subir_version_corregida,
             coleccion_rag=coleccion_rag,
         )
+    elif (
+        tipo_revision is not None
+        and tipo_revision.nombre == "ortografia"
+        and version_original is not None
+        and cliente_s3 is not None
+        and bucket is not None
+        and funcion_revisar_lt is not None
+        and funcion_llm is not None
+    ):
+        contenido_original = almacenamiento.descargar_objeto(
+            cliente_s3, bucket, version_original.ruta_almacenamiento
+        )
+        try:
+            hallazgos = procesar_documento_ortografia(
+                sesion,
+                analisis=analisis,
+                version_original=version_original,
+                contenido_original=contenido_original,
+                tipo_archivo=documento.tipo_archivo,
+                funcion_revisar_lt=funcion_revisar_lt,
+                funcion_llm=funcion_llm,
+            )
+        except PdfSinTextoError as error:
+            documento.estado = EstadoDocumento.FALLIDO.value
+            analisis.estado = EstadoAnalisis.FALLIDO.value
+            analisis.fecha_fin = datetime.now(UTC)
+            _registrar_bitacora(
+                sesion,
+                usuario_id=analisis.usuario_id,
+                accion="analisis_fallido",
+                entidad_id=analisis.id,
+                detalle=str(error),
+            )
+            sesion.commit()
+            return documento.estado
 
     documento.estado = (
         EstadoDocumento.CON_HALLAZGOS.value if hallazgos else EstadoDocumento.EN_REVISION.value
@@ -123,6 +170,7 @@ def ejecutar_analisis(
 
 @app.task(name="orquestador.tareas.analizar_documento")
 def analizar_documento(documento_id: str, analisis_id: str) -> str:
+    from ortografia.cliente_languagetool import revisar_texto
     from rag.cliente_embeddings import obtener_embedding
     from rag.cliente_llm import generar_texto
 
@@ -145,6 +193,7 @@ def analizar_documento(documento_id: str, analisis_id: str) -> str:
             funcion_llm=generar_texto,
             modelo_llm=os.environ.get("LLM_MODEL_PRINCIPAL", ""),
             coleccion_rag=os.environ.get("QDRANT_COLECCION"),
+            funcion_revisar_lt=revisar_texto,
         )
     finally:
         sesion.close()

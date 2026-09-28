@@ -134,6 +134,11 @@ class Hallazgo(Base):
     ubicacion: Mapped[str] = mapped_column(String(200), nullable=False)
     descripcion: Mapped[str] = mapped_column(Text, nullable=False)
     correccion_sugerida: Mapped[str | None] = mapped_column(Text)
+    # Texto exacto marcado como incorrecto (CU-05, RF-14): permite reaplicar
+    # solo las correcciones aceptadas sobre el documento original sin tener
+    # que volver a correr LanguageTool/LLM. None para hallazgos de CU-01
+    # (contable), que no corrigen texto -- solo marcan celdas.
+    texto_original: Mapped[str | None] = mapped_column(String(500))
     monto: Mapped[float | None] = mapped_column(Numeric(18, 2))
     # No es un solo código ISO 4217 (3 letras): RN-05 registra la combinación de
     # monedas mezcladas en la partida, p. ej. "Q/USD".
