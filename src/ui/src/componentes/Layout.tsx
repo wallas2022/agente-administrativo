@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
+import logoServiciosCompartidos from "../assets/logo-servicios-compartidos.png";
 import { useAuth } from "../auth/ContextoAuth";
 import "./Layout.css";
 
@@ -15,7 +16,14 @@ export function Layout() {
   return (
     <div className="layout">
       <aside className="layout__sidebar">
-        <div className="layout__marca">Agente Administrativo</div>
+        <div className="layout__marca">
+          <img
+            className="layout__logo"
+            src={logoServiciosCompartidos}
+            alt="Servicios Compartidos"
+          />
+          <span className="layout__nombre-app">Agente Administrativo</span>
+        </div>
         <nav className="layout__nav">
           {ENLACES.map((enlace) => (
             <NavLink

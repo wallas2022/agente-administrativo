@@ -13,12 +13,29 @@
 }
 
 .layout__marca {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 4px 8px 20px;
+  border-bottom: 1px solid var(--color-sidebar-borde);
+  margin-bottom: 12px;
+}
+
+.layout__logo {
+  /* El logo tiene texto en tono oscuro sobre fondo transparente; se apoya en
+     una placa clara para que no se pierda contra el sidebar oscuro. */
+  background: var(--color-sidebar-texto-activo);
+  border-radius: var(--radio);
+  padding: 6px 10px;
+  height: 32px;
+  width: auto;
+}
+
+.layout__nombre-app {
   font-family: var(--fuente-serif);
   font-size: 1.05rem;
   color: var(--color-sidebar-texto-activo);
-  padding: 0 8px 20px;
-  border-bottom: 1px solid var(--color-sidebar-borde);
-  margin-bottom: 12px;
 }
 
 .layout__nav {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { clienteApi } from "../api/cliente";
+import type { Hallazgo } from "../componentes/TarjetaHallazgo";
 
 export type RespuestaAnalisis = {
   id: string;
@@ -27,6 +28,7 @@ const ESTADOS_EN_PROCESO = new Set(["cargado", "procesando"]);
 export interface EstadoAnalisisEnVivo {
   analisis: RespuestaAnalisis | null;
   bitacora: BitacoraEntrada[];
+  hallazgos: Hallazgo[];
   error: string | null;
 }
 
@@ -36,6 +38,7 @@ export function useAnalisisEnVivo(
 ): EstadoAnalisisEnVivo {
   const [analisis, setAnalisis] = useState<RespuestaAnalisis | null>(null);
   const [bitacora, setBitacora] = useState<BitacoraEntrada[]>([]);
+  const [hallazgos, setHallazgos] = useState<Hallazgo[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -50,11 +53,14 @@ export function useAnalisisEnVivo(
       // de dejar que un rechazo sin capturar corte la cadena de setTimeout.
       let siguienteRonda = true;
       try {
-        const [respuestaAnalisis, respuestaBitacora] = await Promise.all([
+        const [respuestaAnalisis, respuestaBitacora, respuestaHallazgos] = await Promise.all([
           clienteApi.GET("/analisis/{analisis_id}", {
             params: { path: { analisis_id: analisisId } },
           }),
           clienteApi.GET("/analisis/{analisis_id}/bitacora", {
+            params: { path: { analisis_id: analisisId } },
+          }),
+          clienteApi.GET("/analisis/{analisis_id}/hallazgos", {
             params: { path: { analisis_id: analisisId } },
           }),
         ]);
@@ -67,6 +73,12 @@ export function useAnalisisEnVivo(
           setError(null);
           if (!respuestaBitacora.error && respuestaBitacora.data) {
             setBitacora(respuestaBitacora.data);
+          }
+          // Hallazgos deterministas (RN-02/03/04/FORMULA): quedan guardados
+          // antes que termine la (posible) llamada al LLM para RN-01/RN-05,
+          // así que ya se pueden mostrar aunque el análisis siga procesando.
+          if (!respuestaHallazgos.error && respuestaHallazgos.data) {
+            setHallazgos(respuestaHallazgos.data);
           }
           siguienteRonda = ESTADOS_EN_PROCESO.has(respuestaAnalisis.data.estado);
         }
@@ -87,5 +99,5 @@ export function useAnalisisEnVivo(
     };
   }, [analisisId, intervaloMs]);
 
-  return { analisis, bitacora, error };
+  return { analisis, bitacora, hallazgos, error };
 }

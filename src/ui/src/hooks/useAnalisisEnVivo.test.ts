@@ -24,6 +24,19 @@ function respuestaAnalisis(estado: string) {
 
 const respuestaBitacoraVacia = { data: [], error: undefined };
 
+function respuestaHallazgos(hallazgos: unknown[]) {
+  return { data: hallazgos, error: undefined };
+}
+
+const HALLAZGO_DETERMINISTA = {
+  id: "hallazgo-1",
+  severidad: "alta",
+  ubicacion: "Partidas!A3",
+  descripcion: "La cuenta '9999' no existe en el catálogo de cuentas vigente",
+  correccion_sugerida: "Verifica el código de cuenta en el catálogo de cuentas vigente.",
+  estado: "pendiente",
+};
+
 // Intervalo real muy corto (no fake timers: chocan con el polling interno de
 // waitFor de Testing Library) — suficiente para observar más de un ciclo.
 const INTERVALO_PRUEBA_MS = 20;
@@ -68,6 +81,24 @@ describe("useAnalisisEnVivo", () => {
 
     await new Promise((resolve) => setTimeout(resolve, INTERVALO_PRUEBA_MS * 5));
     expect(clienteApi.GET).toHaveBeenCalledTimes(llamadasTrasPrimeraConsulta); // no volvió a llamar
+  });
+
+  it("expone los hallazgos deterministas ya persistidos aunque el análisis siga procesando", async () => {
+    vi.mocked(clienteApi.GET).mockImplementation((ruta: string) => {
+      if (ruta === "/analisis/{analisis_id}") {
+        return Promise.resolve(respuestaAnalisis("procesando")) as never;
+      }
+      if (ruta === "/analisis/{analisis_id}/hallazgos") {
+        return Promise.resolve(respuestaHallazgos([HALLAZGO_DETERMINISTA])) as never;
+      }
+      return Promise.resolve(respuestaBitacoraVacia) as never;
+    });
+
+    const { result } = renderHook(() => useAnalisisEnVivo("analisis-1", INTERVALO_PRUEBA_MS));
+
+    await waitFor(() => expect(result.current.hallazgos).toHaveLength(1));
+    expect(result.current.analisis?.estado).toBe("procesando");
+    expect(result.current.hallazgos[0].ubicacion).toBe("Partidas!A3");
   });
 
   it("expone un error si la consulta falla", async () => {
