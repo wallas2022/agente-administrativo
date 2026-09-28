@@ -1,5 +1,10 @@
 """Reglas deterministas de validación contable (RN-01 a RN-05, CU-01).
 
+RN-01 reporta tanto el descuadre global del documento como, si el archivo
+trae la columna opcional "Asiento" (7ma columna del Excel), el descuadre de
+cada asiento individual. RN-05 reporta cada partida cuya moneda difiere de
+la principal del documento (la más frecuente).
+
 RNF-03: todo cálculo numérico (cuadre, totales, comparaciones) lo hace este
 código, nunca el LLM. El LLM solo redacta la explicación en lenguaje natural
 a partir de estos hallazgos ya calculados (ver src/api o el orquestador,
@@ -58,6 +63,42 @@ def _validar_cuadre(libro: LibroContable) -> list[HallazgoDetectado]:
             monto=abs(diferencia),
         )
     ]
+
+
+def _validar_cuadre_por_asiento(libro: LibroContable) -> list[HallazgoDetectado]:
+    """Adicional a `_validar_cuadre` (descuadre global): si el archivo trae
+    la columna opcional "Asiento", reporta también cada asiento individual
+    cuyo debe y haber no coinciden -- una fila por partida del asiento
+    afectado, igual que `_validar_duplicados`. Los archivos sin esa columna
+    (formato previo, sigue siendo válido) no generan nada aquí y dependen
+    solo del chequeo global."""
+    grupos: dict[str, list[PartidaContable]] = defaultdict(list)
+    for p in libro.partidas:
+        if p.asiento:
+            grupos[p.asiento].append(p)
+
+    hallazgos = []
+    for numero_asiento, partidas_del_asiento in grupos.items():
+        total_debe = round(sum(p.debe for p in partidas_del_asiento), 2)
+        total_haber = round(sum(p.haber for p in partidas_del_asiento), 2)
+        if total_debe == total_haber:
+            continue
+        for p in partidas_del_asiento:
+            hallazgos.append(
+                HallazgoDetectado(
+                    regla_codigo="RN-01",
+                    severidad="alta",
+                    hoja=p.hoja,
+                    fila=p.fila,
+                    ubicacion=_ubicacion(p.hoja, p.fila),
+                    descripcion=(
+                        f"Descuadre en el asiento {numero_asiento}: total debe "
+                        f"({total_debe:.2f}) no coincide con total haber ({total_haber:.2f})"
+                    ),
+                    monto=round(abs(total_debe - total_haber), 2),
+                )
+            )
+    return hallazgos
 
 
 def _validar_formula_total(libro: LibroContable) -> list[HallazgoDetectado]:
@@ -151,25 +192,47 @@ def _validar_duplicados(libro: LibroContable) -> list[HallazgoDetectado]:
     return hallazgos
 
 
+def _moneda_principal(partidas: list[PartidaContable]) -> str | None:
+    """Moneda con más partidas del documento; un empate se resuelve a favor
+    de la que aparece primero (orden estable, sin depender del alfabeto)."""
+    conteos: dict[str, int] = {}
+    orden_aparicion: list[str] = []
+    for p in partidas:
+        if not p.moneda:
+            continue
+        if p.moneda not in conteos:
+            orden_aparicion.append(p.moneda)
+        conteos[p.moneda] = conteos.get(p.moneda, 0) + 1
+    if not orden_aparicion:
+        return None
+    return max(orden_aparicion, key=lambda m: conteos[m])
+
+
 def _validar_mezcla_moneda(libro: LibroContable) -> list[HallazgoDetectado]:
+    """Reporta cada partida cuya moneda difiere de la principal del
+    documento (la más frecuente) -- una fila por partida afectada, en vez
+    de un único aviso genérico, para que quede claro cuál(es) partida(s)
+    revisar."""
     monedas = {p.moneda for p in libro.partidas if p.moneda}
     if len(monedas) <= 1:
         return []
-    hoja = libro.partidas[0].hoja if libro.partidas else ""
-    fila = libro.partidas[0].fila if libro.partidas else 0
+    principal = _moneda_principal(libro.partidas)
     return [
         HallazgoDetectado(
             regla_codigo="RN-05",
             severidad="alta",
-            hoja=hoja,
-            fila=fila,
-            ubicacion=_ubicacion(hoja, fila),
+            hoja=p.hoja,
+            fila=p.fila,
+            ubicacion=_ubicacion(p.hoja, p.fila),
             descripcion=(
-                f"El documento mezcla las monedas {'/'.join(sorted(monedas))} sin un "
-                "tipo de cambio explícito registrado"
+                f"Esta partida usa moneda {p.moneda}, distinta de la moneda principal "
+                f"del documento ({principal}), sin un tipo de cambio explícito registrado"
             ),
-            moneda="/".join(sorted(monedas)),
+            monto=(p.debe or p.haber) or None,
+            moneda=p.moneda,
         )
+        for p in libro.partidas
+        if p.moneda and p.moneda != principal
     ]
 
 
@@ -178,6 +241,7 @@ def validar_libro_contable(
 ) -> list[HallazgoDetectado]:
     return [
         *_validar_cuadre(libro),
+        *_validar_cuadre_por_asiento(libro),
         *_validar_formula_total(libro),
         *_validar_cuentas(libro, catalogo),
         *_validar_periodo(libro, periodo),

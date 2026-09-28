@@ -108,7 +108,9 @@ def test_partidas_duplicadas_generan_hallazgo_rn04_por_cada_una() -> None:
     assert {h.ubicacion for h in rn04} == {"Partidas!A2", "Partidas!A3"}
 
 
-def test_mezcla_de_moneda_sin_tipo_de_cambio_genera_hallazgo_rn05() -> None:
+def test_mezcla_de_moneda_reporta_solo_la_partida_que_difiere_de_la_principal() -> None:
+    """Con empate 1-1, la principal es la primera en aparecer (Q); solo la
+    partida en USD -- la que realmente difiere -- genera un hallazgo."""
     libro = LibroContable(
         partidas=[
             _partida(fila=2, cuenta="1010", moneda="Q"),
@@ -121,7 +123,78 @@ def test_mezcla_de_moneda_sin_tipo_de_cambio_genera_hallazgo_rn05() -> None:
 
     assert len(rn05) == 1
     assert rn05[0].severidad == "alta"
-    assert rn05[0].moneda == "Q/USD"
+    assert rn05[0].ubicacion == "Partidas!A3"
+    assert rn05[0].moneda == "USD"
+
+
+def test_mezcla_de_moneda_reporta_cada_partida_de_la_moneda_minoritaria() -> None:
+    libro = LibroContable(
+        partidas=[
+            _partida(fila=2, cuenta="1010", moneda="Q"),
+            _partida(fila=3, cuenta="1010", moneda="Q"),
+            _partida(fila=4, cuenta="1010", moneda="USD"),
+            _partida(fila=5, cuenta="1010", moneda="USD"),
+        ]
+    )
+
+    hallazgos = validar_libro_contable(libro, catalogo=CATALOGO, periodo=PERIODO)
+    rn05 = [h for h in hallazgos if h.regla_codigo == "RN-05"]
+
+    assert {h.ubicacion for h in rn05} == {"Partidas!A4", "Partidas!A5"}
+    assert all(h.moneda == "USD" for h in rn05)
+
+
+def test_sin_mezcla_de_moneda_no_genera_hallazgo_rn05() -> None:
+    libro = LibroContable(
+        partidas=[
+            _partida(fila=2, cuenta="1010", moneda="Q"),
+            _partida(fila=3, cuenta="1010", moneda="Q"),
+        ]
+    )
+
+    hallazgos = validar_libro_contable(libro, catalogo=CATALOGO, periodo=PERIODO)
+    assert not [h for h in hallazgos if h.regla_codigo == "RN-05"]
+
+
+def test_descuadre_por_asiento_genera_hallazgo_solo_para_el_asiento_afectado() -> None:
+    """Dos asientos con la columna Asiento: uno cuadrado (0001) y otro no
+    (0002) -- solo el segundo genera hallazgos, uno por cada una de sus
+    partidas."""
+    libro = LibroContable(
+        partidas=[
+            _partida(fila=2, cuenta="1010", debe=100.0, haber=0.0, asiento="0001"),
+            _partida(fila=3, cuenta="4010", debe=0.0, haber=100.0, asiento="0001"),
+            _partida(fila=4, cuenta="1010", debe=50.0, haber=0.0, asiento="0002"),
+        ]
+    )
+
+    hallazgos = validar_libro_contable(libro, catalogo=CATALOGO, periodo=PERIODO)
+    rn01_por_asiento = [
+        h for h in hallazgos if h.regla_codigo == "RN-01" and "asiento 0002" in h.descripcion
+    ]
+
+    assert {h.ubicacion for h in rn01_por_asiento} == {"Partidas!A4"}
+    assert not any("asiento 0001" in h.descripcion for h in hallazgos)
+
+
+def test_descuadre_por_asiento_no_afecta_partidas_sin_columna_asiento() -> None:
+    """Sin la columna Asiento (asiento=None, el default), el documento
+    completo puede seguir descuadrado a nivel global sin que el cuadre por
+    asiento agregue hallazgos -- evita falsos positivos en archivos con el
+    formato previo (sin esa columna)."""
+    libro = LibroContable(
+        partidas=[
+            _partida(fila=2, cuenta="1010", debe=100.0, haber=0.0),
+            _partida(fila=3, cuenta="4010", debe=0.0, haber=90.0),
+        ]
+    )
+
+    hallazgos = validar_libro_contable(libro, catalogo=CATALOGO, periodo=PERIODO)
+    rn01 = [h for h in hallazgos if h.regla_codigo == "RN-01"]
+
+    # Solo el descuadre global (_validar_cuadre); nada del cuadre por asiento.
+    assert len(rn01) == 1
+    assert "Descuadre:" in rn01[0].descripcion
 
 
 def test_ningun_calculo_de_moneda_lo_hace_el_validador_rnf03() -> None:

@@ -25,6 +25,11 @@ class PartidaContable:
     debe: float
     haber: float
     moneda: str
+    # Columna "Asiento" (7ma, opcional): identifica a qué asiento contable
+    # pertenece la partida, para el cuadre por asiento de RN-01 (ver
+    # validadores.contable.reglas). None si el archivo no trae esa columna
+    # (formato previo, sigue siendo válido) o si la celda viene vacía.
+    asiento: str | None = None
 
 
 @dataclass(frozen=True)
@@ -61,9 +66,10 @@ def _a_fecha(valor: object) -> date | None:
 
 def leer_libro_contable(archivo: io.BytesIO | str, hoja: str | None = None) -> LibroContable:
     """Lee un Excel contable con columnas Cuenta|Descripcion|Fecha|Debe|Haber|Moneda
-    y una fila opcional "TOTAL" al final. Se hacen dos lecturas (con y sin
-    `data_only`) para poder distinguir una fórmula de un valor fijo (RNF-03:
-    el parser no calcula nada, solo reporta lo que hay en la hoja).
+    y, opcionalmente, una 7ma columna Asiento, más una fila opcional "TOTAL"
+    al final. Se hacen dos lecturas (con y sin `data_only`) para poder
+    distinguir una fórmula de un valor fijo (RNF-03: el parser no calcula
+    nada, solo reporta lo que hay en la hoja).
     """
     if hasattr(archivo, "seek"):
         archivo.seek(0)
@@ -100,6 +106,9 @@ def leer_libro_contable(archivo: io.BytesIO | str, hoja: str | None = None) -> L
             )
             continue
 
+        asiento_crudo = ws_valores.cell(row=num_fila, column=7).value
+        asiento = str(asiento_crudo).strip() if asiento_crudo not in (None, "") else None
+
         partidas.append(
             PartidaContable(
                 hoja=nombre_hoja,
@@ -110,6 +119,7 @@ def leer_libro_contable(archivo: io.BytesIO | str, hoja: str | None = None) -> L
                 debe=_a_numero(ws_valores.cell(row=num_fila, column=4).value),
                 haber=_a_numero(ws_valores.cell(row=num_fila, column=5).value),
                 moneda=str(ws_valores.cell(row=num_fila, column=6).value or "").strip().upper(),
+                asiento=asiento,
             )
         )
 
