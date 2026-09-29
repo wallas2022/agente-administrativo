@@ -1,7 +1,7 @@
 # Instalación
 
-**Versión:** 0.1.0
-**Fecha:** 2026-09-24
+**Versión:** 0.2.0
+**Fecha:** 2026-09-29
 **Relacionado con:** docs/03-diseno/despliegue/estrategia-ambientes.md, docs/06-operacion/despliegue-stage-proxmox.md, infra/scripts/
 
 Este documento cubre la instalación del ambiente **local** (desarrollo). Para **stage**, ver la guía dedicada — no se duplica aquí: [docs/06-operacion/despliegue-stage-proxmox.md](despliegue-stage-proxmox.md).
@@ -50,10 +50,17 @@ Por eso: instala Ollama nativo, descarga ahí los modelos, y `.env.local` apunta
 
 5. **Descargar el modelo LLM en Ollama nativo** (no en el contenedor — ver "Motor LLM" arriba), desde una terminal normal de Windows:
    ```powershell
-   ollama pull qwen2.5:14b
+   ollama pull gpt-oss:20b
    ollama pull bge-m3
    ```
    Ver `LLM_MODEL_PRINCIPAL` / `LLM_MODEL_EMBEDDINGS` en `.env.local` para los modelos configurados (usados por el análisis, RF-04). El script `infra/scripts/levantar-local.sh` intenta hacer este paso automáticamente si `ollama` está en el `PATH`.
+
+   **Modo offline y rendimiento (Bloque K6, RNF-01/PP-14):** `.env.local` define `OLLAMA_KEEP_ALIVE=24h` para que el modelo no se descargue de memoria entre análisis, pero esa variable **no llega al Ollama nativo** (el `env_file` de Docker solo alcanza a los contenedores, no a este proceso de Windows). Para que también aplique del lado del servidor, definirla antes de `ollama serve` en una terminal de Windows:
+   ```powershell
+   $env:OLLAMA_KEEP_ALIVE = "24h"
+   ollama serve
+   ```
+   No es estrictamente necesario: `rag/cliente_llm.py` y `rag/cliente_embeddings.py` ya mandan `"keep_alive": "24h"` en cada request, así que el modelo queda cargado aunque el servidor no tenga la variable — esto es un refuerzo, no un requisito. `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE`/`HF_HUB_DISABLE_TELEMETRY`/`DO_NOT_TRACK` (también en `.env.local`) son defensivas: hoy nada en el código usa HuggingFace/transformers directamente (bge-m3 y el LLM se sirven vía Ollama por HTTP), pero quedan definidas por si alguna dependencia transitiva las necesita. La verificación de que CU-01/CU-05/la ingesta de conocimiento (Bloque K3) no requieren salida a internet vive en `tests/integration/test_pp14_modo_offline.py` (PP-14 adaptado a local; en stage se verifica con monitoreo de firewall, ver `docs/04-pruebas/casos-prueba/PP-14.md`).
 
 6. **Verificar** que los servicios están sanos:
    ```bash

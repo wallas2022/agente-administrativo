@@ -47,6 +47,13 @@ done
 echo "== Descargando modelos en el Ollama NATIVO del host (no en el contenedor) ==" >&2
 echo "  LLM_BASE_URL=${LLM_BASE_URL:-[POR CONFIRMAR]} — debe apuntar al Ollama nativo," >&2
 echo "  ver docs/04-pruebas/resultados/local-L1.md sobre por qué no se usa el contenedor." >&2
+# Bloque K6: OLLAMA_KEEP_ALIVE de .env.local no llega a este proceso nativo de
+# Windows (env_file de Docker solo alcanza a los contenedores) -- se refuerza
+# igual por request en rag/cliente_llm.py y rag/cliente_embeddings.py, ver
+# docs/06-operacion/instalacion.md.
+echo "  OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-24h} — definir en el entorno de" >&2
+echo "  Windows antes de 'ollama serve' si además quieres que aplique del lado" >&2
+echo "  del servidor (opcional, ver docs/06-operacion/instalacion.md paso 5)." >&2
 if command -v ollama >/dev/null 2>&1; then
   echo "  Modelo principal: ${LLM_MODEL_PRINCIPAL:-[POR CONFIRMAR en .env.local]}" >&2
   ollama pull "${LLM_MODEL_PRINCIPAL:?LLM_MODEL_PRINCIPAL no definido en .env.local}"
