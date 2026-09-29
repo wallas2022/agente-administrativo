@@ -226,10 +226,31 @@ def test_aprobar_una_segunda_version_obsoletea_la_primera(cliente, sesion_bd) ->
 
     assert sesion_bd.get(FuenteConocimiento, uuid.UUID(v1["id"])).estado == "obsoleta"
     assert sesion_bd.get(FuenteConocimiento, uuid.UUID(v2["id"])).estado == "vigente"
-    # v1 y v2 comparten fuente_id -- desactivar por fuente_id_negocio apaga
-    # AMBAS tandas de puntos salvo que se haga antes de indexar v2. Solo
-    # importa que no truene y que la cuenta total sea coherente (7 + 7).
+    # v1 y v2 comparten fuente_id (POL-001) -- desactivar_fragmentos_de_fuente
+    # filtra por ese fuente_id de negocio, así que el endpoint debe desactivar
+    # los puntos de v1 ANTES de indexar los de v2 (no después), o si no los
+    # puntos recién indexados de v2 quedarían marcados "obsoleta" también
+    # (RF-16/PP-08: solo la versión vigente debe ser buscable).
     assert cliente_qdrant.count(collection_name=COLECCION_PRUEBA).count == 14
+
+    from comun.modelos import Fragmento
+
+    fragmentos_v2 = sesion_bd.query(Fragmento).filter_by(fuente_id=uuid.UUID(v2["id"])).all()
+    assert len(fragmentos_v2) == 7
+    puntos_v2 = cliente_qdrant.retrieve(
+        collection_name=COLECCION_PRUEBA,
+        ids=[f.referencia_vector for f in fragmentos_v2],
+        with_payload=True,
+    )
+    assert all(p.payload["estado"] == "vigente" for p in puntos_v2)
+
+    fragmentos_v1 = sesion_bd.query(Fragmento).filter_by(fuente_id=uuid.UUID(v1["id"])).all()
+    puntos_v1 = cliente_qdrant.retrieve(
+        collection_name=COLECCION_PRUEBA,
+        ids=[f.referencia_vector for f in fragmentos_v1],
+        with_payload=True,
+    )
+    assert all(p.payload["estado"] == "obsoleta" for p in puntos_v1)
 
 
 def test_aprobar_fuente_que_no_esta_en_borrador_da_409(cliente) -> None:
@@ -390,26 +411,68 @@ def test_importar_plantilla_real_persiste_todo_como_borrador(cliente, sesion_bd)
 
 
 def test_importar_plantilla_con_errores_no_persiste_nada(cliente, sesion_bd) -> None:
-    """Código duplicado + estado inválido sembrados a propósito (mismos
-    casos que ya prueba tests/unit/test_curaduria_plantilla.py, acá contra
-    el endpoint real de la API)."""
+    """Bloque K7: 5 tipos de error DISTINTOS sembrados a la vez, uno por
+    hoja (estado inválido, código duplicado, fuente_id de regla
+    inexistente, fecha inválida, columna "n" no numérica) -- mismos casos
+    que tests/unit/test_curaduria_plantilla.py::
+    test_leer_plantilla_con_errores_sembrados_en_las_cinco_hojas_a_la_vez,
+    acá contra el endpoint real de la API (lo que de verdad usa la
+    pantalla del curador)."""
     import io
 
     from openpyxl import Workbook
 
+    def _hoja(wb: Workbook, nombre: str, columnas: tuple, filas: list[tuple]) -> None:
+        ws = wb.create_sheet(nombre)
+        ws.append(("t",))
+        ws.append(("d",))
+        ws.append(())
+        ws.append(columnas)
+        for fila in filas:
+            ws.append(fila)
+
     wb = Workbook()
     wb.remove(wb.active)
-    ws = wb.create_sheet("Inventario de fuentes")
-    ws.append(("t",))
-    ws.append(("d",))
-    ws.append(())
-    ws.append(
+    _hoja(
+        wb,
+        "Inventario de fuentes",
         ("fuente_id", "titulo", "tipo", "version", "vigente_desde", "estado", "dueno_area",
-         "archivo_entregado", "observaciones")
+         "archivo_entregado", "observaciones"),
+        [
+            ("POL-001", "Política de cierre", "política (Word)", "1.0", "2026-01-01",
+             "publicado", "x", "a.docx", None),  # estado inválido
+            ("CAT-001", "Catálogo de cuentas", "catálogo (Excel)", "1.0", "2026-01-01",
+             "vigente", "x", "b.xlsx", None),
+        ],
     )
-    ws.append(("POL-001", "t", "política", "1.0", "2026-01-01", "publicado", "x", "a.docx", None))
-    for nombre in ("Catálogo de cuentas", "Reglas contables", "Glosario", "Checklist de cierre"):
-        wb.create_sheet(nombre)
+    _hoja(
+        wb,
+        "Catálogo de cuentas",
+        ("codigo", "nombre", "tipo", "naturaleza", "acepta_movimiento", "notas"),
+        [
+            ("1101", "Caja general", "activo", "deudora", "Sí", None),
+            ("1101", "Caja general (dup)", "activo", "deudora", "Sí", None),  # código duplicado
+        ],
+    )
+    _hoja(
+        wb,
+        "Reglas contables",
+        ("id_regla", "descripcion", "area", "tipo_documento", "severidad", "moneda",
+         "fuente_id", "estado_validacion"),
+        [("RN-99", "Regla nueva", "Contabilidad", "Excel", "alta", "Q", "ZZZ-999", "Sí")],
+    )  # fuente_id de regla inexistente en el inventario
+    _hoja(
+        wb,
+        "Glosario",
+        ("termino", "definicion", "area", "fuente_id", "vigente_desde"),
+        [("XYZ", "Definición", "General", "CAT-001", "no-es-fecha")],
+    )  # fecha inválida
+    _hoja(
+        wb,
+        "Checklist de cierre",
+        ("n", "actividad", "responsable", "plazo", "evidencia_requerida"),
+        [("no-es-numero", "Actividad", "Tesorería", "Día 2", "Evidencia")],
+    )  # columna "n" no numérica
     buffer = io.BytesIO()
     wb.save(buffer)
 
@@ -422,6 +485,14 @@ def test_importar_plantilla_con_errores_no_persiste_nada(cliente, sesion_bd) -> 
     assert respuesta.status_code == 200
     cuerpo = respuesta.json()
     assert cuerpo["es_valido"] is False
-    assert len(cuerpo["errores"]) > 0
     assert cuerpo["cargado"] is None
+
+    hojas_con_error = {e["hoja"] for e in cuerpo["errores"]}
+    assert hojas_con_error == {
+        "Inventario de fuentes",
+        "Catálogo de cuentas",
+        "Reglas contables",
+        "Glosario",
+        "Checklist de cierre",
+    }
     assert sesion_bd.query(FuenteConocimiento).count() == 0

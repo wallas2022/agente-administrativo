@@ -960,6 +960,17 @@ def aprobar_fuente_endpoint(
     )
     sesion.flush()
 
+    # v1 y v2 comparten fuente_id de negocio (p. ej. "POL-001") --
+    # desactivar_fragmentos_de_fuente filtra por ese campo, así que hay que
+    # desactivar los puntos de la versión anterior ANTES de indexar los de
+    # la nueva. Si se hiciera después (como antes de este fix), el filtro
+    # también apagaría los puntos recién indexados de la nueva versión,
+    # dejándola sin fragmentos buscables pese a estar "vigente" (RF-16/PP-08).
+    if anterior is not None:
+        desactivar_fragmentos_de_fuente(
+            cliente_qdrant, coleccion=coleccion, fuente_id_negocio=fuente.fuente_id
+        )
+
     try:
         resultado = indexar_fuente(
             sesion,
@@ -978,11 +989,6 @@ def aprobar_fuente_endpoint(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
         ) from error
-
-    if anterior is not None:
-        desactivar_fragmentos_de_fuente(
-            cliente_qdrant, coleccion=coleccion, fuente_id_negocio=fuente.fuente_id
-        )
 
     return RespuestaAprobarFuente(
         fuente_id=fuente.fuente_id,

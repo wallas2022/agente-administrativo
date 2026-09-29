@@ -260,6 +260,68 @@ def test_leer_plantilla_reune_errores_de_varias_hojas_a_la_vez() -> None:
     assert HOJA_CHECKLIST in hojas_con_error
 
 
+def test_leer_plantilla_con_errores_sembrados_en_las_cinco_hojas_a_la_vez() -> None:
+    """Bloque K7: "plantilla con errores sembrados" -- a diferencia del
+    test anterior (2 tipos de error en 2 hojas), aquí se siembran 5 tipos
+    de error DISTINTOS a la vez, uno por hoja, para confirmar que
+    `leer_plantilla` los reúne TODOS en una sola pasada (sin detenerse en
+    el primero) y que ninguno queda enmascarado por otro."""
+    filas_fuentes = [*_FILAS_FUENTES_OK, _FILAS_FUENTES_OK[0]]  # fuente_id duplicado
+    # naturaleza inválida
+    filas_catalogo = [("1101", "Caja general", "activo", "neutra", "Sí", None)]
+    filas_reglas = [
+        ("RN-99", "Regla nueva", "Contabilidad", "Excel", "alta", "Q", "ZZZ-999", "Sí")
+    ]  # fuente_id de regla inexistente en el inventario
+    filas_glosario = [("XYZ", "Definición", "General", "CAT-001", "no-es-fecha")]  # fecha inválida
+    filas_checklist = [
+        ("no-es-numero", "Actividad", "Tesorería", "Día 2", "Evidencia")
+    ]  # columna "n" no numérica
+
+    resultado = leer_plantilla(
+        _libro(
+            filas_fuentes=filas_fuentes,
+            filas_catalogo=filas_catalogo,
+            filas_reglas=filas_reglas,
+            filas_glosario=filas_glosario,
+            filas_checklist=filas_checklist,
+        )
+    )
+
+    assert not resultado.es_valido
+    hojas_con_error = {e.hoja for e in resultado.errores}
+    assert hojas_con_error == {
+        HOJA_FUENTES,
+        HOJA_CATALOGO,
+        HOJA_REGLAS,
+        HOJA_GLOSARIO,
+        HOJA_CHECKLIST,
+    }
+    assert any(
+        e.hoja == HOJA_FUENTES and "duplicado" in e.mensaje and e.columna == "fuente_id"
+        for e in resultado.errores
+    )
+    assert any(e.hoja == HOJA_CATALOGO and e.columna == "naturaleza" for e in resultado.errores)
+    assert any(e.hoja == HOJA_REGLAS and "ZZZ-999" in e.mensaje for e in resultado.errores)
+    assert any(e.hoja == HOJA_GLOSARIO and e.columna == "vigente_desde" for e in resultado.errores)
+    assert any(e.hoja == HOJA_CHECKLIST for e in resultado.errores)
+
+    # Nada de esto se debe poder cargar: ni parcial ni completo (Bloque K2).
+    sesion = _sesion_en_memoria()
+    with pytest.raises(ValueError, match="errores"):
+        cargar_plantilla(
+            sesion,
+            resultado,
+            area_id_por_defecto=uuid.uuid4(),
+            cargado_por=uuid.uuid4(),
+            ahora=datetime.now(UTC),
+        )
+    assert sesion.query(FuenteConocimiento).count() == 0
+    assert sesion.query(CuentaContable).count() == 0
+    assert sesion.query(Regla).count() == 0
+    assert sesion.query(Glosario).count() == 0
+    assert sesion.query(ChecklistCierre).count() == 0
+
+
 # --- cargar_plantilla: se niega a cargar con errores -------------------------
 
 

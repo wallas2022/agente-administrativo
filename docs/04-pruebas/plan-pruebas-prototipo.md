@@ -1,7 +1,7 @@
 # Plan de pruebas del prototipo
 
-**Versión:** 0.2
-**Fecha:** 2026-09-24
+**Versión:** 0.3
+**Fecha:** 2026-09-29
 **Relacionado con:** docs/01-requerimientos/01-requerimiento-formal.md (v0.6), docs/01-requerimientos/03-historias-de-usuario.md
 
 Objetivo: validar con datos reales (anonimizados) del área de Contabilidad que el agente cumple los objetivos OE-01..OE-07 antes de escalar. Umbrales alineados con el requerimiento formal v0.6. Entrega 1 prioriza CU-01, CU-02 y CU-05.
@@ -39,6 +39,7 @@ Detalle individual de cada prueba en [docs/04-pruebas/casos-prueba/](casos-prueb
 | PP-17 | Ahorro de tiempo vs. revisión manual | OE-07 | Reducción de tiempo por documento | ≥ 83 % (60 → ≤ 10 min) | 1 |
 | PP-18 | Carga de archivo de 1 GB | RF-03 | Carga completa y reanudable sin error | 100 % | 1 |
 | PP-19 | Depuración por retención de 3 meses | RNF-12 | Documentos > 3 meses eliminados y registrados en bitácora | 100 % | 1 |
+| PP-20 | Ingesta de documentos con citas correctas | RF-16 / RF-17 / CU-08 | Citas con sección/página correcta del documento ingerido | 100 % | 1 |
 
 ## 3. Comparación de modelos
 Ejecutar PP-01, PP-03, PP-07 y PP-12 con 2–3 modelos candidatos (p. ej. gpt-oss-120b, gpt-oss-20b, Qwen3-30B-A3B), primero en local (PC Core Ultra 7, 128 GB) y luego en stage (desde 28-oct-2026). Registrar precisión, tiempo y RAM usada. La decisión se documenta como ADR.
