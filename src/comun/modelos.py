@@ -234,8 +234,10 @@ class FuenteConocimiento(Base):
     dueno: Mapped[str] = mapped_column(String(200), nullable=False)
     archivo: Mapped[str] = mapped_column(String(1000), nullable=False)
     # Integridad del binario cargado (detecta reemplazos fuera de banda del
-    # archivo en MinIO) -- hexdigest de 64 caracteres.
-    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    # archivo en MinIO) -- hexdigest de 64 caracteres. Nulo mientras el
+    # curador registró la fuente (Bloque K2, plantilla) pero el binario real
+    # todavía no se adjuntó -- no es un valor inventado, es "pendiente".
+    sha256: Mapped[str | None] = mapped_column(String(64))
     cargado_por: Mapped[uuid.UUID] = mapped_column(ForeignKey("usuario.id"), nullable=False)
     # Nulo mientras la fuente sigue en "borrador".
     aprobado_por: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("usuario.id"))

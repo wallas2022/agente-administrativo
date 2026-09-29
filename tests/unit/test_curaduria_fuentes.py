@@ -8,7 +8,12 @@ from sqlalchemy.orm import Session
 
 from comun.modelos import Area, FuenteConocimiento, Usuario
 from comun.modelos import Base as ModelosBase
-from curaduria.fuentes import TIPOS_VALIDOS, aprobar_fuente, prioridad_de_tipo
+from curaduria.fuentes import (
+    TIPOS_VALIDOS,
+    aprobar_fuente,
+    clasificar_tipo_fuente,
+    prioridad_de_tipo,
+)
 
 
 def _sesion_en_memoria() -> Session:
@@ -55,6 +60,25 @@ def _fuente_borrador(
         cargado_por=usuario_id,
         fecha_carga=datetime.now(UTC),
     )
+
+
+@pytest.mark.parametrize(
+    ("texto_libre", "esperado"),
+    [
+        ("política (Word)", "regla_interna"),
+        ("catálogo (Excel)", "regla_interna"),
+        ("checklist (Excel)", "regla_interna"),
+        ("Normativa fiscal (SAT)", "normativa"),
+        ("Ley de actualización tributaria (Decreto 10-2012)", "normativa"),
+        ("Manual de referencia externo", "referencia"),
+    ],
+)
+def test_clasificar_tipo_fuente_mapea_texto_libre_a_los_tres_tipos(
+    texto_libre: str, esperado: str
+) -> None:
+    assert clasificar_tipo_fuente(texto_libre) == esperado
+    # Siempre produce un tipo aceptado por prioridad_de_tipo -- nunca falla.
+    prioridad_de_tipo(clasificar_tipo_fuente(texto_libre))
 
 
 @pytest.mark.parametrize(

@@ -34,6 +34,27 @@ _PRIORIDAD_POR_TIPO = {"regla_interna": 1, "normativa": 2, "referencia": 3}
 TIPOS_VALIDOS = frozenset(_PRIORIDAD_POR_TIPO)
 
 
+def clasificar_tipo_fuente(texto_libre: str) -> str:
+    """Bloque K2: la hoja "Inventario de fuentes" de la plantilla describe el
+    tipo con texto libre orientado al curador (p. ej. "política (Word)",
+    "catálogo (Excel)", "checklist (Excel)") -- no los tres valores
+    canónicos que exige `prioridad_de_tipo`. Esta función los traduce por
+    palabras clave: "normativa" (ley/decreto/reglamento/norma externa) y
+    "referencia" (material de apoyo, no vinculante) se reconocen
+    explícitamente; cualquier otra cosa (política, procedimiento,
+    lineamiento, guía, catálogo, glosario, checklist...) se clasifica como
+    "regla_interna" -- son documentos que la propia organización produce y
+    hace cumplir, el caso por defecto en este piloto (todo el inventario de
+    ejemplo es contenido interno de SFC, no hay normativa externa todavía).
+    Nunca falla: siempre devuelve uno de los tres tipos válidos."""
+    texto = texto_libre.strip().lower()
+    if any(palabra in texto for palabra in ("normativa", "ley", "decreto", "reglamento")):
+        return "normativa"
+    if "referencia" in texto:
+        return "referencia"
+    return "regla_interna"
+
+
 def prioridad_de_tipo(tipo: str) -> int:
     """1 (regla_interna) / 2 (normativa) / 3 (referencia). Lanza ValueError
     para cualquier otro valor -- lo usa tanto la carga directa de una fuente
