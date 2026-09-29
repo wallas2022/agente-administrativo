@@ -7,6 +7,7 @@ negocio todavía (Sprint 1). Relacionado con docs/03-diseno/c4/02-contenedores.m
 docs/03-diseno/secuencia/cu-01-excel-contable.md.
 """
 
+import hashlib
 import mimetypes
 import os
 import uuid
@@ -15,25 +16,45 @@ from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWTError
+from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
 
 from api.esquemas import (
     BitacoraEsquema,
+    ErrorImportacionEsquema,
+    FragmentoVistaPreviaEsquema,
     FuenteConocimientoEsquema,
+    FuenteCuraduriaEsquema,
+    GlosarioEsquema,
     HallazgoEsquema,
     ParteSubidaEsquema,
     RespuestaAnalisis,
+    RespuestaAprobarFuente,
     RespuestaCompletarCarga,
     RespuestaDecision,
     RespuestaGenerarCorregido,
+    RespuestaImportarPlantilla,
     RespuestaIniciarCarga,
     RespuestaToken,
+    RespuestaValidarPlantilla,
+    RespuestaVistaPrevia,
     SolicitudCompletarCarga,
     SolicitudDecision,
+    SolicitudGlosario,
     SolicitudIniciarCarga,
     SolicitudLogin,
 )
@@ -43,10 +64,12 @@ from comun.db import obtener_fabrica_sesion, obtener_sesion
 from comun.estados import EstadoAnalisis, EstadoDocumento, RolUsuario
 from comun.modelos import (
     Analisis,
+    Area,
     Bitacora,
     Decision,
     Documento,
     FuenteConocimiento,
+    Glosario,
     Hallazgo,
     TipoRevision,
     Usuario,
@@ -59,7 +82,16 @@ from comun.seguridad import (
     decodificar_token_acceso,
 )
 from comun.semillas import sembrar_datos_de_prueba
+from curaduria.extraccion import PdfSinTextoError, extraer_fragmentos
+from curaduria.fuentes import aprobar_fuente, clasificar_tipo_fuente, prioridad_de_tipo
+from curaduria.indexacion import (
+    COLECCION_KB,
+    desactivar_fragmentos_de_fuente,
+    indexar_fuente,
+)
+from curaduria.plantilla import ResultadoImportacion, cargar_plantilla, leer_plantilla
 from ortografia.generar_corregido import generar_documento_corregido
+from rag.cliente_embeddings import DIMENSION_BGE_M3, obtener_embedding
 
 
 @asynccontextmanager
@@ -78,6 +110,7 @@ async def _ciclo_de_vida(_app: FastAPI) -> AsyncIterator[None]:
         finally:
             sesion.close()
         almacenamiento.asegurar_bucket(almacenamiento.obtener_cliente_s3(), BUCKET_DOCUMENTOS)
+        almacenamiento.asegurar_bucket(almacenamiento.obtener_cliente_s3(), BUCKET_CONOCIMIENTO)
     yield
 
 
@@ -104,6 +137,10 @@ app.add_middleware(
 _esquema_bearer = HTTPBearer()
 
 BUCKET_DOCUMENTOS = os.environ.get("MINIO_BUCKET_DOCUMENTOS", "documentos")
+# Bloque K5: binarios de fuentes de la base de conocimiento -- bucket aparte
+# porque, a diferencia de "documentos", no está sujeto a la retención de 90
+# días (RN-08); una fuente vigente persiste indefinidamente.
+BUCKET_CONOCIMIENTO = os.environ.get("MINIO_BUCKET_CONOCIMIENTO", "conocimiento")
 
 
 # --- Dependencias (sobreescribibles en pruebas vía app.dependency_overrides) ---
@@ -115,6 +152,21 @@ def obtener_cliente_almacenamiento():  # pragma: no cover - override en pruebas
 
 def obtener_encolador() -> Callable[[str, str], str]:  # pragma: no cover - override en pruebas
     return encolar_analisis
+
+
+def obtener_cliente_qdrant() -> QdrantClient:  # pragma: no cover - override en pruebas
+    # Mismo patrón que orquestador.tareas.analizar_documento.
+    host = os.environ.get("QDRANT_HOST", "qdrant")
+    puerto = os.environ.get("QDRANT_PORT", "6333")
+    return QdrantClient(url=f"http://{host}:{puerto}")
+
+
+def obtener_funcion_embedding() -> Callable[[str], list[float]]:  # pragma: no cover
+    return obtener_embedding
+
+
+def obtener_coleccion_kb() -> str:
+    return os.environ.get("QDRANT_COLECCION", COLECCION_KB)
 
 
 def usuario_actual(
@@ -676,3 +728,461 @@ def descargar_version_corregida(
         media_type=tipo_mime,
         headers={"Content-Disposition": f'attachment; filename="{nombre_descarga}"'},
     )
+
+
+# --- Bloque K5 (RF-16, RF-19, CU-08): pantalla del curador ------------------
+#
+# Curador gestiona (lee y escribe) las fuentes/glosario de SU área; Administrador
+# y Auditor solo pueden leer (todas las áreas) -- así lo pide el propio Bloque
+# K5, más estricto que la matriz base de docs/03-diseno/seguridad/roles-
+# permisos.md (que no le da a Curador ni Administrador acceso al otro lado).
+# Toda escritura queda en bitácora (RF-19).
+
+
+def _fuente_curaduria(sesion: Session, usuario: Usuario, fuente_id: str) -> FuenteConocimiento:
+    fuente = sesion.get(FuenteConocimiento, uuid.UUID(fuente_id))
+    if fuente is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fuente no encontrada")
+    if _nombre_rol(usuario) not in (RolUsuario.ADMINISTRADOR.value, RolUsuario.AUDITOR.value):
+        if fuente.area_id != usuario.area_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No puede gestionar fuentes de otra área",
+            )
+    return fuente
+
+
+def _a_esquema_fuente(f: FuenteConocimiento) -> FuenteCuraduriaEsquema:
+    return FuenteCuraduriaEsquema(
+        id=str(f.id),
+        fuente_id=f.fuente_id,
+        titulo=f.titulo,
+        tipo=f.tipo,
+        prioridad=f.prioridad,
+        version=f.version,
+        vigente_desde=f.vigente_desde,
+        estado=f.estado,
+        area_id=str(f.area_id),
+        dueno=f.dueno,
+        archivo=f.archivo,
+        sha256=f.sha256,
+        cargado_por=str(f.cargado_por),
+        aprobado_por=str(f.aprobado_por) if f.aprobado_por else None,
+        fecha_carga=f.fecha_carga,
+        fecha_aprobacion=f.fecha_aprobacion,
+    )
+
+
+def _bitacora_curaduria(
+    sesion: Session, *, usuario: Usuario, accion: str, entidad_id: uuid.UUID, detalle: str
+) -> None:
+    sesion.add(
+        Bitacora(
+            usuario_id=usuario.id,
+            accion=accion,
+            entidad_tipo="fuente_conocimiento",
+            entidad_id=entidad_id,
+            fecha_hora=datetime.now(UTC),
+            detalle=detalle,
+        )
+    )
+
+
+_ES_HOJA_EMBEBIDA = 'hoja "'
+
+
+@app.get("/curaduria/fuentes", response_model=list[FuenteCuraduriaEsquema])
+def listar_fuentes_curaduria(
+    usuario: Annotated[
+        Usuario,
+        Depends(
+            requiere_rol(RolUsuario.CURADOR, RolUsuario.ADMINISTRADOR, RolUsuario.AUDITOR)
+        ),
+    ],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> list[FuenteCuraduriaEsquema]:
+    """Curador ve las fuentes (todas las versiones/estados) de su área;
+    Administrador y Auditor, de todas las áreas -- solo lectura."""
+    consulta = sesion.query(FuenteConocimiento)
+    if _nombre_rol(usuario) not in (RolUsuario.ADMINISTRADOR.value, RolUsuario.AUDITOR.value):
+        consulta = consulta.filter(FuenteConocimiento.area_id == usuario.area_id)
+    fuentes = consulta.order_by(
+        FuenteConocimiento.fuente_id, FuenteConocimiento.fecha_carga.desc()
+    ).all()
+    return [_a_esquema_fuente(f) for f in fuentes]
+
+
+@app.post("/curaduria/fuentes", response_model=FuenteCuraduriaEsquema)
+async def crear_fuente(
+    usuario: Annotated[Usuario, Depends(requiere_rol(RolUsuario.CURADOR))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+    cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
+    fuente_id: Annotated[str, Form()],
+    titulo: Annotated[str, Form()],
+    tipo: Annotated[str, Form()],
+    version: Annotated[str, Form()],
+    vigente_desde: Annotated[date, Form()],
+    dueno: Annotated[str, Form()],
+    archivo: Annotated[UploadFile, File()],
+) -> FuenteCuraduriaEsquema:
+    """Registra una fuente nueva (o una nueva versión de una existente,
+    mismo fuente_id) como "borrador" -- nunca queda vigente hasta que el
+    propio curador la aprueba (POST .../aprobar)."""
+    contenido = await archivo.read()
+    if not contenido:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="El archivo está vacío"
+        )
+
+    tipo_clasificado = clasificar_tipo_fuente(tipo)
+    nombre_archivo = archivo.filename or "archivo"
+    llave = f"{usuario.area_id}/{fuente_id}/{version}/{nombre_archivo}"
+    almacenamiento.subir_objeto(cliente_s3, BUCKET_CONOCIMIENTO, llave, contenido)
+
+    fila = FuenteConocimiento(
+        fuente_id=fuente_id,
+        titulo=titulo,
+        tipo=tipo_clasificado,
+        prioridad=prioridad_de_tipo(tipo_clasificado),
+        version=version,
+        vigente_desde=vigente_desde,
+        estado="borrador",
+        area_id=usuario.area_id,
+        dueno=dueno,
+        archivo=llave,
+        sha256=hashlib.sha256(contenido).hexdigest(),
+        cargado_por=usuario.id,
+        fecha_carga=datetime.now(UTC),
+    )
+    sesion.add(fila)
+    sesion.flush()
+    _bitacora_curaduria(
+        sesion,
+        usuario=usuario,
+        accion="fuente_cargada",
+        entidad_id=fila.id,
+        detalle=f"{fuente_id} v{version} (borrador)",
+    )
+    sesion.commit()
+    return _a_esquema_fuente(fila)
+
+
+@app.get("/curaduria/fuentes/{fuente_id}/vista-previa", response_model=RespuestaVistaPrevia)
+def vista_previa_fuente(
+    fuente_id: str,
+    usuario: Annotated[
+        Usuario,
+        Depends(
+            requiere_rol(RolUsuario.CURADOR, RolUsuario.ADMINISTRADOR, RolUsuario.AUDITOR)
+        ),
+    ],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+    cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
+) -> RespuestaVistaPrevia:
+    """Extrae los fragmentos (por sección/página) del archivo YA CARGADO de
+    la fuente, sin indexar nada -- para que el curador revise antes de
+    aprobar. No aplica a las fuentes que vienen de una hoja de la
+    plantilla (Catálogo/Glosario/Checklist): esas no tienen un archivo
+    propio, ya están en tablas estructuradas."""
+    fuente = _fuente_curaduria(sesion, usuario, fuente_id)
+    if fuente.archivo.lower().startswith(_ES_HOJA_EMBEBIDA):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Esta fuente viene de una hoja de la plantilla; no tiene vista previa "
+                "de fragmentos"
+            ),
+        )
+    contenido = almacenamiento.descargar_objeto(cliente_s3, BUCKET_CONOCIMIENTO, fuente.archivo)
+    extension = fuente.archivo.rsplit(".", 1)[-1] if "." in fuente.archivo else ""
+    try:
+        fragmentos = extraer_fragmentos(extension, contenido)
+    except PdfSinTextoError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
+        ) from error
+    return RespuestaVistaPrevia(
+        fragmentos=[
+            FragmentoVistaPreviaEsquema(contenido=f.contenido, seccion=f.seccion, pagina=f.pagina)
+            for f in fragmentos
+        ]
+    )
+
+
+@app.post("/curaduria/fuentes/{fuente_id}/aprobar", response_model=RespuestaAprobarFuente)
+def aprobar_fuente_endpoint(
+    fuente_id: str,
+    usuario: Annotated[Usuario, Depends(requiere_rol(RolUsuario.CURADOR))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+    cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
+    cliente_qdrant: Annotated[QdrantClient, Depends(obtener_cliente_qdrant)],
+    funcion_embedding: Annotated[
+        Callable[[str], list[float]], Depends(obtener_funcion_embedding)
+    ],
+    coleccion: Annotated[str, Depends(obtener_coleccion_kb)],
+) -> RespuestaAprobarFuente:
+    """Aprueba la fuente como vigente (curaduria.fuentes.aprobar_fuente --
+    obsoletea automáticamente cualquier versión vigente anterior del mismo
+    fuente_id) y la indexa (curaduria.indexacion.indexar_fuente: extrae,
+    calcula embeddings, guarda en Qdrant, mide y registra el tiempo). Todo
+    en una sola transacción: si la indexación falla (p. ej. PDF sin
+    texto), la aprobación tampoco queda."""
+    fuente = _fuente_curaduria(sesion, usuario, fuente_id)
+    if fuente.estado != "borrador":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"La fuente está en estado '{fuente.estado}', no 'borrador'",
+        )
+    if fuente.archivo.lower().startswith(_ES_HOJA_EMBEBIDA):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Esta fuente viene de una hoja de la plantilla; no tiene un archivo "
+                "propio que indexar"
+            ),
+        )
+
+    area = sesion.get(Area, fuente.area_id)
+    contenido = almacenamiento.descargar_objeto(cliente_s3, BUCKET_CONOCIMIENTO, fuente.archivo)
+    extension = fuente.archivo.rsplit(".", 1)[-1] if "." in fuente.archivo else ""
+
+    anterior = aprobar_fuente(sesion, fuente, aprobado_por=usuario.id, ahora=datetime.now(UTC))
+    _bitacora_curaduria(
+        sesion,
+        usuario=usuario,
+        accion="fuente_aprobada",
+        entidad_id=fuente.id,
+        detalle=f"{fuente.fuente_id} v{fuente.version} -> vigente",
+    )
+    sesion.flush()
+
+    try:
+        resultado = indexar_fuente(
+            sesion,
+            cliente_qdrant,
+            fuente=fuente,
+            contenido_archivo=contenido,
+            tipo_archivo=extension,
+            area_nombre=area.nombre if area else "",
+            funcion_embedding=funcion_embedding,
+            dimension=DIMENSION_BGE_M3,
+            usuario_id=usuario.id,
+            coleccion=coleccion,
+        )
+    except PdfSinTextoError as error:
+        sesion.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
+        ) from error
+
+    if anterior is not None:
+        desactivar_fragmentos_de_fuente(
+            cliente_qdrant, coleccion=coleccion, fuente_id_negocio=fuente.fuente_id
+        )
+
+    return RespuestaAprobarFuente(
+        fuente_id=fuente.fuente_id,
+        version=fuente.version,
+        fragmentos_indexados=resultado.fragmentos_indexados,
+        duracion_segundos=resultado.duracion_segundos,
+        version_anterior_obsoleta=anterior is not None,
+    )
+
+
+@app.post("/curaduria/fuentes/{fuente_id}/marcar-obsoleta", response_model=FuenteCuraduriaEsquema)
+def marcar_fuente_obsoleta(
+    fuente_id: str,
+    usuario: Annotated[Usuario, Depends(requiere_rol(RolUsuario.CURADOR))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+    cliente_qdrant: Annotated[QdrantClient, Depends(obtener_cliente_qdrant)],
+    coleccion: Annotated[str, Depends(obtener_coleccion_kb)],
+) -> FuenteCuraduriaEsquema:
+    """Retira una fuente vigente sin reemplazarla por una versión nueva
+    (a diferencia de aprobar_fuente, que obsoletea automáticamente al
+    aprobar la siguiente) -- p. ej. un documento que dejó de aplicar. Sus
+    fragmentos en Qdrant se desactivan (payload, no se borran -- RNF-06)."""
+    fuente = _fuente_curaduria(sesion, usuario, fuente_id)
+    if fuente.estado != "vigente":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"La fuente está en estado '{fuente.estado}', no 'vigente'",
+        )
+
+    fuente.estado = "obsoleta"
+    _bitacora_curaduria(
+        sesion,
+        usuario=usuario,
+        accion="fuente_marcada_obsoleta",
+        entidad_id=fuente.id,
+        detalle=f"{fuente.fuente_id} v{fuente.version}",
+    )
+    sesion.commit()
+    desactivar_fragmentos_de_fuente(
+        cliente_qdrant, coleccion=coleccion, fuente_id_negocio=fuente.fuente_id
+    )
+    return _a_esquema_fuente(fuente)
+
+
+@app.get("/curaduria/glosario", response_model=list[GlosarioEsquema])
+def listar_glosario_curaduria(
+    usuario: Annotated[
+        Usuario,
+        Depends(
+            requiere_rol(RolUsuario.CURADOR, RolUsuario.ADMINISTRADOR, RolUsuario.AUDITOR)
+        ),
+    ],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> list[GlosarioEsquema]:
+    consulta = sesion.query(Glosario)
+    if _nombre_rol(usuario) not in (RolUsuario.ADMINISTRADOR.value, RolUsuario.AUDITOR.value):
+        consulta = consulta.filter(Glosario.area_id == usuario.area_id)
+    return [
+        GlosarioEsquema(
+            id=str(g.id),
+            termino=g.termino,
+            definicion=g.definicion,
+            area_id=str(g.area_id),
+            fuente_id=str(g.fuente_id) if g.fuente_id else None,
+            version=g.version,
+            vigente_desde=g.vigente_desde,
+        )
+        for g in consulta.order_by(Glosario.termino).all()
+    ]
+
+
+@app.post("/curaduria/glosario", response_model=GlosarioEsquema)
+def crear_termino_glosario(
+    datos: SolicitudGlosario,
+    usuario: Annotated[Usuario, Depends(requiere_rol(RolUsuario.CURADOR))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> GlosarioEsquema:
+    fila = Glosario(area_id=usuario.area_id, termino=datos.termino, definicion=datos.definicion)
+    sesion.add(fila)
+    sesion.flush()
+    sesion.add(
+        Bitacora(
+            usuario_id=usuario.id,
+            accion="glosario_creado",
+            entidad_tipo="glosario",
+            entidad_id=fila.id,
+            fecha_hora=datetime.now(UTC),
+            detalle=datos.termino,
+        )
+    )
+    sesion.commit()
+    return GlosarioEsquema(
+        id=str(fila.id),
+        termino=fila.termino,
+        definicion=fila.definicion,
+        area_id=str(fila.area_id),
+        fuente_id=None,
+        version=None,
+        vigente_desde=None,
+    )
+
+
+@app.delete("/curaduria/glosario/{termino_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_termino_glosario(
+    termino_id: str,
+    usuario: Annotated[Usuario, Depends(requiere_rol(RolUsuario.CURADOR))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> Response:
+    fila = sesion.get(Glosario, uuid.UUID(termino_id))
+    if fila is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Término no encontrado")
+    if fila.area_id != usuario.area_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="No puede editar el glosario de otra área"
+        )
+    sesion.add(
+        Bitacora(
+            usuario_id=usuario.id,
+            accion="glosario_eliminado",
+            entidad_tipo="glosario",
+            entidad_id=fila.id,
+            fecha_hora=datetime.now(UTC),
+            detalle=fila.termino,
+        )
+    )
+    sesion.delete(fila)
+    sesion.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _resumen_por_hoja(resultado: ResultadoImportacion) -> dict[str, int]:
+    return {
+        "fuentes": len(resultado.fuentes),
+        "cuentas": len(resultado.cuentas),
+        "reglas": len(resultado.reglas),
+        "glosario": len(resultado.glosario),
+        "checklist": len(resultado.checklist),
+    }
+
+
+def _errores_a_esquema(resultado: ResultadoImportacion) -> list[ErrorImportacionEsquema]:
+    return [
+        ErrorImportacionEsquema(hoja=e.hoja, fila=e.fila, columna=e.columna, mensaje=e.mensaje)
+        for e in resultado.errores
+    ]
+
+
+@app.post("/curaduria/plantilla/validar", response_model=RespuestaValidarPlantilla)
+async def validar_plantilla_endpoint(
+    usuario: Annotated[Usuario, Depends(requiere_rol(RolUsuario.CURADOR))],
+    archivo: Annotated[UploadFile, File()],
+) -> RespuestaValidarPlantilla:
+    """Lee y valida la plantilla SIN persistir nada (RF-16, Bloque K2/K5) --
+    reporta todos los errores encontrados, de todas las hojas."""
+    contenido = await archivo.read()
+    resultado = leer_plantilla(contenido)
+    return RespuestaValidarPlantilla(
+        es_valido=resultado.es_valido,
+        errores=_errores_a_esquema(resultado),
+        resumen=_resumen_por_hoja(resultado),
+    )
+
+
+@app.post("/curaduria/plantilla/importar", response_model=RespuestaImportarPlantilla)
+async def importar_plantilla_endpoint(
+    usuario: Annotated[Usuario, Depends(requiere_rol(RolUsuario.CURADOR))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+    archivo: Annotated[UploadFile, File()],
+) -> RespuestaImportarPlantilla:
+    """Valida y, si no hay ningún error, carga la plantilla completa como
+    "borrador" (curaduria.plantilla.cargar_plantilla) -- nunca carga nada
+    parcial: si hay errores, no se persiste nada y se devuelve el reporte."""
+    contenido = await archivo.read()
+    resultado = leer_plantilla(contenido)
+    if not resultado.es_valido:
+        return RespuestaImportarPlantilla(
+            es_valido=False, errores=_errores_a_esquema(resultado), cargado=None
+        )
+
+    resumen = cargar_plantilla(
+        sesion,
+        resultado,
+        area_id_por_defecto=usuario.area_id,
+        cargado_por=usuario.id,
+        ahora=datetime.now(UTC),
+        contenido_plantilla=contenido,
+    )
+    # entidad_id sintético (uuid nuevo): la importación crea/actualiza varias
+    # filas a la vez, no hay una sola entidad natural a la que anclar el
+    # registro de bitácora de este evento puntual.
+    _bitacora_curaduria(
+        sesion,
+        usuario=usuario,
+        accion="plantilla_importada",
+        entidad_id=uuid.uuid4(),
+        detalle=(
+            f"{resumen['fuentes']} fuentes, {resumen['cuentas']} cuentas, "
+            f"{resumen['reglas']} reglas, {resumen['glosario']} glosario, "
+            f"{resumen['checklist']} checklist"
+        ),
+    )
+    sesion.commit()
+    return RespuestaImportarPlantilla(es_valido=True, errores=[], cargado=resumen)

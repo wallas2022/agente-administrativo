@@ -276,6 +276,183 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/curaduria/fuentes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Listar Fuentes Curaduria
+         * @description Curador ve las fuentes (todas las versiones/estados) de su área;
+         *     Administrador y Auditor, de todas las áreas -- solo lectura.
+         */
+        get: operations["listar_fuentes_curaduria_curaduria_fuentes_get"];
+        put?: never;
+        /**
+         * Crear Fuente
+         * @description Registra una fuente nueva (o una nueva versión de una existente,
+         *     mismo fuente_id) como "borrador" -- nunca queda vigente hasta que el
+         *     propio curador la aprueba (POST .../aprobar).
+         */
+        post: operations["crear_fuente_curaduria_fuentes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/curaduria/fuentes/{fuente_id}/vista-previa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Vista Previa Fuente
+         * @description Extrae los fragmentos (por sección/página) del archivo YA CARGADO de
+         *     la fuente, sin indexar nada -- para que el curador revise antes de
+         *     aprobar. No aplica a las fuentes que vienen de una hoja de la
+         *     plantilla (Catálogo/Glosario/Checklist): esas no tienen un archivo
+         *     propio, ya están en tablas estructuradas.
+         */
+        get: operations["vista_previa_fuente_curaduria_fuentes__fuente_id__vista_previa_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/curaduria/fuentes/{fuente_id}/aprobar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Aprobar Fuente Endpoint
+         * @description Aprueba la fuente como vigente (curaduria.fuentes.aprobar_fuente --
+         *     obsoletea automáticamente cualquier versión vigente anterior del mismo
+         *     fuente_id) y la indexa (curaduria.indexacion.indexar_fuente: extrae,
+         *     calcula embeddings, guarda en Qdrant, mide y registra el tiempo). Todo
+         *     en una sola transacción: si la indexación falla (p. ej. PDF sin
+         *     texto), la aprobación tampoco queda.
+         */
+        post: operations["aprobar_fuente_endpoint_curaduria_fuentes__fuente_id__aprobar_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/curaduria/fuentes/{fuente_id}/marcar-obsoleta": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Marcar Fuente Obsoleta
+         * @description Retira una fuente vigente sin reemplazarla por una versión nueva
+         *     (a diferencia de aprobar_fuente, que obsoletea automáticamente al
+         *     aprobar la siguiente) -- p. ej. un documento que dejó de aplicar. Sus
+         *     fragmentos en Qdrant se desactivan (payload, no se borran -- RNF-06).
+         */
+        post: operations["marcar_fuente_obsoleta_curaduria_fuentes__fuente_id__marcar_obsoleta_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/curaduria/glosario": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Listar Glosario Curaduria */
+        get: operations["listar_glosario_curaduria_curaduria_glosario_get"];
+        put?: never;
+        /** Crear Termino Glosario */
+        post: operations["crear_termino_glosario_curaduria_glosario_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/curaduria/glosario/{termino_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Eliminar Termino Glosario */
+        delete: operations["eliminar_termino_glosario_curaduria_glosario__termino_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/curaduria/plantilla/validar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validar Plantilla Endpoint
+         * @description Lee y valida la plantilla SIN persistir nada (RF-16, Bloque K2/K5) --
+         *     reporta todos los errores encontrados, de todas las hojas.
+         */
+        post: operations["validar_plantilla_endpoint_curaduria_plantilla_validar_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/curaduria/plantilla/importar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Importar Plantilla Endpoint
+         * @description Valida y, si no hay ningún error, carga la plantilla completa como
+         *     "borrador" (curaduria.plantilla.cargar_plantilla) -- nunca carga nada
+         *     parcial: si hay errores, no se persiste nada y se devuelve el reporte.
+         */
+        post: operations["importar_plantilla_endpoint_curaduria_plantilla_importar_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -294,6 +471,65 @@ export interface components {
             /** Detalle */
             detalle?: string | null;
         };
+        /** Body_crear_fuente_curaduria_fuentes_post */
+        Body_crear_fuente_curaduria_fuentes_post: {
+            /** Fuente Id */
+            fuente_id: string;
+            /** Titulo */
+            titulo: string;
+            /** Tipo */
+            tipo: string;
+            /** Version */
+            version: string;
+            /**
+             * Vigente Desde
+             * Format: date
+             */
+            vigente_desde: string;
+            /** Dueno */
+            dueno: string;
+            /**
+             * Archivo
+             * Format: binary
+             */
+            archivo: string;
+        };
+        /** Body_importar_plantilla_endpoint_curaduria_plantilla_importar_post */
+        Body_importar_plantilla_endpoint_curaduria_plantilla_importar_post: {
+            /**
+             * Archivo
+             * Format: binary
+             */
+            archivo: string;
+        };
+        /** Body_validar_plantilla_endpoint_curaduria_plantilla_validar_post */
+        Body_validar_plantilla_endpoint_curaduria_plantilla_validar_post: {
+            /**
+             * Archivo
+             * Format: binary
+             */
+            archivo: string;
+        };
+        /** ErrorImportacionEsquema */
+        ErrorImportacionEsquema: {
+            /** Hoja */
+            hoja: string;
+            /** Fila */
+            fila?: number | null;
+            /** Columna */
+            columna?: string | null;
+            /** Mensaje */
+            mensaje: string;
+        };
+        /** FragmentoVistaPreviaEsquema */
+        FragmentoVistaPreviaEsquema: {
+            /** Contenido */
+            contenido: string;
+            /** Seccion */
+            seccion?: string | null;
+            /** Pagina */
+            pagina?: number | null;
+        };
         /** FuenteConocimientoEsquema */
         FuenteConocimientoEsquema: {
             /** Id */
@@ -311,6 +547,64 @@ export interface components {
              * Format: date
              */
             vigente_desde: string;
+        };
+        /** FuenteCuraduriaEsquema */
+        FuenteCuraduriaEsquema: {
+            /** Id */
+            id: string;
+            /** Fuente Id */
+            fuente_id: string;
+            /** Titulo */
+            titulo: string;
+            /** Tipo */
+            tipo: string;
+            /** Prioridad */
+            prioridad: number;
+            /** Version */
+            version: string;
+            /**
+             * Vigente Desde
+             * Format: date
+             */
+            vigente_desde: string;
+            /** Estado */
+            estado: string;
+            /** Area Id */
+            area_id: string;
+            /** Dueno */
+            dueno: string;
+            /** Archivo */
+            archivo: string;
+            /** Sha256 */
+            sha256?: string | null;
+            /** Cargado Por */
+            cargado_por: string;
+            /** Aprobado Por */
+            aprobado_por?: string | null;
+            /**
+             * Fecha Carga
+             * Format: date-time
+             */
+            fecha_carga: string;
+            /** Fecha Aprobacion */
+            fecha_aprobacion?: string | null;
+        };
+        /** GlosarioEsquema */
+        GlosarioEsquema: {
+            /** Id */
+            id: string;
+            /** Termino */
+            termino: string;
+            /** Definicion */
+            definicion: string;
+            /** Area Id */
+            area_id: string;
+            /** Fuente Id */
+            fuente_id?: string | null;
+            /** Version */
+            version?: string | null;
+            /** Vigente Desde */
+            vigente_desde?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -387,6 +681,19 @@ export interface components {
              */
             tiene_version_corregida: boolean;
         };
+        /** RespuestaAprobarFuente */
+        RespuestaAprobarFuente: {
+            /** Fuente Id */
+            fuente_id: string;
+            /** Version */
+            version: string;
+            /** Fragmentos Indexados */
+            fragmentos_indexados: number;
+            /** Duracion Segundos */
+            duracion_segundos: number;
+            /** Version Anterior Obsoleta */
+            version_anterior_obsoleta: boolean;
+        };
         /** RespuestaCompletarCarga */
         RespuestaCompletarCarga: {
             /** Documento Id */
@@ -415,6 +722,17 @@ export interface components {
             /** Generado */
             generado: boolean;
         };
+        /** RespuestaImportarPlantilla */
+        RespuestaImportarPlantilla: {
+            /** Es Valido */
+            es_valido: boolean;
+            /** Errores */
+            errores: components["schemas"]["ErrorImportacionEsquema"][];
+            /** Cargado */
+            cargado?: {
+                [key: string]: number;
+            } | null;
+        };
         /** RespuestaIniciarCarga */
         RespuestaIniciarCarga: {
             /** Documento Id */
@@ -436,6 +754,22 @@ export interface components {
             /** Rol */
             rol: string;
         };
+        /** RespuestaValidarPlantilla */
+        RespuestaValidarPlantilla: {
+            /** Es Valido */
+            es_valido: boolean;
+            /** Errores */
+            errores: components["schemas"]["ErrorImportacionEsquema"][];
+            /** Resumen */
+            resumen: {
+                [key: string]: number;
+            };
+        };
+        /** RespuestaVistaPrevia */
+        RespuestaVistaPrevia: {
+            /** Fragmentos */
+            fragmentos: components["schemas"]["FragmentoVistaPreviaEsquema"][];
+        };
         /** SolicitudCompletarCarga */
         SolicitudCompletarCarga: {
             /** Partes */
@@ -451,6 +785,13 @@ export interface components {
             resultado: string;
             /** Comentario */
             comentario?: string | null;
+        };
+        /** SolicitudGlosario */
+        SolicitudGlosario: {
+            /** Termino */
+            termino: string;
+            /** Definicion */
+            definicion: string;
         };
         /** SolicitudIniciarCarga */
         SolicitudIniciarCarga: {
@@ -911,6 +1252,300 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listar_fuentes_curaduria_curaduria_fuentes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FuenteCuraduriaEsquema"][];
+                };
+            };
+        };
+    };
+    crear_fuente_curaduria_fuentes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_crear_fuente_curaduria_fuentes_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FuenteCuraduriaEsquema"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    vista_previa_fuente_curaduria_fuentes__fuente_id__vista_previa_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fuente_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaVistaPrevia"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    aprobar_fuente_endpoint_curaduria_fuentes__fuente_id__aprobar_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fuente_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaAprobarFuente"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    marcar_fuente_obsoleta_curaduria_fuentes__fuente_id__marcar_obsoleta_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fuente_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FuenteCuraduriaEsquema"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listar_glosario_curaduria_curaduria_glosario_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlosarioEsquema"][];
+                };
+            };
+        };
+    };
+    crear_termino_glosario_curaduria_glosario_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SolicitudGlosario"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlosarioEsquema"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    eliminar_termino_glosario_curaduria_glosario__termino_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                termino_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    validar_plantilla_endpoint_curaduria_plantilla_validar_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_validar_plantilla_endpoint_curaduria_plantilla_validar_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaValidarPlantilla"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    importar_plantilla_endpoint_curaduria_plantilla_importar_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_importar_plantilla_endpoint_curaduria_plantilla_importar_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaImportarPlantilla"];
                 };
             };
             /** @description Validation Error */

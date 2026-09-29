@@ -7,6 +7,7 @@ export const USUARIOS = {
   revisor: "revisor@local",
   administrador: "administrador@local",
   auditor: "auditor@local",
+  curador: "curador@local",
 } as const;
 
 const CONTRASENA = "cambiar123";

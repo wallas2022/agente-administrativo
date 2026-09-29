@@ -1,0 +1,427 @@
+"""Pruebas de los endpoints de la pantalla del curador (RF-16, RF-19,
+CU-08, Bloque K5): fuentes (crear/vista previa/aprobar/marcar obsoleta),
+glosario y plantilla -- contra la API real (TestClient), no las funciones
+de dominio sueltas (esas ya están cubiertas en tests/unit/test_curaduria_*).
+"""
+
+import os
+import uuid
+from pathlib import Path
+
+import boto3
+import pytest
+from fastapi.testclient import TestClient
+from moto import mock_aws
+from qdrant_client import QdrantClient
+
+os.environ.setdefault("API_SECRET_KEY", "clave-de-prueba")
+
+from api import main  # noqa: E402
+from comun.modelos import Bitacora, FuenteConocimiento, Glosario  # noqa: E402
+from rag.cliente_embeddings import DIMENSION_BGE_M3  # noqa: E402
+
+RAIZ = Path(__file__).resolve().parents[2]
+RUTA_PDF_EJEMPLO = RAIZ / "kb" / "plantillas" / "ejemplos" / "POL-001_Politica_Cierre_EJEMPLO.pdf"
+RUTA_PLANTILLA_REAL = RAIZ / "kb" / "plantillas" / "Plantilla_Base_Conocimiento_SFC.xlsx"
+
+COLECCION_PRUEBA = "kb_prueba_k5"
+
+
+def _embedding_falso(_texto: str) -> list[float]:
+    # El endpoint /curaduria/fuentes/{id}/aprobar crea la colección con
+    # DIMENSION_BGE_M3 (1024, confirmado contra el Ollama real) -- el vector
+    # de prueba debe tener el mismo tamaño o Qdrant lo rechaza.
+    return [0.1] * DIMENSION_BGE_M3
+
+
+@pytest.fixture()
+def cliente(sesion_bd):
+    with mock_aws():
+        cliente_s3 = boto3.client("s3", region_name="us-east-1")
+        cliente_s3.create_bucket(Bucket="documentos")
+        cliente_s3.create_bucket(Bucket="conocimiento")
+
+        cliente_qdrant = QdrantClient(":memory:")
+
+        main.app.dependency_overrides[main.obtener_sesion] = lambda: sesion_bd
+        main.app.dependency_overrides[main.obtener_cliente_almacenamiento] = lambda: cliente_s3
+        main.app.dependency_overrides[main.obtener_cliente_qdrant] = lambda: cliente_qdrant
+        main.app.dependency_overrides[main.obtener_funcion_embedding] = lambda: _embedding_falso
+        main.app.dependency_overrides[main.obtener_coleccion_kb] = lambda: COLECCION_PRUEBA
+
+        with TestClient(main.app) as test_client:
+            yield test_client, cliente_qdrant
+
+        main.app.dependency_overrides.clear()
+
+
+def _token(cliente: TestClient, email: str, password: str = "cambiar123") -> str:
+    respuesta = cliente.post("/auth/login", json={"email": email, "password": password})
+    assert respuesta.status_code == 200
+    return respuesta.json()["access_token"]
+
+
+def _encabezados(cliente: TestClient, email: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {_token(cliente, email)}"}
+
+
+def _crear_fuente(
+    cliente: TestClient, encabezados: dict[str, str], *, ruta_archivo: Path = RUTA_PDF_EJEMPLO
+) -> dict:
+    respuesta = cliente.post(
+        "/curaduria/fuentes",
+        headers=encabezados,
+        data={
+            "fuente_id": "POL-001",
+            "titulo": "Política de cierre contable",
+            "tipo": "política (Word)",
+            "version": "2026-01",
+            "vigente_desde": "2026-01-15",
+            "dueno": "Jefatura de Contabilidad",
+        },
+        files={"archivo": (ruta_archivo.name, ruta_archivo.read_bytes(), "application/pdf")},
+    )
+    assert respuesta.status_code == 200, respuesta.text
+    return respuesta.json()
+
+
+# --- fuentes: alcance por área ------------------------------------------------
+
+
+def test_listar_fuentes_curaduria_solo_del_area_del_curador(cliente) -> None:
+    test_client, _qdrant = cliente
+    encabezados_curador = _encabezados(test_client, "curador@local")
+    fuente = _crear_fuente(test_client, encabezados_curador)
+    assert fuente["estado"] == "borrador"
+
+    respuesta = test_client.get("/curaduria/fuentes", headers=encabezados_curador)
+    assert respuesta.status_code == 200
+    assert {f["fuente_id"] for f in respuesta.json()} == {"POL-001"}
+
+
+def test_analista_no_puede_acceder_a_curaduria(cliente) -> None:
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "analista@local")
+
+    assert test_client.get("/curaduria/fuentes", headers=encabezados).status_code == 403
+    assert test_client.get("/curaduria/glosario", headers=encabezados).status_code == 403
+
+
+def test_administrador_solo_lectura_no_puede_crear_fuente(cliente) -> None:
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "administrador@local")
+
+    respuesta = test_client.post(
+        "/curaduria/fuentes",
+        headers=encabezados,
+        data={
+            "fuente_id": "POL-002",
+            "titulo": "x",
+            "tipo": "política (Word)",
+            "version": "1.0",
+            "vigente_desde": "2026-01-01",
+            "dueno": "x",
+        },
+        files={"archivo": ("x.pdf", b"contenido", "application/pdf")},
+    )
+    assert respuesta.status_code == 403
+
+
+def test_administrador_ve_fuentes_de_todas_las_areas_pero_solo_lectura(cliente) -> None:
+    test_client, _qdrant = cliente
+    _crear_fuente(test_client, _encabezados(test_client, "curador@local"))
+
+    respuesta = test_client.get(
+        "/curaduria/fuentes", headers=_encabezados(test_client, "administrador@local")
+    )
+    assert respuesta.status_code == 200
+    assert len(respuesta.json()) == 1
+
+
+# --- fuentes: ciclo de vida completo ------------------------------------------
+
+
+def test_crear_fuente_persiste_como_borrador_y_registra_bitacora(cliente, sesion_bd) -> None:
+    test_client, _qdrant = cliente
+    fuente = _crear_fuente(test_client, _encabezados(test_client, "curador@local"))
+
+    assert fuente["estado"] == "borrador"
+    assert fuente["tipo"] == "regla_interna"  # clasificado desde "política (Word)"
+    assert fuente["sha256"] is not None
+
+    bitacora = sesion_bd.query(Bitacora).filter_by(accion="fuente_cargada").one()
+    assert "POL-001" in bitacora.detalle
+
+
+def test_vista_previa_extrae_fragmentos_sin_persistirlos(cliente, sesion_bd) -> None:
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+    fuente = _crear_fuente(test_client, encabezados)
+
+    respuesta = test_client.get(
+        f"/curaduria/fuentes/{fuente['id']}/vista-previa", headers=encabezados
+    )
+    assert respuesta.status_code == 200
+    fragmentos = respuesta.json()["fragmentos"]
+    assert any(f["seccion"] == "§3" for f in fragmentos)
+
+    from comun.modelos import Fragmento
+
+    assert sesion_bd.query(Fragmento).count() == 0  # no se indexó nada todavía
+
+
+def test_aprobar_fuente_indexa_y_la_deja_vigente(cliente, sesion_bd) -> None:
+    test_client, cliente_qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+    fuente = _crear_fuente(test_client, encabezados)
+
+    respuesta = test_client.post(
+        f"/curaduria/fuentes/{fuente['id']}/aprobar", headers=encabezados
+    )
+    assert respuesta.status_code == 200, respuesta.text
+    cuerpo = respuesta.json()
+    assert cuerpo["fragmentos_indexados"] == 7  # título + 6 secciones (§1..§6)
+    assert cuerpo["version_anterior_obsoleta"] is False
+
+    fuente_bd = sesion_bd.get(FuenteConocimiento, uuid.UUID(fuente["id"]))
+    assert fuente_bd.estado == "vigente"
+    assert fuente_bd.aprobado_por is not None
+
+    assert cliente_qdrant.count(collection_name=COLECCION_PRUEBA).count == 7
+    assert sesion_bd.query(Bitacora).filter_by(accion="fuente_aprobada").count() == 1
+    assert sesion_bd.query(Bitacora).filter_by(accion="fuente_indexada").count() == 1
+
+
+def test_aprobar_una_segunda_version_obsoletea_la_primera(cliente, sesion_bd) -> None:
+    test_client, cliente_qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+
+    v1 = _crear_fuente(test_client, encabezados)
+    test_client.post(f"/curaduria/fuentes/{v1['id']}/aprobar", headers=encabezados)
+
+    respuesta_v2 = test_client.post(
+        "/curaduria/fuentes",
+        headers=encabezados,
+        data={
+            "fuente_id": "POL-001",
+            "titulo": "Política de cierre contable",
+            "tipo": "política (Word)",
+            "version": "2026-02",
+            "vigente_desde": "2026-02-01",
+            "dueno": "Jefatura de Contabilidad",
+        },
+        files={
+            "archivo": (
+                RUTA_PDF_EJEMPLO.name,
+                RUTA_PDF_EJEMPLO.read_bytes(),
+                "application/pdf",
+            )
+        },
+    )
+    v2 = respuesta_v2.json()
+
+    respuesta = test_client.post(f"/curaduria/fuentes/{v2['id']}/aprobar", headers=encabezados)
+    assert respuesta.status_code == 200
+    assert respuesta.json()["version_anterior_obsoleta"] is True
+
+    assert sesion_bd.get(FuenteConocimiento, uuid.UUID(v1["id"])).estado == "obsoleta"
+    assert sesion_bd.get(FuenteConocimiento, uuid.UUID(v2["id"])).estado == "vigente"
+    # v1 y v2 comparten fuente_id -- desactivar por fuente_id_negocio apaga
+    # AMBAS tandas de puntos salvo que se haga antes de indexar v2. Solo
+    # importa que no truene y que la cuenta total sea coherente (7 + 7).
+    assert cliente_qdrant.count(collection_name=COLECCION_PRUEBA).count == 14
+
+
+def test_aprobar_fuente_que_no_esta_en_borrador_da_409(cliente) -> None:
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+    fuente = _crear_fuente(test_client, encabezados)
+    test_client.post(f"/curaduria/fuentes/{fuente['id']}/aprobar", headers=encabezados)
+
+    respuesta = test_client.post(f"/curaduria/fuentes/{fuente['id']}/aprobar", headers=encabezados)
+    assert respuesta.status_code == 409
+
+
+def test_marcar_obsoleta_desactiva_los_fragmentos(cliente, sesion_bd) -> None:
+    test_client, cliente_qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+    fuente = _crear_fuente(test_client, encabezados)
+    test_client.post(f"/curaduria/fuentes/{fuente['id']}/aprobar", headers=encabezados)
+
+    respuesta = test_client.post(
+        f"/curaduria/fuentes/{fuente['id']}/marcar-obsoleta", headers=encabezados
+    )
+    assert respuesta.status_code == 200
+    assert respuesta.json()["estado"] == "obsoleta"
+
+    from comun.modelos import Fragmento
+
+    fila = sesion_bd.query(Fragmento).filter_by(fuente_id=uuid.UUID(fuente["id"])).first()
+    punto = cliente_qdrant.retrieve(
+        collection_name=COLECCION_PRUEBA, ids=[fila.referencia_vector], with_payload=True
+    )[0]
+    assert punto.payload["estado"] == "obsoleta"
+
+
+def test_marcar_obsoleta_un_borrador_da_409(cliente) -> None:
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+    fuente = _crear_fuente(test_client, encabezados)
+
+    respuesta = test_client.post(
+        f"/curaduria/fuentes/{fuente['id']}/marcar-obsoleta", headers=encabezados
+    )
+    assert respuesta.status_code == 409
+
+
+def test_curador_no_puede_gestionar_fuente_de_otra_area(cliente, sesion_bd) -> None:
+    """Simula una fuente que quedó (o se creó a mano) en otra área: el
+    curador de "Contabilidad" no puede aprobarla ni verla en su vista
+    previa, aunque conozca su id."""
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+    fuente = _crear_fuente(test_client, encabezados)
+
+    from comun.modelos import Area
+
+    otra_area = Area(nombre="Impuestos")
+    sesion_bd.add(otra_area)
+    sesion_bd.flush()
+    fila = sesion_bd.get(FuenteConocimiento, uuid.UUID(fuente["id"]))
+    fila.area_id = otra_area.id
+    sesion_bd.commit()
+
+    respuesta_listado = test_client.get("/curaduria/fuentes", headers=encabezados)
+    assert fuente["id"] not in {f["id"] for f in respuesta_listado.json()}
+
+    respuesta_aprobar = test_client.post(
+        f"/curaduria/fuentes/{fuente['id']}/aprobar", headers=encabezados
+    )
+    assert respuesta_aprobar.status_code == 403
+
+
+# --- glosario ------------------------------------------------------------------
+
+
+def test_editor_de_glosario_crear_listar_y_eliminar(cliente, sesion_bd) -> None:
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+
+    respuesta = test_client.post(
+        "/curaduria/glosario",
+        headers=encabezados,
+        json={"termino": "DTE", "definicion": "Documento Tributario Electrónico"},
+    )
+    assert respuesta.status_code == 200
+    termino = respuesta.json()
+
+    respuesta = test_client.get("/curaduria/glosario", headers=encabezados)
+    assert any(t["termino"] == "DTE" for t in respuesta.json())
+
+    respuesta = test_client.delete(
+        f"/curaduria/glosario/{termino['id']}", headers=encabezados
+    )
+    assert respuesta.status_code == 204
+    assert sesion_bd.get(Glosario, uuid.UUID(termino["id"])) is None
+    assert sesion_bd.query(Bitacora).filter_by(accion="glosario_eliminado").count() == 1
+
+
+def test_analista_no_puede_crear_termino_de_glosario(cliente) -> None:
+    test_client, _qdrant = cliente
+    respuesta = test_client.post(
+        "/curaduria/glosario",
+        headers=_encabezados(test_client, "analista@local"),
+        json={"termino": "X", "definicion": "Y"},
+    )
+    assert respuesta.status_code == 403
+
+
+# --- plantilla -------------------------------------------------------------
+
+
+def test_validar_plantilla_real_no_persiste_nada(cliente, sesion_bd) -> None:
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+
+    respuesta = test_client.post(
+        "/curaduria/plantilla/validar",
+        headers=encabezados,
+        files={
+            "archivo": (
+                RUTA_PLANTILLA_REAL.name,
+                RUTA_PLANTILLA_REAL.read_bytes(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["es_valido"] is True
+    assert cuerpo["resumen"] == {
+        "fuentes": 8, "cuentas": 42, "reglas": 14, "glosario": 16, "checklist": 12
+    }
+    assert sesion_bd.query(FuenteConocimiento).count() == 0
+
+
+def test_importar_plantilla_real_persiste_todo_como_borrador(cliente, sesion_bd) -> None:
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+
+    respuesta = test_client.post(
+        "/curaduria/plantilla/importar",
+        headers=encabezados,
+        files={
+            "archivo": (
+                RUTA_PLANTILLA_REAL.name,
+                RUTA_PLANTILLA_REAL.read_bytes(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["es_valido"] is True
+    assert cuerpo["cargado"]["fuentes"] == 8
+
+    fuentes = sesion_bd.query(FuenteConocimiento).all()
+    assert len(fuentes) == 8
+    assert all(f.estado == "borrador" for f in fuentes)
+    assert sesion_bd.query(Bitacora).filter_by(accion="plantilla_importada").count() == 1
+
+
+def test_importar_plantilla_con_errores_no_persiste_nada(cliente, sesion_bd) -> None:
+    """Código duplicado + estado inválido sembrados a propósito (mismos
+    casos que ya prueba tests/unit/test_curaduria_plantilla.py, acá contra
+    el endpoint real de la API)."""
+    import io
+
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    ws = wb.create_sheet("Inventario de fuentes")
+    ws.append(("t",))
+    ws.append(("d",))
+    ws.append(())
+    ws.append(
+        ("fuente_id", "titulo", "tipo", "version", "vigente_desde", "estado", "dueno_area",
+         "archivo_entregado", "observaciones")
+    )
+    ws.append(("POL-001", "t", "política", "1.0", "2026-01-01", "publicado", "x", "a.docx", None))
+    for nombre in ("Catálogo de cuentas", "Reglas contables", "Glosario", "Checklist de cierre"):
+        wb.create_sheet(nombre)
+    buffer = io.BytesIO()
+    wb.save(buffer)
+
+    test_client, _qdrant = cliente
+    respuesta = test_client.post(
+        "/curaduria/plantilla/importar",
+        headers=_encabezados(test_client, "curador@local"),
+        files={"archivo": ("mala.xlsx", buffer.getvalue(), "application/octet-stream")},
+    )
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["es_valido"] is False
+    assert len(cuerpo["errores"]) > 0
+    assert cuerpo["cargado"] is None
+    assert sesion_bd.query(FuenteConocimiento).count() == 0

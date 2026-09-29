@@ -1,0 +1,168 @@
+.base-conocimiento {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 960px;
+}
+
+.base-conocimiento__seccion {
+  background: var(--color-superficie);
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.base-conocimiento__seccion h2 {
+  margin: 0;
+}
+
+.base-conocimiento__ayuda {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-texto-tenue);
+}
+
+.base-conocimiento__form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.base-conocimiento__form input {
+  padding: 6px 10px;
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio);
+  font-size: 0.9rem;
+}
+
+.base-conocimiento__vacio {
+  margin: 0;
+  color: var(--color-texto-tenue);
+  font-size: 0.9rem;
+}
+
+.base-conocimiento__tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.base-conocimiento__tabla th,
+.base-conocimiento__tabla td {
+  text-align: left;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--color-borde);
+}
+
+.base-conocimiento__acciones {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.base-conocimiento__acciones button {
+  border: 1px solid var(--color-borde);
+  background: var(--color-fondo);
+  border-radius: var(--radio);
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.base-conocimiento__estado {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.base-conocimiento__estado--borrador {
+  background: var(--color-borde);
+  color: var(--color-texto-tenue);
+}
+
+.base-conocimiento__estado--vigente {
+  background: var(--color-acento-texto);
+  color: var(--color-acento);
+}
+
+.base-conocimiento__estado--obsoleta {
+  background: var(--color-alto-fondo);
+  color: var(--color-alto-texto);
+}
+
+.base-conocimiento__vista-previa {
+  background: var(--color-fondo);
+  border-radius: var(--radio);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.base-conocimiento__fragmento {
+  border-bottom: 1px solid var(--color-borde);
+  padding-bottom: 8px;
+}
+
+.base-conocimiento__fragmento-meta {
+  margin: 0 0 4px;
+  font-family: var(--fuente-mono);
+  font-size: 0.75rem;
+  color: var(--color-texto-tenue);
+}
+
+.base-conocimiento__glosario {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.base-conocimiento__glosario li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--color-borde);
+}
+
+.base-conocimiento__acciones-plantilla {
+  display: flex;
+  gap: 8px;
+}
+
+.base-conocimiento__reporte-ok {
+  background: var(--color-acento-texto);
+  color: var(--color-acento);
+  border-radius: var(--radio);
+  padding: 10px 12px;
+  font-size: 0.9rem;
+}
+
+.base-conocimiento__reporte-errores {
+  background: var(--color-alto-fondo);
+  color: var(--color-alto-texto);
+  border-radius: var(--radio);
+  padding: 10px 16px;
+  font-size: 0.85rem;
+}
+
+.base-conocimiento__error {
+  margin: 0;
+  color: var(--color-alto-texto);
+  background: var(--color-alto-fondo);
+  border-radius: var(--radio);
+  padding: 8px 12px;
+  font-size: 0.9rem;
+}

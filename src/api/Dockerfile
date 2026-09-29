@@ -8,10 +8,14 @@ COPY comun/requirements.txt ./comun/requirements.txt
 COPY api/requirements.txt ./api/requirements.txt
 COPY parsers/requirements.txt ./parsers/requirements.txt
 COPY ortografia/requirements.txt ./ortografia/requirements.txt
+COPY rag/requirements.txt ./rag/requirements.txt
+COPY curaduria/requirements.txt ./curaduria/requirements.txt
 RUN pip install --no-cache-dir \
     -r api/requirements.txt \
     -r parsers/requirements.txt \
-    -r ortografia/requirements.txt
+    -r ortografia/requirements.txt \
+    -r rag/requirements.txt \
+    -r curaduria/requirements.txt
 
 COPY comun ./comun
 COPY api ./api
@@ -20,6 +24,11 @@ COPY api ./api
 # la API necesita estos paquetes -- no solo el worker.
 COPY parsers ./parsers
 COPY ortografia ./ortografia
+# Bloque K5 (CU-08): la pantalla del curador aprueba/indexa fuentes de
+# forma síncrona (embeddings, no LLM generativo -- rápido, ver
+# docs/04-pruebas/resultados/local-SKB.md), sin pasar por el worker.
+COPY rag ./rag
+COPY curaduria ./curaduria
 
 EXPOSE 8000
 

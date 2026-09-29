@@ -9,6 +9,11 @@ import os
 
 import httpx
 
+# Confirmado contra el Ollama real (curl .../api/embed, modelo bge-m3):
+# 1024 -- lo necesita curaduria.indexacion para crear la colección de Qdrant
+# con el tamaño de vector correcto (Bloque K5).
+DIMENSION_BGE_M3 = 1024
+
 
 def obtener_embedding(
     texto: str, *, modelo: str | None = None, timeout: float = 30.0

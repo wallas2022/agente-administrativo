@@ -113,3 +113,77 @@ class FuenteConocimientoEsquema(BaseModel):
     tipo: str
     version: str
     vigente_desde: date
+
+
+# --- Bloque K5 (RF-16, CU-08): pantalla del curador -------------------------
+
+
+class FuenteCuraduriaEsquema(BaseModel):
+    id: str
+    fuente_id: str
+    titulo: str
+    tipo: str
+    prioridad: int
+    version: str
+    vigente_desde: date
+    estado: str
+    area_id: str
+    dueno: str
+    archivo: str
+    sha256: str | None = None
+    cargado_por: str
+    aprobado_por: str | None = None
+    fecha_carga: datetime
+    fecha_aprobacion: datetime | None = None
+
+
+class RespuestaAprobarFuente(BaseModel):
+    fuente_id: str
+    version: str
+    fragmentos_indexados: int
+    duracion_segundos: float
+    version_anterior_obsoleta: bool
+
+
+class FragmentoVistaPreviaEsquema(BaseModel):
+    contenido: str
+    seccion: str | None = None
+    pagina: int | None = None
+
+
+class RespuestaVistaPrevia(BaseModel):
+    fragmentos: list[FragmentoVistaPreviaEsquema]
+
+
+class GlosarioEsquema(BaseModel):
+    id: str
+    termino: str
+    definicion: str
+    area_id: str
+    fuente_id: str | None = None
+    version: str | None = None
+    vigente_desde: date | None = None
+
+
+class SolicitudGlosario(BaseModel):
+    termino: str = Field(min_length=1, max_length=200)
+    definicion: str = Field(min_length=1)
+
+
+class ErrorImportacionEsquema(BaseModel):
+    hoja: str
+    fila: int | None = None
+    columna: str | None = None
+    mensaje: str
+
+
+class RespuestaValidarPlantilla(BaseModel):
+    es_valido: bool
+    errores: list[ErrorImportacionEsquema]
+    resumen: dict[str, int]
+
+
+class RespuestaImportarPlantilla(BaseModel):
+    es_valido: bool
+    errores: list[ErrorImportacionEsquema]
+    cargado: dict[str, int] | None = None
