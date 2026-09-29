@@ -36,7 +36,13 @@ RAIZ_DATASET = Path(__file__).resolve().parents[1] / "dataset" / "cu-05"
 RUTA_GLOSARIO = RAIZ_DATASET / "glosario-interno-ejemplo.csv"
 RUTA_RESPUESTAS = RAIZ_DATASET / "Respuestas_CU05_Ortografia.xlsx"
 
-RNF04_LIMITE_SEGUNDOS = 60.0
+# SRS v0.8 (2026-09-29): RNF-04 para CU-05 pasó de "≤ 1 min" a "hallazgos
+# deterministas visibles de inmediato, validación de casos dudosos completa
+# en ≤ 5 min por documento" -- ver docs/01-requerimientos/01-requerimiento-
+# formal.md. Este test mide el tiempo total de revisar_segmentos (fase 1 +
+# fase 2 síncronas, el "peor caso" sin el paralelismo real del worker) contra
+# ese límite.
+RNF04_LIMITE_SEGUNDOS = 300.0
 
 
 def _languagetool_disponible() -> bool:
@@ -216,7 +222,7 @@ def test_pp03_recall_global_es_al_menos_90_por_ciento(capsys: pytest.CaptureFixt
             f"\nGLOBAL: recall {recall:.1%} ({total_coincidencias}/{total_esperados}), "
             f"falsos positivos {tasa_fp:.1%} ({total_falsos_positivos}/{total_detectados})"
         )
-        print("RNF-04 por archivo (límite 60s):")
+        print(f"RNF-04 por archivo (límite {RNF04_LIMITE_SEGUNDOS:.0f}s):")
         for nombre, r in _RESULTADOS.items():
             cumple = "cumple" if r["duracion_s"] <= RNF04_LIMITE_SEGUNDOS else "NO cumple"
             print(f"  {nombre}: {r['duracion_s']:.1f}s ({cumple})")

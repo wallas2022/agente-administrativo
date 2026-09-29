@@ -1,8 +1,8 @@
 # Resultados — Bloque O5 (CU-05 Revisión ortográfica)
 
-**Versión:** 0.1.0
-**Fecha:** 2026-09-28
-**Relacionado con:** docs/04-pruebas/casos-prueba/PP-03.md, PP-04.md, docs/03-diseno/secuencia/cu-05-ortografia.md, docs/04-pruebas/resultados/local-S1.md
+**Versión:** 0.3.0
+**Fecha:** 2026-09-29
+**Relacionado con:** docs/04-pruebas/casos-prueba/PP-03.md, PP-04.md, docs/03-diseno/secuencia/cu-05-ortografia.md, docs/04-pruebas/resultados/local-S1.md, docs/01-requerimientos/01-requerimiento-formal.md (RNF-04 v0.8)
 
 ## Alcance
 
@@ -50,7 +50,13 @@ Se aplicaron (como si el Revisor las hubiera aceptado) las correcciones que coin
 
 ## RNF-04 — Tiempo ≤ 1 min por documento
 
-| Archivo | Tiempo | ¿Cumple? |
+> **[ACTUALIZADO 2026-09-29, SRS v0.8]** Este umbral (≤ 1 min) ya no es el
+> vigente para CU-05 -- ver la actualización al final de este documento.
+> Se deja la tabla con los números tal como se midieron el 2026-09-28 (no
+> se reescribe la historia); la columna "¿Cumple?" evaluaba el umbral de
+> ese momento.
+
+| Archivo | Tiempo | ¿Cumple (umbral de esa fecha, ≤ 1 min)? |
 | --- | --- | --- |
 | CU05-01 (.docx) | 100.2 s | **No** |
 | CU05-02 (.pptx) | 2.7 s | Sí |
@@ -58,17 +64,17 @@ Se aplicaron (como si el Revisor las hubiera aceptado) las correcciones que coin
 | CU05-04 (.xlsx) | 3.4 s | Sí |
 | CU05-05 (.txt) | 0.1 s | Sí |
 
-**3 de 5 documentos cumplen RNF-04 con margen amplio** (sin ningún caso "dudoso" que necesite LLM, la revisión es solo LanguageTool + glosario: unos pocos segundos). Los 2 que no cumplen (CU05-01, CU05-03) son justo los que tienen al menos un caso dudoso de contexto (p. ej. "a"/"ha", "de"/"dé") y por lo tanto necesitan la única llamada por lote al LLM (`gpt-oss:20b`) — el cuello de botella es la misma limitación de hardware ya documentada para CU-01 (`local-S1.md`): sin GPU, este modelo tarda decenas de segundos a varios minutos por llamada, según el tamaño del prompt. El diseño ya minimiza las llamadas al mínimo posible (como máximo 1 por documento, sin importar cuántos casos dudosos tenga, ver Bloque O2) — reducir más el tiempo requeriría un modelo más liviano o GPU, la misma conclusión [POR CONFIRMAR] pendiente de ADR-005 que ya aplica a CU-01.
+**3 de 5 documentos cumplían el umbral de esa fecha con margen amplio** (sin ningún caso "dudoso" que necesite LLM, la revisión es solo LanguageTool + glosario: unos pocos segundos). Los 2 que no cumplían (CU05-01, CU05-03) son justo los que tienen al menos un caso dudoso de contexto (p. ej. "a"/"ha", "de"/"dé") y por lo tanto necesitan la única llamada por lote al LLM (`gpt-oss:20b`) — el cuello de botella es la misma limitación de hardware ya documentada para CU-01 (`local-S1.md`): sin GPU, este modelo tarda decenas de segundos a varios minutos por llamada, según el tamaño del prompt. El diseño ya minimiza las llamadas al mínimo posible (como máximo 1 por documento, sin importar cuántos casos dudosos tenga, ver Bloque O2).
 
 ## Hallazgos de esta fase
 
 1. **Confirma en datos reales lo que O2 verificó con un LLM simulado**: el recall de 23/24 y la ubicación exacta del único hueco (error de concordancia que LanguageTool nunca reporta) coinciden exactamente con lo anticipado en el Bloque O2.
 2. **El filtro de falsos positivos por LLM no es perfecto**: con datos reales, un caso (mayúscula de mes en un título) no se descartó. No es un defecto de diseño (el LLM sigue siendo el único que puede decidir esto; LanguageTool no distingue "título" de "oración") pero es una fuente de imprecisión real a monitorear si se agregan más escenarios de prueba.
-3. **RNF-04 depende directamente de si el documento tiene algún caso dudoso**, no de su tamaño o formato — documentos sin ningún caso "de/dé"-como cumplen el límite de sobra; los que sí tienen, no, por la lentitud de `gpt-oss:20b` en CPU.
+3. **El tiempo total depende directamente de si el documento tiene algún caso dudoso**, no de su tamaño o formato — documentos sin ningún caso "de/dé"-como terminan en segundos; los que sí tienen, tardan bastante más, por la lentitud de `gpt-oss:20b` en CPU. [ACTUALIZADO 2026-09-29] Con el umbral vigente de RNF-04 (≤ 5 min, SRS v0.8) los 5 documentos de este dataset cumplen -- ver la actualización al final de este archivo.
 
 ## Pendiente
 
-- RNF-04 para documentos con casos dudosos sigue sin cumplirse en este hardware sin GPU — mismo pendiente que CU-01, sujeto a ADR-005 (hardware de stage).
+- ~~RNF-04 para documentos con casos dudosos sigue sin cumplirse en este hardware sin GPU — mismo pendiente que CU-01, sujeto a ADR-005 (hardware de stage).~~ [ACTUALIZADO 2026-09-29] El SRS v0.8 ajustó el umbral de CU-05 a ≤ 5 min; con los tiempos ya medidos (100.2s–291.5s en el peor caso, con casos dudosos) el requisito se cumple en este hardware, sin esperar a ADR-005. Ver la actualización al final de este archivo.
 - El error de concordancia no detectable por LanguageTool gratuito (#10 de la hoja de respuestas) queda fuera de alcance de este bloque.
 - ~~El falso positivo de "Agosto" (mayúscula de mes en un título) no se investigó a fondo (por qué el LLM no lo descartó) — se deja anotado para revisar si se repite con más datos.~~ Resuelto en el Bloque O6 (punto 3, más abajo): se agregó una regla determinista que excluye mayúsculas de mes en títulos/encabezados antes de que lleguen al LLM, sin depender de que el LLM lo descarte.
 
@@ -80,7 +86,7 @@ Los 5 puntos pedidos, con antes/después medido contra los mismos 5 archivos rea
 
 ## Punto 1 — RNF-04: publicar de inmediato, validar dudosos en segundo plano
 
-**Antes (Bloque O5):** `procesar_documento_ortografia` hacía LanguageTool + glosario + la llamada al LLM para los casos dudosos en una sola pasada síncrona -- el análisis no llegaba a `con_hallazgos`/`en_revision` hasta que el LLM respondía. Por eso CU05-01 y CU05-03 tardaban 100.2s/275.5s y no cumplían RNF-04 (límite 60s).
+**Antes (Bloque O5):** `procesar_documento_ortografia` hacía LanguageTool + glosario + la llamada al LLM para los casos dudosos en una sola pasada síncrona -- el análisis no llegaba a `con_hallazgos`/`en_revision` hasta que el LLM respondía. Por eso CU05-01 y CU05-03 tardaban 100.2s/275.5s (con el umbral vigente en ese momento, ≤ 1 min, no cumplían RNF-04; con el umbral actual del SRS v0.8, ≤ 5 min, sí habrían cumplido, aunque el usuario seguía esperando esos mismos segundos sin ver nada).
 
 **Después:** `clasificar_segmentos` (fase 1, solo LanguageTool + glosario) persiste de inmediato los hallazgos deterministas (`estado="pendiente"`) y los dudosos (`estado="en_validacion"`) -- el análisis llega a un estado terminal sin esperar al LLM. Una tarea de Celery aparte (`orquestador.tareas.validar_dudosos_ortografia`), encolada justo después, hace la única llamada por lote al LLM y pasa cada dudoso a `"confirmado"` o `"descartado"` (nunca se borra, RNF-06). La UI (`EstadoBadge`, `TarjetaHallazgo`, `Hallazgos.tsx`) muestra "En validación" de inmediato y sondea hasta ver "Confirmado"/"Descartado", sin recargar la página.
 
@@ -111,7 +117,7 @@ Medido con los 5 archivos reales, en el mismo hardware sin GPU, cada uno en una 
 
 **Sobre el falso positivo "Agosto":** con la regla del punto 3 ya activa, "Agosto" se excluye antes de convertirse en candidato dudoso -- ni gpt-oss:20b ni llama3.2:3b llegan a verlo, así que ambos quedan en 0% FP. El criterio original de este punto ("¿lo descarta el LLM?") quedó resuelto por una regla determinista, no por ninguno de los dos modelos.
 
-**Decisión:** llama3.2:3b es 4-7x más rápido, pero su recall (83.3%) queda por debajo del umbral de PP-03 (≥ 90%) -- confirma 8/9 y 3/5 en vez de 9/9 y 5/5, es decir, deja pasar como "no es error" casos que sí lo eran. No es "igual o mejor" que gpt-oss:20b, así que **se mantiene gpt-oss:20b** (`LLM_MODEL_PRINCIPAL`) también para esta tarea. `LLM_MODEL_ORTOGRAFIA` queda soportado en el código (`orquestador/tareas.py::validar_dudosos_ortografia`) y documentado en `.env.local.example`, pero sin valor por defecto -- cae a `LLM_MODEL_PRINCIPAL`. Con RNF-04 sin cumplirse en docx/pdf con dudosos en este hardware, la prioridad fue no sacrificar recall por velocidad; re-evaluar si hay GPU disponible (ADR-005).
+**Decisión:** llama3.2:3b es 4-7x más rápido, pero su recall (83.3%) queda por debajo del umbral de PP-03 (≥ 90%) -- confirma 8/9 y 3/5 en vez de 9/9 y 5/5, es decir, deja pasar como "no es error" casos que sí lo eran. No es "igual o mejor" que gpt-oss:20b, así que **se mantiene gpt-oss:20b** (`LLM_MODEL_PRINCIPAL`) también para esta tarea. `LLM_MODEL_ORTOGRAFIA` queda soportado en el código (`orquestador/tareas.py::validar_dudosos_ortografia`) y documentado en `.env.local.example`, pero sin valor por defecto -- cae a `LLM_MODEL_PRINCIPAL`. [ACTUALIZADO 2026-09-29] Con el umbral de RNF-04 ajustado a ≤ 5 min (SRS v0.8), gpt-oss:20b ya cumple con los tiempos medidos aquí (194.5s / 291.5s, ambos < 300s) -- la decisión de no sacrificar recall por velocidad queda todavía más clara: no hace falta el modelo más rápido para cumplir el requisito. El margen del PDF es angosto (291.5s de 300s, ~3 % de margen) y conviene seguir vigilándolo; re-evaluar si hay GPU disponible (ADR-005).
 
 ## Punto 3 — Regla propia: mayúscula de mes en títulos/encabezados
 
@@ -152,3 +158,25 @@ src/ui (tsc --noEmit / oxlint): sin errores (2 warnings preexistentes, no relaci
 ruff / mypy (src completo): sin hallazgos
 e2e/cu05-validacion-en-segundo-plano.spec.ts: 1 passed (Playwright + Chromium real, LanguageTool + Ollama reales)
 ```
+
+---
+
+# Actualización 2026-09-29 — RNF-04 ajustado a ≤ 5 min por documento (SRS v0.8)
+
+`docs/01-requerimientos/01-requerimiento-formal.md` pasó a v0.8: RNF-04 para CU-05 ya no es "≤ 1 min medido en stage" -- ahora es "hallazgos deterministas visibles de inmediato, validación de casos dudosos completa en ≤ 5 min por documento". `tests/integration/test_cu05_pp03_pp04.py::RNF04_LIMITE_SEGUNDOS` se actualizó de `60.0` a `300.0` para que el reporte del test use el umbral vigente (el test nunca afirmó pass/fail sobre esto, solo lo mide y reporta -- no hizo falta correrlo de nuevo para este cambio, el propio tiempo medido no cambia, solo su interpretación).
+
+Re-evaluando los tiempos YA MEDIDOS en este mismo archivo (Bloques O5 y O6) contra el nuevo umbral de 300s:
+
+| Archivo | Tiempo medido (O5, 2026-09-28) | Tiempo medido (O6, gpt-oss:20b) | ¿Cumple ≤ 5 min? |
+| --- | --- | --- | --- |
+| CU05-01 (.docx) | 100.2 s | 194.5 s | **Sí** (margen amplio) |
+| CU05-02 (.pptx) | 2.7 s | 1.1 s | Sí |
+| CU05-03 (.pdf) | 275.5 s | 291.5 s | **Sí, con margen angosto** (~3-8 s de 300 s) |
+| CU05-04 (.xlsx) | 3.4 s | 6.0 s | Sí |
+| CU05-05 (.txt) | 0.1 s | 0.1 s | Sí |
+
+**Los 5 documentos cumplen RNF-04 bajo el umbral vigente** -- con la arquitectura de dos fases del Bloque O6 (punto 1), además, el usuario ve los hallazgos deterministas de inmediato (8-20s) y no espera esos 100-291s en absoluto salvo para ver "Confirmado"/"Descartado" en los casos dudosos, que es justo lo que ahora pide RNF-04 explícitamente ("hallazgos visibles" + "validación de dudosos completa en ≤ 5 min", como dos cosas separadas).
+
+**Nota de margen:** el PDF (CU05-03) tiene el margen más angosto de los cinco (291.5s de 300s en la medición del Bloque O6, con el host bajo la misma presión de memoria documentada en `local-S1.md`). No es un incumplimiento, pero es el candidato más probable a fallar si el prompt crece (más casos dudosos) o el host está más cargado. Sigue aplicando la recomendación de re-evaluar con GPU (ADR-005) si el margen deja de ser aceptable en producción.
+
+**Conclusión:** las secciones "Hallazgos de esta fase" y "Pendiente" del Bloque O5, y la "Decisión" del punto 2 del Bloque O6, quedaron marcadas en línea con esta actualización -- no se reescribieron los números originales, solo su interpretación bajo el umbral vigente.

@@ -1,7 +1,7 @@
 # Requerimiento formal (SRS) — Agente Administrativo
 
-**Versión:** 0.6 (borrador para validación)
-**Fecha:** 2026-09-24
+**Versión:** 0.8 (borrador para validación)
+**Fecha:** 2026-09-29
 **Relacionado con:** docs/00-rol-y-lineamientos.md
 
 | Campo | Valor |
@@ -152,7 +152,7 @@ Prioridad MoSCoW: M = debe, S = debería, C = podría.
 | RNF-01 | Privacidad | Procesamiento 100 % local; la VM no tiene salida a internet en operación |
 | RNF-02 | Seguridad | HTTPS interno, cifrado de disco, RBAC por área, segregación de funciones (quien carga no aprueba) |
 | RNF-03 | Exactitud | Todo cálculo numérico lo hace código determinista; el LLM no genera cifras |
-| RNF-04 | Rendimiento | Documento complejo en ≤ 10 min (meta 5–10 min); documento típico ≤ 5 min; ortografía ≤ 1 min (medido en stage) |
+| RNF-04 | Rendimiento | Documento complejo en ≤ 10 min (meta 5–10 min); documento típico ≤ 5 min; ortografía (CU-05): hallazgos deterministas visibles de inmediato, validación de casos dudosos completa en ≤ 5 min por documento (v0.8 — antes ≤ 1 min medido en stage) |
 | RNF-05 | Capacidad de proceso | ~1,000 documentos/mes (~50 por día hábil); con ≤ 10 min por documento se requieren ≥ 2 workers en paralelo para terminar en la jornada (aprox.); 5–10 usuarios del piloto con cola de trabajos |
 | RNF-06 | Trazabilidad | Cada hallazgo guarda regla, versión de la fuente, modelo y versión del prompt |
 | RNF-07 | Disponibilidad | Horario laboral; RPO 24 h, RTO 4 h |
