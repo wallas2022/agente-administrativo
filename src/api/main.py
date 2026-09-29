@@ -611,12 +611,17 @@ def listar_fuentes_conocimiento(
     fuentes = (
         sesion.query(FuenteConocimiento)
         .filter_by(area_id=usuario.area_id, estado="vigente")
-        .order_by(FuenteConocimiento.nombre)
+        .order_by(FuenteConocimiento.titulo)
         .all()
     )
     return [
         FuenteConocimientoEsquema(
-            id=str(f.id), nombre=f.nombre, version=f.version, vigente_desde=f.vigente_desde
+            id=str(f.id),
+            fuente_id=f.fuente_id,
+            titulo=f.titulo,
+            tipo=f.tipo,
+            version=f.version,
+            vigente_desde=f.vigente_desde,
         )
         for f in fuentes
     ]

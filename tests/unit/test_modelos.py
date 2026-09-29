@@ -30,7 +30,7 @@ def _sesion_en_memoria() -> Session:
     return Session(engine)
 
 
-def test_crea_las_15_entidades_del_modelo_er() -> None:
+def test_crea_las_17_entidades_del_modelo_er() -> None:
     tablas = set(ModelosBase.metadata.tables.keys())
     esperadas = {
         "area",
@@ -47,6 +47,8 @@ def test_crea_las_15_entidades_del_modelo_er() -> None:
         "fragmento",
         "regla",
         "glosario",
+        "cuenta_contable",
+        "checklist_cierre",
         "bitacora",
     }
     assert esperadas <= tablas
@@ -108,13 +110,19 @@ def test_flujo_completo_cu01_persiste_y_relaciona_correctamente() -> None:
     sesion.flush()
 
     fuente = FuenteConocimiento(
-        nombre="Catálogo de cuentas",
+        fuente_id="POL-001",
+        titulo="Catálogo de cuentas",
+        tipo="regla_interna",
+        prioridad=1,
         area_id=area.id,
-        curador_id=analista.id,
+        cargado_por=analista.id,
         version="1.0",
         vigente_desde=date.today(),
         estado="vigente",
-        ruta_archivo="fuentes/catalogo.pdf",
+        dueno="Jefatura de Contabilidad",
+        archivo="fuentes/catalogo.pdf",
+        sha256="a" * 64,
+        fecha_carga=datetime.now(UTC),
     )
     sesion.add(fuente)
     sesion.flush()

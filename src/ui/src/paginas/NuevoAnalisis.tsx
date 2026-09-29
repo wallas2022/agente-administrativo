@@ -34,7 +34,14 @@ function requierePeriodoCierre(tipoRevision: string): boolean {
 // genérico en vez de una pista clara de qué corregir.
 const PATRON_PERIODO_CIERRE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
-type FuenteConocimiento = { id: string; nombre: string; version: string; vigente_desde: string };
+type FuenteConocimiento = {
+  id: string;
+  fuente_id: string;
+  titulo: string;
+  tipo: string;
+  version: string;
+  vigente_desde: string;
+};
 
 // Nombre de archivo sintético para el texto pegado (CU-05, RF-10) -- se
 // reutiliza toda la subida por partes ya construida para CU-01 en vez de
@@ -239,7 +246,7 @@ export function NuevoAnalisis() {
                     checked={fuentesSeleccionadas.has(f.id)}
                     onChange={() => alternarFuente(f.id)}
                   />
-                  {f.nombre} (v{f.version})
+                  {f.titulo} (v{f.version})
                 </label>
               ))}
             </fieldset>

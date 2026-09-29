@@ -88,34 +88,45 @@ def test_listar_fuentes_conocimiento_solo_del_area_y_vigentes(
     sesion_bd.add(otra_area)
     sesion_bd.flush()
 
+    def _fuente(**overrides: object) -> FuenteConocimiento:
+        base = dict(
+            area_id=analista.area_id,
+            cargado_por=analista.id,
+            tipo="normativa",
+            prioridad=2,
+            dueno="Jefatura de Contabilidad",
+            sha256="a" * 64,
+            fecha_carga=datetime.now(UTC),
+        )
+        base.update(overrides)
+        return FuenteConocimiento(**base)
+
     sesion_bd.add_all(
         [
-            FuenteConocimiento(
-                nombre="Política de cierre contable",
-                area_id=analista.area_id,
-                curador_id=analista.id,
+            _fuente(
+                fuente_id="POL-001",
+                titulo="Política de cierre contable",
                 version="1.0",
                 vigente_desde=date(2026, 1, 1),
                 estado="vigente",
-                ruta_archivo="kb/fuentes/politica-cierre-contable.md",
+                archivo="kb/fuentes/politica-cierre-contable.md",
             ),
-            FuenteConocimiento(
-                nombre="Fuente obsoleta",
-                area_id=analista.area_id,
-                curador_id=analista.id,
+            _fuente(
+                fuente_id="POL-000",
+                titulo="Fuente obsoleta",
                 version="0.9",
                 vigente_desde=date(2025, 1, 1),
                 estado="obsoleta",
-                ruta_archivo="kb/fuentes/obsoleta.md",
+                archivo="kb/fuentes/obsoleta.md",
             ),
-            FuenteConocimiento(
-                nombre="Fuente de otra área",
+            _fuente(
+                fuente_id="POL-002",
+                titulo="Fuente de otra área",
                 area_id=otra_area.id,
-                curador_id=analista.id,
                 version="1.0",
                 vigente_desde=date(2026, 1, 1),
                 estado="vigente",
-                ruta_archivo="kb/fuentes/otra-area.md",
+                archivo="kb/fuentes/otra-area.md",
             ),
         ]
     )
@@ -125,8 +136,8 @@ def test_listar_fuentes_conocimiento_solo_del_area_y_vigentes(
         "/fuentes-conocimiento", headers={"Authorization": f"Bearer {token_analista}"}
     )
     assert respuesta.status_code == 200
-    nombres = {f["nombre"] for f in respuesta.json()}
-    assert nombres == {"Política de cierre contable"}
+    titulos = {f["titulo"] for f in respuesta.json()}
+    assert titulos == {"Política de cierre contable"}
 
 
 def test_listar_analisis_recientes_del_area(cliente: TestClient, sesion_bd) -> None:

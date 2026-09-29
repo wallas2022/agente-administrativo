@@ -107,6 +107,8 @@ class BitacoraEsquema(BaseModel):
 
 class FuenteConocimientoEsquema(BaseModel):
     id: str
-    nombre: str
+    fuente_id: str
+    titulo: str
+    tipo: str
     version: str
     vigente_desde: date

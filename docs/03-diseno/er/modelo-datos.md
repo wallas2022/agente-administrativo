@@ -1,8 +1,8 @@
 # Modelo de datos (ER)
 
-**Versión:** 0.1.0
-**Fecha:** 2026-09-24
-**Relacionado con:** docs/01-requerimientos/01-requerimiento-formal.md (RF-01,02,06,12,13,14,16,17,19; RNF-06,12), docs/02-analisis/02-reglas-de-negocio.md
+**Versión:** 0.2.0
+**Fecha:** 2026-09-29
+**Relacionado con:** docs/01-requerimientos/01-requerimiento-formal.md (RF-01,02,06,12,13,14,16,17,19; RNF-06,12), docs/02-analisis/02-reglas-de-negocio.md, docs/04-pruebas/resultados/local-SKB.md (Bloque K1)
 
 ```mermaid
 erDiagram
@@ -15,7 +15,7 @@ erDiagram
     USUARIO ||--o{ ANALISIS : "ejecuta"
     USUARIO ||--o{ DECISION : "decide"
     USUARIO ||--o{ BITACORA : "genera"
-    USUARIO ||--o{ FUENTE_CONOCIMIENTO : "aprueba (curador)"
+    USUARIO |o--o{ FUENTE_CONOCIMIENTO : "aprueba (aprobado_por, curador)"
     DOCUMENTO ||--o{ VERSION_DOCUMENTO : "tiene"
     DOCUMENTO ||--o{ ANALISIS : "es objeto de"
     TIPO_REVISION ||--o{ ANALISIS : "clasifica"
@@ -26,6 +26,11 @@ erDiagram
     FUENTE_CONOCIMIENTO ||--o{ FRAGMENTO : "se divide en"
     FUENTE_CONOCIMIENTO ||--o{ REGLA : "respalda"
     FUENTE_CONOCIMIENTO |o--o{ GLOSARIO : "respalda (opcional)"
+    FUENTE_CONOCIMIENTO |o--o{ CUENTA_CONTABLE : "respalda (opcional)"
+    FUENTE_CONOCIMIENTO |o--o{ CHECKLIST_CIERRE : "respalda (opcional)"
+    AREA ||--o{ CUENTA_CONTABLE : "posee"
+    AREA ||--o{ CHECKLIST_CIERRE : "posee"
+    USUARIO ||--o{ FUENTE_CONOCIMIENTO : "carga (cargado_por)"
     VERSION_DOCUMENTO ||--o{ HALLAZGO : "contiene"
 
     AREA {
@@ -110,13 +115,21 @@ erDiagram
     }
     FUENTE_CONOCIMIENTO {
         uuid id PK
-        string nombre
+        string fuente_id UK "legible de negocio, p. ej. POL-001"
+        string titulo
+        string tipo "regla_interna|normativa|referencia"
+        int prioridad "1|2|3, derivado de tipo"
         uuid area_id FK
-        uuid curador_id FK "usuario"
+        string dueno "texto libre, p. ej. área/cargo dueño del contenido"
         string version
         date vigente_desde
-        string estado "vigente|obsoleta"
-        string ruta_archivo
+        string estado "borrador|vigente|obsoleta -- 1 vigente por fuente_id"
+        string archivo "ruta en MinIO"
+        string sha256
+        uuid cargado_por FK "usuario"
+        uuid aprobado_por FK "usuario, nullable mientras es borrador"
+        datetime fecha_carga
+        datetime fecha_aprobacion "nullable"
     }
     FRAGMENTO {
         uuid id PK
@@ -132,7 +145,7 @@ erDiagram
         uuid area_id FK
         string tipo_documento
         string severidad
-        uuid fuente_id FK
+        uuid fuente_id FK "nullable -- null para reglas de sistema sin fuente externa"
         date vigente_desde
         string version
         string estado "vigente|obsoleta"
@@ -144,6 +157,31 @@ erDiagram
         string termino
         string definicion
         uuid fuente_id FK "nullable"
+        string version "nullable, snapshot de fuente_id.version al importar"
+        date vigente_desde "nullable"
+    }
+    CUENTA_CONTABLE {
+        uuid id PK
+        string codigo
+        string nombre
+        string tipo "activo|pasivo|patrimonio|ingreso|gasto, nullable"
+        string naturaleza "deudora|acreedora, nullable"
+        boolean acepta_movimiento
+        text notas "nullable"
+        uuid area_id FK
+        uuid fuente_id FK "nullable"
+        string version "nullable"
+    }
+    CHECKLIST_CIERRE {
+        uuid id PK
+        int numero
+        text actividad
+        string responsable "nullable"
+        string plazo "nullable"
+        string evidencia_requerida "nullable"
+        uuid area_id FK
+        uuid fuente_id FK "nullable"
+        string version "nullable"
     }
     BITACORA {
         uuid id PK
@@ -163,7 +201,8 @@ erDiagram
 | Tablas relacionales (todas) | Persistencia transaccional de negocio | PostgreSQL 16 |
 | `version_documento.ruta_almacenamiento` | Referencia al binario real | MinIO (bucket `documentos`) |
 | `fragmento.referencia_vector` | Referencia al embedding para búsqueda semántica | Qdrant (colección `agente_admin_kb`) |
-| `regla`, `glosario` | Reflejan `kb/reglas/reglas.csv` y `kb/glosario/glosario.csv` | CSV versionado + tabla espejo en Postgres |
+| `regla`, `glosario`, `cuenta_contable`, `checklist_cierre` | Fuente de verdad gobernada (Bloque K1) -- reemplazan los CSV de `kb/reglas/`, `kb/glosario/` y `kb/fuentes/catalogo-cuentas-contabilidad.csv`; se cargan vía la plantilla de importación (Bloque K2) | PostgreSQL (antes: CSV versionado en git) |
+| `fuente_conocimiento` → una vigente por `fuente_id` | Índice único parcial (`WHERE estado='vigente'`) + `curaduria.fuentes.aprobar_fuente` | PostgreSQL + `src/curaduria` |
 
 ## Supuestos
 
@@ -172,3 +211,5 @@ erDiagram
 3. `documento.fecha_expiracion` se calcula como `fecha_carga + 90 días` (RN-08) y es el disparador de la depuración automática (PP-19); no se modela aquí el job de limpieza en sí (ver docs/03-diseno/flujos/pipeline-validacion.md).
 4. `bitacora` es de solo inserción (append-only); ningún proceso la actualiza ni la borra (RF-19, principio de auditoría).
 5. El binario original y el corregido son dos filas de `version_documento` del mismo `documento`, no un documento distinto — así se conserva la trazabilidad completa de versiones.
+6. `regla.estado`/`regla.version` (existentes desde antes del Bloque K1) se mantienen como campos propios en vez de derivarse por join contra `fuente_conocimiento.estado`: algunas reglas de sistema (p. ej. RN-07..RN-09) no tienen `fuente_id` (son intrínsecas al código, no respaldadas por un documento cargado) y necesitan un estado propio independiente. `glosario`/`cuenta_contable`/`checklist_cierre` en cambio no repiten `estado` -- su vigencia se deriva enteramente de `fuente_conocimiento.estado` vía `fuente_id` (todas sus filas vienen de una fuente cargada, la plantilla del Bloque K2 no tiene columna de estado en esas hojas).
+7. `regla`/`glosario`/`cuenta_contable`/`checklist_cierre` son un espejo informativo/citable de lo que hay en la base de conocimiento (para citar en hallazgos y para el importador del Bloque K2) -- **no** son la fuente que ejecuta la validación en tiempo real: la lógica de RN-01..RN-09 sigue hardcodeada en `src/validadores/contable/reglas.py` (RNF-03). Una fila en `regla` documenta una regla; no la implementa.

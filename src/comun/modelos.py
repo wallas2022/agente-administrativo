@@ -1,13 +1,25 @@
 """Modelo de datos (SQLAlchemy) — refleja docs/03-diseno/er/modelo-datos.md.
 
-Sin lógica de negocio: solo la estructura de las 15 entidades y sus relaciones.
+Sin lógica de negocio: solo la estructura de las 17 entidades y sus relaciones
+(15 originales + CuentaContable/ChecklistCierre del Bloque K1, CU-08).
 Las migraciones (Alembic) viven en src/api/migraciones/.
 """
 
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, String, Text
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import Uuid
 
@@ -168,16 +180,67 @@ class Decision(Base):
 
 
 class FuenteConocimiento(Base):
+    """RF-16, CU-08 (Bloque K1). Cada fila es UNA versión de una fuente; el
+    mismo `fuente_id` de negocio (p. ej. "POL-001") puede repetirse en
+    varias filas a lo largo del tiempo, pero como mucho una puede estar
+    `estado="vigente"` a la vez -- reforzado también a nivel de base de
+    datos (ver la migración: índice único parcial sobre `fuente_id` WHERE
+    `estado='vigente'`). Aprobar una versión nueva pasa la anterior a
+    "obsoleta" automáticamente (no se borra, RNF-06) -- ver `kb.fuentes.
+    aprobar_fuente`, que es quien aplica esta transición."""
+
     __tablename__ = "fuente_conocimiento"
+    __table_args__ = (
+        # Invariante "una sola versión vigente por fuente_id" (Bloque K1) --
+        # reforzado a nivel de base de datos, no solo confiado a
+        # kb.fuentes.aprobar_fuente. Índice parcial: varias filas pueden
+        # compartir fuente_id (una por versión histórica), pero como mucho
+        # una con estado="vigente" a la vez.
+        Index(
+            "ux_fuente_conocimiento_una_vigente",
+            "fuente_id",
+            unique=True,
+            postgresql_where=text("estado = 'vigente'"),
+            sqlite_where=text("estado = 'vigente'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
-    nombre: Mapped[str] = mapped_column(String(300), nullable=False)
-    area_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("area.id"), nullable=False)
-    curador_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("usuario.id"), nullable=False)
+    # Identificador legible de negocio (p. ej. "POL-001", "CAT-001",
+    # "GLO-001") -- el que usan la plantilla de importación (Bloque K2) y las
+    # citas de "Regla aplicada" (Bloque K4). Distinto del `id` UUID (la FK
+    # real que usan fragmento/regla/glosario/cuenta_contable/checklist).
+    fuente_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    titulo: Mapped[str] = mapped_column(String(300), nullable=False)
+    # regla_interna | normativa | referencia -- determina `prioridad`
+    # (ver kb.fuentes.prioridad_de_tipo); validado en la capa de dominio,
+    # no con un CHECK de base de datos (mismo criterio que el resto del
+    # proyecto para campos "enum" en String, p. ej. Hallazgo.estado).
+    tipo: Mapped[str] = mapped_column(String(20), nullable=False)
+    # 1 (regla_interna) / 2 (normativa) / 3 (referencia) -- derivado de
+    # `tipo`, no lo captura el curador directamente (Bloque K4 ordena por
+    # esto antes que por similitud semántica).
+    prioridad: Mapped[int] = mapped_column(nullable=False)
     version: Mapped[str] = mapped_column(String(50), nullable=False)
     vigente_desde: Mapped[date] = mapped_column(Date, nullable=False)
-    estado: Mapped[str] = mapped_column(String(20), default="vigente")
-    ruta_archivo: Mapped[str] = mapped_column(String(1000), nullable=False)
+    # borrador | vigente | obsoleta (RF-16): toda fuente nueva entra como
+    # "borrador" -- pasa a "vigente" solo cuando el Curador la aprueba.
+    estado: Mapped[str] = mapped_column(String(20), nullable=False, default="borrador")
+    area_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("area.id"), nullable=False)
+    # Dueño de negocio del contenido (p. ej. "Jefatura de Contabilidad") --
+    # texto libre, distinto de `cargado_por`/`aprobado_por` (usuarios reales
+    # del sistema) y distinto de `area_id` (una misma área puede tener
+    # varios dueños de distintas fuentes).
+    dueno: Mapped[str] = mapped_column(String(200), nullable=False)
+    archivo: Mapped[str] = mapped_column(String(1000), nullable=False)
+    # Integridad del binario cargado (detecta reemplazos fuera de banda del
+    # archivo en MinIO) -- hexdigest de 64 caracteres.
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    cargado_por: Mapped[uuid.UUID] = mapped_column(ForeignKey("usuario.id"), nullable=False)
+    # Nulo mientras la fuente sigue en "borrador".
+    aprobado_por: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("usuario.id"))
+    fecha_carga: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    fecha_aprobacion: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Fragmento(Base):
@@ -216,6 +279,54 @@ class Glosario(Base):
     termino: Mapped[str] = mapped_column(String(200), nullable=False)
     definicion: Mapped[str] = mapped_column(Text, nullable=False)
     fuente_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("fuente_conocimiento.id"))
+    # Bloque K1: snapshot de la versión de `fuente_id` al momento de importar
+    # esta fila (hoja "Glosario" de la plantilla, Bloque K2) -- si la fuente
+    # gana una versión nueva, las filas de la versión anterior no se
+    # sobrescriben, quedan como historial (mismo criterio que fuente_conocimiento).
+    version: Mapped[str | None] = mapped_column(String(50))
+    vigente_desde: Mapped[date | None] = mapped_column(Date)
+
+
+class CuentaContable(Base):
+    """RF-16, CU-08 (Bloque K1): reemplaza `kb/fuentes/catalogo-cuentas-
+    contabilidad.csv` como fuente de verdad para RN-02 (cuenta vs. catálogo)
+    -- ver `orquestador.pipeline_contable.cargar_catalogo` (Bloque K4, que
+    es quien cambia esa función para consultar esta tabla en vez del CSV)."""
+
+    __tablename__ = "cuenta_contable"
+    __table_args__ = (UniqueConstraint("area_id", "codigo", name="ux_cuenta_contable_area_codigo"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    codigo: Mapped[str] = mapped_column(String(20), nullable=False)
+    nombre: Mapped[str] = mapped_column(String(300), nullable=False)
+    # Clasificación contable (activo/pasivo/patrimonio/ingreso/gasto) -- no
+    # confundir con FuenteConocimiento.tipo (regla_interna/normativa/referencia).
+    tipo: Mapped[str | None] = mapped_column(String(50))
+    naturaleza: Mapped[str | None] = mapped_column(String(20))
+    acepta_movimiento: Mapped[bool] = mapped_column(Boolean, default=True)
+    notas: Mapped[str | None] = mapped_column(Text)
+    area_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("area.id"), nullable=False)
+    fuente_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("fuente_conocimiento.id"))
+    version: Mapped[str | None] = mapped_column(String(50))
+
+
+class ChecklistCierre(Base):
+    """RF-16, CU-08 (Bloque K1): actividades de control de cierre que el
+    agente puede verificar (CU-04, entrega 2) -- hoja "Checklist de cierre"
+    de la plantilla de importación (Bloque K2). No existía como tabla antes
+    de este bloque (no reemplaza ningún CSV previo)."""
+
+    __tablename__ = "checklist_cierre"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    numero: Mapped[int] = mapped_column(nullable=False)
+    actividad: Mapped[str] = mapped_column(Text, nullable=False)
+    responsable: Mapped[str | None] = mapped_column(String(200))
+    plazo: Mapped[str | None] = mapped_column(String(100))
+    evidencia_requerida: Mapped[str | None] = mapped_column(String(300))
+    area_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("area.id"), nullable=False)
+    fuente_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("fuente_conocimiento.id"))
+    version: Mapped[str | None] = mapped_column(String(50))
 
 
 class Bitacora(Base):

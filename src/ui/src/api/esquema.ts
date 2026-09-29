@@ -298,8 +298,12 @@ export interface components {
         FuenteConocimientoEsquema: {
             /** Id */
             id: string;
-            /** Nombre */
-            nombre: string;
+            /** Fuente Id */
+            fuente_id: string;
+            /** Titulo */
+            titulo: string;
+            /** Tipo */
+            tipo: string;
             /** Version */
             version: string;
             /**
