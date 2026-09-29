@@ -47,7 +47,15 @@ def ingerir_fragmentos(
         qmodels.PointStruct(
             id=_id_determinista(fuente_id, fragmento_id),
             vector=funcion_embedding(contenido),
-            payload={"fuente_id": fuente_id, "fragmento_id": fragmento_id, "contenido": contenido},
+            payload={
+                "fuente_id": fuente_id,
+                "fragmento_id": fragmento_id,
+                "contenido": contenido,
+                # Bloque K4: rag.busqueda.buscar_fragmentos filtra por
+                # estado="vigente" -- esta ingesta genérica (sin pasar por
+                # curaduria.indexacion) siempre indexa contenido ya usable.
+                "estado": "vigente",
+            },
         )
         for fragmento_id, contenido in fragmentos
     ]

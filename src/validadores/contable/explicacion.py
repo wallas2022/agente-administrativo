@@ -26,7 +26,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from rag.busqueda import ResultadoBusqueda
+from rag.busqueda import ResultadoBusqueda, construir_citas
 from validadores.contable.reglas import HallazgoDetectado
 
 VERSION_PROMPT_LOTE = "redaccion-contable-lote.v1"
@@ -46,7 +46,14 @@ class ExplicacionGenerada:
     texto: str
     modelo_llm: str | None  # None cuando la explicación es por plantilla (sin LLM)
     version_prompt: str
+    # Bloque K4 (RF-16, CU-08): "Regla aplicada: POL-001 §3 (v2026-01)" --
+    # nunca proviene de un fragmento tipo="referencia" (ver
+    # rag.busqueda.construir_citas). None si el RAG no encontró ningún
+    # fragmento regla_interna/normativa relevante.
     fuente_citada: str | None
+    # "Referencia: <fuente> cap./pág." -- complementaria, nunca funda el
+    # hallazgo por sí sola.
+    referencia_citada: str | None = None
 
 
 def _formatear(causa_probable: str, correccion_sugerida: str) -> str:
@@ -90,11 +97,13 @@ def generar_explicacion_plantilla(
         hallazgo.regla_codigo, "Revisar manualmente este hallazgo."
     )
     texto = _formatear(f"{hallazgo.descripcion}{_cita(fragmentos)}", correccion)
+    regla_aplicada, referencia = construir_citas(fragmentos)
     return ExplicacionGenerada(
         texto=texto,
         modelo_llm=None,
         version_prompt=VERSION_PLANTILLA,
-        fuente_citada=fragmentos[0].fuente_id if fragmentos else None,
+        fuente_citada=regla_aplicada,
+        referencia_citada=referencia,
     )
 
 
@@ -110,11 +119,13 @@ def generar_explicacion_plantilla_grupo(
         hallazgos[0].regla_codigo, "Revisar manualmente estos hallazgos."
     )
     texto = _formatear(causa, correccion)
+    regla_aplicada, referencia = construir_citas(fragmentos)
     return ExplicacionGenerada(
         texto=texto,
         modelo_llm=None,
         version_prompt=VERSION_PLANTILLA,
-        fuente_citada=fragmentos[0].fuente_id if fragmentos else None,
+        fuente_citada=regla_aplicada,
+        referencia_citada=referencia,
     )
 
 
@@ -212,7 +223,7 @@ def generar_explicaciones_lote(
     explicaciones: list[ExplicacionGenerada] = []
     for indice, (hallazgo, fragmentos) in enumerate(items):
         entrada = por_indice.get(indice)
-        fuente_citada = fragmentos[0].fuente_id if fragmentos else None
+        regla_aplicada, referencia = construir_citas(fragmentos)
         if entrada and entrada["causa_probable"] and entrada["correccion_sugerida"]:
             texto = _formatear(entrada["causa_probable"], entrada["correccion_sugerida"])
         else:
@@ -222,7 +233,8 @@ def generar_explicaciones_lote(
                 texto=texto,
                 modelo_llm=modelo,
                 version_prompt=VERSION_PROMPT_LOTE,
-                fuente_citada=fuente_citada,
+                fuente_citada=regla_aplicada,
+                referencia_citada=referencia,
             )
         )
     return explicaciones

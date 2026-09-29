@@ -11,13 +11,22 @@ from __future__ import annotations
 
 import csv
 import io
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 
 from qdrant_client import QdrantClient
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from comun.modelos import Analisis, Documento, Hallazgo, VersionDocumento
+from comun.modelos import (
+    Analisis,
+    CuentaContable,
+    Documento,
+    FuenteConocimiento,
+    Hallazgo,
+    VersionDocumento,
+)
 from orquestador.rutas_kb import encontrar_raiz_con_kb
 from parsers.excel import leer_libro_contable
 from rag.busqueda import buscar_fragmentos
@@ -43,10 +52,44 @@ FuncionEmbedding = Callable[[str], list[float]]
 FuncionLLM = Callable[[str], str]
 
 
-def cargar_catalogo(ruta: Path | None = None) -> set[str]:
+def cargar_catalogo_csv(ruta: Path | None = None) -> set[str]:
+    """Catálogo legado (kb/fuentes/catalogo-cuentas-contabilidad.csv) --
+    respaldo de `cargar_catalogo` mientras un área no tiene un catálogo
+    gobernado (Bloque K1-K3) cargado en PostgreSQL todavía."""
     ruta_efectiva = ruta or _ruta_catalogo_por_defecto()
     with ruta_efectiva.open(encoding="utf-8") as archivo:
         return {fila["codigo"].strip() for fila in csv.DictReader(archivo)}
+
+
+def cargar_catalogo_postgres(sesion: Session, *, area_id: uuid.UUID) -> set[str]:
+    """RN-02 (Bloque K4): catálogo vigente de PostgreSQL (curaduria, Bloques
+    K1-K3) -- cargado desde la plantilla (Bloque K2) y gobernado por el
+    curador (Bloque K5). "Solo se permiten cuentas del catálogo vigente que
+    acepten movimiento" (tal como documenta la propia plantilla): se
+    excluyen las cuentas con `acepta_movimiento=False` y las que quedaron
+    ligadas a una fuente que ya no es "vigente" (una cuenta sin fuente_id
+    -- cargada a mano, sin pasar por la plantilla -- se acepta igual)."""
+    filas = (
+        sesion.query(CuentaContable.codigo)
+        .outerjoin(FuenteConocimiento, CuentaContable.fuente_id == FuenteConocimiento.id)
+        .filter(
+            CuentaContable.area_id == area_id,
+            CuentaContable.acepta_movimiento.is_(True),
+            or_(CuentaContable.fuente_id.is_(None), FuenteConocimiento.estado == "vigente"),
+        )
+        .all()
+    )
+    return {codigo.strip() for (codigo,) in filas}
+
+
+def cargar_catalogo(sesion: Session, *, area_id: uuid.UUID) -> set[str]:
+    """Punto de entrada de RN-02: prefiere el catálogo gobernado de
+    PostgreSQL: si el área todavía no tiene ninguna cuenta vigente cargada
+    ahí (p. ej. nadie ha importado la plantilla todavía, Bloque K2/K5), cae
+    al CSV legado -- para que RN-02 no empiece a marcar cada cuenta como
+    inexistente el día que se activa este bloque sin que el curador haya
+    hecho la carga inicial."""
+    return cargar_catalogo_postgres(sesion, area_id=area_id) or cargar_catalogo_csv()
 
 
 def _parsear_periodo_cierre(analisis: Analisis) -> tuple[int, int]:
@@ -81,6 +124,7 @@ def _crear_fila_hallazgo(
         moneda=hallazgo.moneda,
         estado="pendiente",
         fuente_citada=explicacion.fuente_citada,
+        referencia_citada=explicacion.referencia_citada,
     )
 
 
@@ -112,7 +156,9 @@ def procesar_documento_contable(
     libro = leer_libro_contable(io.BytesIO(contenido_original))
     periodo = _parsear_periodo_cierre(analisis)
     detectados = validar_libro_contable(
-        libro, catalogo=catalogo or cargar_catalogo(), periodo=periodo
+        libro,
+        catalogo=catalogo or cargar_catalogo(sesion, area_id=documento.area_id),
+        periodo=periodo,
     )
 
     # Totales reales del libro (Pantalla 3, U4) — se calculan siempre, haya o

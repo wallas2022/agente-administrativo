@@ -12,6 +12,7 @@ import boto3
 from moto import mock_aws
 from openpyxl import Workbook, load_workbook
 from qdrant_client import QdrantClient
+from qdrant_client.http import models as qmodels
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -20,16 +21,18 @@ from comun.modelos import (
     Analisis,
     Area,
     Base,
+    CuentaContable,
     Documento,
+    FuenteConocimiento,
     Hallazgo,
     Rol,
     TipoRevision,
     Usuario,
     VersionDocumento,
 )
-from orquestador.pipeline_contable import COLECCION_RAG
+from orquestador.pipeline_contable import COLECCION_RAG, cargar_catalogo, cargar_catalogo_postgres
 from orquestador.tareas import ejecutar_analisis
-from rag.ingesta import ingerir_fragmentos
+from rag.ingesta import asegurar_coleccion
 
 BUCKET = "documentos"
 
@@ -288,13 +291,28 @@ def test_hallazgo_guarda_la_fuente_citada_por_rag() -> None:
     sesion, documento_id, analisis_id, llave = _sesion_con_documento_analisis_y_version(contenido)
 
     cliente_qdrant = QdrantClient(":memory:")
-    ingerir_fragmentos(
-        cliente_qdrant,
-        coleccion=COLECCION_RAG,
-        fuente_id="politica-cierre-contable",
-        fragmentos=[("sec-2-cuentas", "Toda cuenta usada debe existir en el catálogo vigente.")],
-        funcion_embedding=_embedding_falso,
-        dimension=4,
+    asegurar_coleccion(cliente_qdrant, COLECCION_RAG, 4)
+    cliente_qdrant.upsert(
+        collection_name=COLECCION_RAG,
+        points=[
+            qmodels.PointStruct(
+                id=str(uuid.uuid4()),
+                vector=_embedding_falso("Toda cuenta usada debe existir en el catálogo vigente."),
+                payload={
+                    "fragmento_id": "sec-2-cuentas",
+                    "fuente_id": "politica-cierre-contable",
+                    "contenido": "Toda cuenta usada debe existir en el catálogo vigente.",
+                    # Bloque K4: solo regla_interna/normativa pueden fundar un
+                    # hallazgo ("Regla aplicada") -- ver rag.busqueda.construir_citas.
+                    "estado": "vigente",
+                    "prioridad": 1,
+                    "tipo": "regla_interna",
+                    "version": "2026-01",
+                    "seccion": "§2",
+                    "pagina": None,
+                },
+            )
+        ],
     )
 
     with mock_aws():
@@ -315,7 +333,7 @@ def test_hallazgo_guarda_la_fuente_citada_por_rag() -> None:
         )
 
         hallazgo = sesion.query(Hallazgo).filter_by(analisis_id=analisis_id).one()
-        assert hallazgo.fuente_citada == "politica-cierre-contable"
+        assert hallazgo.fuente_citada == "Regla aplicada: politica-cierre-contable §2 (v2026-01)"
 
 
 def test_pipeline_agrupa_llm_en_una_sola_llamada_y_persiste_deterministas_primero() -> None:
@@ -379,3 +397,139 @@ def test_ejecutar_analisis_sin_dependencias_de_infraestructura_usa_flujo_generic
 
     assert resultado == EstadoDocumento.EN_REVISION.value
     assert sesion.query(Hallazgo).filter_by(analisis_id=analisis_id).count() == 0
+
+
+# --- RN-02 con el catálogo gobernado de PostgreSQL (Bloque K4) --------------
+
+
+def _fuente_vigente_para_catalogo(sesion: Session, area: Area) -> FuenteConocimiento:
+    rol = Rol(nombre="curador")
+    sesion.add(rol)
+    sesion.flush()
+    usuario = Usuario(
+        nombre="Carla Curadora", email="carla@ejemplo.gt", area_id=area.id, rol_id=rol.id
+    )
+    sesion.add(usuario)
+    sesion.flush()
+    fuente = FuenteConocimiento(
+        fuente_id="CAT-001",
+        titulo="Catálogo de cuentas",
+        tipo="regla_interna",
+        prioridad=1,
+        version="1.0",
+        vigente_desde=date(2026, 1, 1),
+        estado="vigente",
+        area_id=area.id,
+        dueno="Jefatura de Contabilidad",
+        archivo='hoja "Catálogo de cuentas"',
+        cargado_por=usuario.id,
+        fecha_carga=datetime.now(UTC),
+    )
+    sesion.add(fuente)
+    sesion.flush()
+    return fuente
+
+
+def test_cargar_catalogo_postgres_excluye_sin_movimiento_y_fuentes_obsoletas() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    sesion = Session(engine)
+    area = Area(nombre="Contabilidad")
+    sesion.add(area)
+    sesion.flush()
+    fuente_vigente = _fuente_vigente_para_catalogo(sesion, area)
+    fuente_obsoleta = FuenteConocimiento(
+        fuente_id="CAT-000",
+        titulo="Catálogo anterior",
+        tipo="regla_interna",
+        prioridad=1,
+        version="0.9",
+        vigente_desde=date(2025, 1, 1),
+        estado="obsoleta",
+        area_id=area.id,
+        dueno="Jefatura de Contabilidad",
+        archivo="catalogo-anterior.xlsx",
+        cargado_por=fuente_vigente.cargado_por,
+        fecha_carga=datetime.now(UTC),
+    )
+    sesion.add(fuente_obsoleta)
+    sesion.flush()
+
+    sesion.add_all(
+        [
+            CuentaContable(
+                codigo="1101", nombre="Caja general", acepta_movimiento=True,
+                area_id=area.id, fuente_id=fuente_vigente.id,
+            ),
+            CuentaContable(
+                codigo="1000", nombre="Activo (cuenta de grupo)", acepta_movimiento=False,
+                area_id=area.id, fuente_id=fuente_vigente.id,
+            ),
+            CuentaContable(
+                codigo="9001", nombre="Cuenta de un catálogo ya obsoleto", acepta_movimiento=True,
+                area_id=area.id, fuente_id=fuente_obsoleta.id,
+            ),
+            CuentaContable(
+                codigo="8001", nombre="Cargada a mano, sin plantilla", acepta_movimiento=True,
+                area_id=area.id, fuente_id=None,
+            ),
+        ]
+    )
+    sesion.commit()
+
+    catalogo = cargar_catalogo_postgres(sesion, area_id=area.id)
+
+    assert catalogo == {"1101", "8001"}
+
+
+def test_cargar_catalogo_cae_al_csv_legado_si_el_area_no_tiene_catalogo_en_postgres() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    sesion = Session(engine)
+    area = Area(nombre="Contabilidad")
+    sesion.add(area)
+    sesion.flush()
+
+    catalogo = cargar_catalogo(sesion, area_id=area.id)
+
+    assert "1010" in catalogo  # código real de kb/fuentes/catalogo-cuentas-contabilidad.csv
+
+
+def test_ejecutar_analisis_contable_usa_catalogo_de_postgres_cuando_existe() -> None:
+    """Con un catálogo gobernado cargado para el área, RN-02 lo usa en vez
+    del CSV -- una cuenta que el CSV legado sí reconoce ("1010") pero que
+    el catálogo de PostgreSQL no incluye pasa a marcarse como error."""
+    contenido = _libro_sin_errores()  # usa "1010" y "4010", ambas válidas en el CSV
+    sesion, documento_id, analisis_id, llave = _sesion_con_documento_analisis_y_version(contenido)
+    documento = sesion.get(Documento, documento_id)
+
+    fuente = _fuente_vigente_para_catalogo(sesion, sesion.get(Area, documento.area_id))
+    sesion.add(
+        CuentaContable(
+            codigo="4010", nombre="Ingreso por servicio", acepta_movimiento=True,
+            area_id=documento.area_id, fuente_id=fuente.id,
+        )
+    )  # deliberadamente sin "1010": el catálogo de Postgres no la reconoce
+    sesion.commit()
+
+    with mock_aws():
+        cliente_s3 = boto3.client("s3", region_name="us-east-1")
+        cliente_s3.create_bucket(Bucket=BUCKET)
+        cliente_s3.put_object(Bucket=BUCKET, Key=llave, Body=contenido)
+
+        resultado = ejecutar_analisis(
+            sesion,
+            documento_id,
+            analisis_id,
+            cliente_s3=cliente_s3,
+            bucket=BUCKET,
+            cliente_qdrant=QdrantClient(":memory:"),
+            funcion_embedding=_embedding_falso,
+            funcion_llm=_llm_falso,
+            modelo_llm="modelo-de-prueba",
+        )
+
+    assert resultado == EstadoDocumento.CON_HALLAZGOS.value
+    hallazgo = sesion.query(Hallazgo).filter_by(analisis_id=analisis_id).one()
+    assert hallazgo.ubicacion == "Partidas!A2"  # la fila de "1010"
+    assert "RN-02" not in hallazgo.descripcion or "catálogo" in hallazgo.descripcion.lower()

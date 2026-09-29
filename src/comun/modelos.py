@@ -156,11 +156,15 @@ class Hallazgo(Base):
     # monedas mezcladas en la partida, p. ej. "Q/USD".
     moneda: Mapped[str | None] = mapped_column(String(10))
     estado: Mapped[str] = mapped_column(String(20), default="pendiente")
-    # Identificador de la fuente citada por el LLM (ResultadoBusqueda.fuente_id
-    # / ExplicacionGenerada.fuente_citada, p. ej. "politica-cierre-contable")
-    # — RF-12/PP-07. No es una FK real: el RAG hoy vive en Qdrant, no hay
+    # Cita que FUNDA el hallazgo (Bloque K4, RF-16): "Regla aplicada:
+    # POL-001 §3 (v2026-01)" -- nunca proviene de un fragmento tipo=
+    # "referencia" (ver rag.busqueda.construir_citas/ExplicacionGenerada.
+    # fuente_citada). No es una FK real: el RAG hoy vive en Qdrant, no hay
     # garantía de que exista una fila FuenteConocimiento con ese mismo id.
     fuente_citada: Mapped[str | None] = mapped_column(String(300))
+    # Cita complementaria, nunca fundamento por sí sola: "Referencia:
+    # <fuente> cap./pág." (Bloque K4) -- mismo criterio que fuente_citada.
+    referencia_citada: Mapped[str | None] = mapped_column(String(300))
 
     analisis: Mapped["Analisis"] = relationship(back_populates="hallazgos")
     decisiones: Mapped[list["Decision"]] = relationship(back_populates="hallazgo")

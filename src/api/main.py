@@ -427,6 +427,7 @@ def listar_hallazgos(
             moneda=h.moneda,
             estado=h.estado,
             fuente_citada=h.fuente_citada,
+            referencia_citada=h.referencia_citada,
         )
         for h in hallazgos
     ]

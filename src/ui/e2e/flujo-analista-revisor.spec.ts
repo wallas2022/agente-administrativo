@@ -64,7 +64,9 @@ test.describe("CU-01: flujo Analista → Revisor", () => {
     await paginaRevisor.waitForURL(/\/analisis\/[^/]+\/hallazgos$/);
     await expect(paginaRevisor.locator(".tarjeta-hallazgo")).toHaveCount(1);
 
-    const botonAceptar = paginaRevisor.getByRole("button", { name: "Aceptar" });
+    // exact: true -- "Aceptar todos" (Bloque O4) también matchea por
+    // substring si no se pide el nombre exacto.
+    const botonAceptar = paginaRevisor.getByRole("button", { name: "Aceptar", exact: true });
     await expect(botonAceptar).toBeVisible();
     await botonAceptar.click();
 

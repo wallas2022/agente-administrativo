@@ -339,6 +339,8 @@ export interface components {
             estado: string;
             /** Fuente Citada */
             fuente_citada?: string | null;
+            /** Referencia Citada */
+            referencia_citada?: string | null;
         };
         /** ParteSubidaEsquema */
         ParteSubidaEsquema: {

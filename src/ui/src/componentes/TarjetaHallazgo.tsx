@@ -13,7 +13,12 @@ export interface Hallazgo {
   monto?: number | null;
   moneda?: string | null;
   estado: string;
+  // Bloque K4 (RF-16, CU-08): fuente_citada ya viene formateada como "Regla
+  // aplicada: POL-001 §3 (v2026-01)" (nunca una "referencia" -- ver
+  // rag.busqueda.construir_citas); referencia_citada, cuando existe, como
+  // "Referencia: <fuente> cap./pág." -- complementaria, nunca fundamento.
   fuente_citada?: string | null;
+  referencia_citada?: string | null;
 }
 
 const RESUELTOS = new Set(["aceptado", "rechazado"]);
@@ -121,9 +126,16 @@ export function TarjetaHallazgo({
 
       {/* fuente_citada en CU-05 "en_validacion" es el id de regla interno de
           LanguageTool (implementación, ver pipeline_ortografia.py) -- nunca
-          una fuente RAG real, así que no se muestra para ortografía. */}
+          una fuente RAG real, así que no se muestra para ortografía. Para
+          CU-01, ya viene formateada ("Regla aplicada: ..." / "Referencia:
+          ..." -- Bloque K4), no hace falta anteponerle nada acá. */}
       {!infoOrtografica && hallazgo.fuente_citada && (
-        <p className="tarjeta-hallazgo__fuente">Fuente: {hallazgo.fuente_citada}</p>
+        <p className="tarjeta-hallazgo__fuente tarjeta-hallazgo__fuente--regla">
+          {hallazgo.fuente_citada}
+        </p>
+      )}
+      {!infoOrtografica && hallazgo.referencia_citada && (
+        <p className="tarjeta-hallazgo__fuente">{hallazgo.referencia_citada}</p>
       )}
 
       {error && (

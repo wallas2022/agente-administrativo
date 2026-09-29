@@ -78,6 +78,7 @@ class HallazgoEsquema(BaseModel):
     moneda: str | None = None
     estado: str
     fuente_citada: str | None = None
+    referencia_citada: str | None = None
 
 
 class SolicitudDecision(BaseModel):

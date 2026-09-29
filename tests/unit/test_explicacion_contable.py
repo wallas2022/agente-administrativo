@@ -55,6 +55,11 @@ def _fragmento() -> ResultadoBusqueda:
         fuente_id="politica-cierre-contable",
         contenido="## 5. Moneda\nLos registros pueden expresarse en Q o USD...",
         puntuacion=0.67,
+        prioridad=1,
+        tipo="regla_interna",
+        version="2026-01",
+        seccion="§5",
+        pagina=None,
     )
 
 
@@ -63,7 +68,8 @@ def test_generar_explicacion_plantilla_no_usa_llm_y_cita_la_fuente() -> None:
 
     assert explicacion.modelo_llm is None
     assert explicacion.version_prompt == VERSION_PLANTILLA
-    assert explicacion.fuente_citada == "politica-cierre-contable"
+    assert explicacion.fuente_citada == "Regla aplicada: politica-cierre-contable §5 (v2026-01)"
+    assert explicacion.referencia_citada is None
     assert "9999" in explicacion.texto
     assert "[politica-cierre-contable]" in explicacion.texto
     assert "catálogo de cuentas" in explicacion.texto
@@ -74,6 +80,27 @@ def test_generar_explicacion_plantilla_sin_fragmentos_no_cita_fuente() -> None:
 
     assert explicacion.fuente_citada is None
     assert "[politica" not in explicacion.texto
+
+
+def test_generar_explicacion_plantilla_una_referencia_nunca_funda_el_hallazgo() -> None:
+    """Bloque K4: un fragmento tipo="referencia" jamás se cita como
+    "Regla aplicada" -- a lo sumo queda como Referencia complementaria."""
+    fragmento_referencia = ResultadoBusqueda(
+        fragmento_id="guia-estilo-sec-1",
+        fuente_id="EST-001",
+        contenido="Formato general de documentos institucionales.",
+        puntuacion=0.9,
+        prioridad=3,
+        tipo="referencia",
+        version="1.0",
+        seccion="§1",
+        pagina=None,
+    )
+
+    explicacion = generar_explicacion_plantilla(_hallazgo_rn02(), [fragmento_referencia])
+
+    assert explicacion.fuente_citada is None
+    assert explicacion.referencia_citada == "Referencia: EST-001, cap. §1"
 
 
 def test_generar_explicacion_plantilla_grupo_menciona_todas_las_ubicaciones() -> None:
@@ -133,7 +160,10 @@ def test_generar_explicaciones_lote_hace_una_sola_llamada_para_varios_hallazgos(
     assert len(explicaciones) == 2
     assert "causa 0" in explicaciones[0].texto
     assert "correccion 1" in explicaciones[1].texto
-    assert explicaciones[1].fuente_citada == "politica-cierre-contable"
+    assert (
+        explicaciones[1].fuente_citada
+        == "Regla aplicada: politica-cierre-contable §5 (v2026-01)"
+    )
     assert all(e.version_prompt == VERSION_PROMPT_LOTE for e in explicaciones)
     assert all(e.modelo_llm == "gpt-oss:20b" for e in explicaciones)
 

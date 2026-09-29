@@ -88,6 +88,14 @@
   font-style: italic;
 }
 
+/* Bloque K4: "Regla aplicada" es lo que funda el hallazgo -- se distingue
+   de "Referencia" (complementaria, debajo, en cursiva tenue). */
+.tarjeta-hallazgo__fuente--regla {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--color-texto);
+}
+
 .tarjeta-hallazgo__error {
   margin: 0;
   color: var(--color-alto-texto);

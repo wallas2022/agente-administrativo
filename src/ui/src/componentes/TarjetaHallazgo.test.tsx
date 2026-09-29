@@ -111,4 +111,36 @@ describe("TarjetaHallazgo", () => {
     expect(screen.getByText("Aceptar")).toBeInTheDocument();
     expect(screen.getByText("Rechazar")).toBeInTheDocument();
   });
+
+  it("muestra 'Regla aplicada' y 'Referencia' por separado (Bloque K4)", () => {
+    render(
+      <TarjetaHallazgo
+        hallazgo={hallazgoContable({
+          fuente_citada: "Regla aplicada: POL-001 §3 (v2026-01)",
+          referencia_citada: "Referencia: EST-001, cap. §2",
+        })}
+        puedeDecidir={false}
+        alDecidir={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Regla aplicada: POL-001 §3 (v2026-01)")).toBeInTheDocument();
+    expect(screen.getByText("Referencia: EST-001, cap. §2")).toBeInTheDocument();
+  });
+
+  it("sin fuente_citada no muestra 'Regla aplicada' aunque haya referencia", () => {
+    render(
+      <TarjetaHallazgo
+        hallazgo={hallazgoContable({
+          fuente_citada: null,
+          referencia_citada: "Referencia: EST-001, cap. §2",
+        })}
+        puedeDecidir={false}
+        alDecidir={() => {}}
+      />,
+    );
+
+    expect(screen.queryByText(/Regla aplicada/)).not.toBeInTheDocument();
+    expect(screen.getByText("Referencia: EST-001, cap. §2")).toBeInTheDocument();
+  });
 });
