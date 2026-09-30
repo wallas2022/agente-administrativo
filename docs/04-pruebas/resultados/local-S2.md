@@ -180,3 +180,27 @@ Re-evaluando los tiempos YA MEDIDOS en este mismo archivo (Bloques O5 y O6) cont
 **Nota de margen:** el PDF (CU05-03) tiene el margen más angosto de los cinco (291.5s de 300s en la medición del Bloque O6, con el host bajo la misma presión de memoria documentada en `local-S1.md`). No es un incumplimiento, pero es el candidato más probable a fallar si el prompt crece (más casos dudosos) o el host está más cargado. Sigue aplicando la recomendación de re-evaluar con GPU (ADR-005) si el margen deja de ser aceptable en producción.
 
 **Conclusión:** las secciones "Hallazgos de esta fase" y "Pendiente" del Bloque O5, y la "Decisión" del punto 2 del Bloque O6, quedaron marcadas en línea con esta actualización -- no se reescribieron los números originales, solo su interpretación bajo el umbral vigente.
+
+---
+
+# Actualización 2026-09-30 — recall 23/24 → 22/24 investigado: variabilidad del LLM, no una regresión de código
+
+**Disparador:** entre el Bloque O6 (23/24, PDF en 291.5s) y el Bloque K7 (22/24, PDF en 80.6s) el recall global de PP-03 bajó, con el PDF (CU05-03) como único archivo distinto. Se sospechó variabilidad del LLM en la validación de casos dudosos (fase 2, `ortografia.revision.validar_candidatos_con_llm`).
+
+**Diagnóstico:** `rag/cliente_llm.py::generar_texto` no fijaba `temperature` ni `seed` -- cada llamada a Ollama usaba el muestreo por defecto del modelo (no determinista). Confirmado como causa real: se agregó `options: {"temperature": 0, "seed": 42}` al payload (Bloque K7, ver commit) y se corrió PP-03 **3 veces seguidas** con el stack real (LanguageTool + Ollama nativo, sin mocks):
+
+```
+Corrida 1: CU05-01 9/9 · CU05-02 4/5 · CU05-03 4/5 · CU05-04 3/3 · CU05-05 2/2 -- 5 passed in 247.74s
+Corrida 2: CU05-01 9/9 · CU05-02 4/5 · CU05-03 4/5 · CU05-04 3/3 · CU05-05 2/2 -- 5 passed in 220.94s
+Corrida 3: CU05-01 9/9 · CU05-02 4/5 · CU05-03 4/5 · CU05-04 3/3 · CU05-05 2/2 -- 5 passed in 187.77s
+```
+
+**Las 3 corridas dieron exactamente el mismo resultado, archivo por archivo** -- confirma que `temperature=0`/`seed=42` sí vuelve determinista la validación de dudosos (antes no lo era, y esa no-determinismo no estaba documentado ni probado). Recall global estable: **22/24 = 91.7 %**, 0 falsos positivos en las 3 corridas (mejor que el 4.2 % de O6 -- el falso positivo de O6 en "Agosto" tampoco se repite con `temperature=0`). Los 5 documentos siguen cumpliendo RNF-04 (≤ 300s) en las 3 corridas.
+
+**Error específico que ya no se detecta:** fila 19 de `Respuestas_CU05_Ortografia.xlsx` para CU05-03 -- `"se de seguimiento"` -> `"se dé seguimiento"` (acentuación diacrítica, "de" vs "dé" según contexto gramatical, subjuntivo). Confirmado ejecutando `revisar_segmentos` directamente sobre el PDF: la fase 2 (LLM) juzga, con `temperature=0`/`seed=42`, que "de" ya está correcto ahí -- no marca error. Los otros 4 errores esperados de ese archivo ("depositos", "Ademas", "abian", "nesesario") sí se detectan en las 3 corridas.
+
+**¿Es una regresión de código? No.** El prompt (`_construir_prompt_lote`) ya menciona explícitamente "de" vs "dé" como ejemplo de caso ambiguo -- no hay un error de instrucción que corregir. Lo que cambió es que antes esta llamada al LLM era aleatoria (sin `seed`): la corrida de O6 tuvo la suerte de que el modelo marcara correctamente este caso diacrítico esa vez; las corridas de K6/K7 y estas 3 nuevas, con o sin `seed` fija, coinciden en el resultado contrario. No se buscó ni se probó una `seed` distinta para forzar que este caso puntual "pase" -- habría sido ajustar el resultado a un solo caso de prueba, no una mejora real. **91.7 % sigue cumpliendo el umbral de PP-03 (≥ 90 %)** con margen, y ahora el resultado es reproducible en vez de variar entre corridas -- una mejora real sobre el estado anterior (recall silenciosamente variable no es aceptable en una herramienta de cumplimiento).
+
+**Cambio de código:** `rag/cliente_llm.py::generar_texto` manda `options.temperature=0` y `options.seed=42` en cada request a Ollama (constantes `TEMPERATURA_POR_DEFECTO`/`SEMILLA_POR_DEFECTO`), aplicando tanto a la validación de dudosos de CU-05 como a la redacción de hallazgos contables de CU-01/RF-12 (mismo criterio: determinismo también importa para la trazabilidad/auditoría, RNF-06). Pruebas nuevas: `tests/unit/test_cliente_llm.py::test_generar_texto_envia_temperature_0_y_seed_fija_por_defecto`.
+
+**Pendiente:** el caso "de"/"dé" en subjuntivo queda como límite conocido del modelo actual (`gpt-oss:20b`) con `temperature=0` -- no bloqueante (91.7 % ≥ 90 %), documentado para no sorprender en una futura medición.
