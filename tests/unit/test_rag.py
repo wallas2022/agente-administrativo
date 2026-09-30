@@ -184,6 +184,81 @@ def test_buscar_fragmentos_con_payload_minimo_legado_asume_prioridad_baja() -> N
     assert next(r for r in resultados if r.fragmento_id == "legado").prioridad == 3
 
 
+def test_buscar_fragmentos_incluye_referencia_aunque_el_top_k_este_lleno_de_reglas() -> None:
+    """Bloque K7 (hallazgo de PP-07, docs/04-pruebas/resultados/local-SKB.md):
+    antes de esta corrección, una fuente tipo "referencia" podía no
+    aparecer NUNCA en un área con >= top_k fuentes regla_interna, aunque
+    fuera la más relevante -- porque competía por los mismos top_k puestos
+    después de ordenar por prioridad. Ahora se busca aparte (consulta
+    propia, filtrada a tipo="referencia", top-1) y se agrega sin quitarle
+    cupo a las reglas."""
+    cliente = _cliente_en_memoria()
+    vector_consulta = _embedding_falso("cuadre")
+    _insertar_punto(
+        cliente, coleccion=COLECCION, id_punto="referencia", vector=vector_consulta,
+        fuente_id="EST-001", contenido="Cuadre de partidas, ver la guía de estilo.",
+        prioridad=3, tipo="referencia",
+    )
+    # 3 reglas, todas de mayor prioridad, llenan top_k=3 por sí solas.
+    for i in range(3):
+        _insertar_punto(
+            cliente, coleccion=COLECCION, id_punto=f"regla-{i}",
+            vector=_embedding_falso("un vector distinto, menos parecido"),
+            fuente_id=f"POL-00{i}", contenido=f"Regla interna {i}.",
+            prioridad=1, tipo="regla_interna",
+        )
+
+    resultados = buscar_fragmentos(
+        cliente, coleccion=COLECCION, texto_consulta="cuadre",
+        funcion_embedding=_embedding_falso, top_k=3,
+    )
+
+    assert len(resultados) == 4  # 3 reglas + 1 referencia, no compiten por el mismo cupo
+    assert "referencia" in {r.fragmento_id for r in resultados}
+    _regla_aplicada, cita_referencia = construir_citas(resultados)
+    assert cita_referencia is not None
+    assert "EST-001" in cita_referencia
+
+
+def test_buscar_fragmentos_descarta_referencia_bajo_el_umbral_de_similitud() -> None:
+    cliente = _cliente_en_memoria()
+    _insertar_punto(
+        cliente, coleccion=COLECCION, id_punto="referencia-lejana",
+        vector=_embedding_falso("otro"),  # vector ortogonal al de la consulta
+        fuente_id="EST-999", contenido="Contenido sin relación con la consulta.",
+        prioridad=3, tipo="referencia",
+    )
+
+    resultados = buscar_fragmentos(
+        cliente, coleccion=COLECCION, texto_consulta="cuadre",
+        funcion_embedding=_embedding_falso, top_k=3, umbral_referencia=0.9,
+    )
+
+    assert resultados == []
+
+
+def test_buscar_fragmentos_legado_sin_tipo_sigue_contando_como_referencia() -> None:
+    """El payload mínimo de rag.ingesta.ingerir_fragmentos (sin "tipo") debe
+    seguir cayendo en la búsqueda de referencia -- misma convención que ya
+    aplicaba ResultadoBusqueda.tipo por defecto antes de este cambio."""
+    cliente = _cliente_en_memoria()
+    ingerir_fragmentos(
+        cliente, coleccion=COLECCION, fuente_id="politica-cierre-contable",
+        fragmentos=[("legado", "El cuadre de partidas exige que debe y haber sean iguales.")],
+        funcion_embedding=_embedding_falso, dimension=DIMENSION,
+    )
+
+    resultados = buscar_fragmentos(
+        cliente, coleccion=COLECCION, texto_consulta="cuadre",
+        funcion_embedding=_embedding_falso, top_k=3,
+    )
+
+    assert len(resultados) == 1
+    assert resultados[0].fragmento_id == "legado"
+    assert resultados[0].tipo == "referencia"
+    assert resultados[0].prioridad == 3
+
+
 # --- Bloque K4: construir_citas ("Regla aplicada" vs. "Referencia") ---------
 
 

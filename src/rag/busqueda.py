@@ -9,7 +9,16 @@ pueden ganar ni por prioridad ni por similitud) y se ordena primero por
 resultados de la misma prioridad, por similitud semántica -- una regla
 interna con puntuación algo menor sigue pesando más que una referencia con
 puntuación más alta. Para eso se piden más candidatos de los que se
-devuelven (`factor_candidatos`) y se reordenan del lado del cliente."""
+devuelven (`factor_candidatos`) y se reordenan del lado del cliente.
+
+Bloque K7 (hallazgo de PP-07, docs/04-pruebas/resultados/local-SKB.md): con
+una sola consulta, una fuente tipo "referencia" podía no aparecer NUNCA en
+un área con >= top_k fuentes regla_interna/normativa, aunque fuera la más
+relevante para el hallazgo -- porque competía por los mismos top_k puestos
+después de ordenar por prioridad. Ahora "referencia" se busca aparte (su
+propia consulta a Qdrant, filtrada a ese tipo, top-1) y solo se agrega si
+supera `umbral_referencia` -- no le quita cupo a las reglas ni compite con
+ellas."""
 
 from __future__ import annotations
 
@@ -35,9 +44,45 @@ class ResultadoBusqueda:
     pagina: int | None
 
 
-_FILTRO_VIGENTE = qmodels.Filter(
-    must=[qmodels.FieldCondition(key="estado", match=qmodels.MatchValue(value="vigente"))]
+# 0.5 es un punto de partida razonable para similitud coseno (bge-m3), no
+# una cifra medida -- igual que factor_candidatos, queda expuesto como
+# parámetro para poder afinarlo con datos reales de un piloto.
+UMBRAL_SIMILITUD_REFERENCIA_POR_DEFECTO = 0.5
+
+_TIPOS_REGLA = frozenset({"regla_interna", "normativa"})
+
+_COND_VIGENTE = qmodels.FieldCondition(
+    key="estado", match=qmodels.MatchValue(value="vigente")
 )
+_COND_TIPO_REGLA = qmodels.FieldCondition(
+    key="tipo", match=qmodels.MatchAny(any=list(_TIPOS_REGLA))
+)
+
+_FILTRO_VIGENTE = qmodels.Filter(must=[_COND_VIGENTE])
+# Solo regla_interna/normativa -- lo que puede fundar un hallazgo ("Regla
+# aplicada").
+_FILTRO_VIGENTE_REGLAS = qmodels.Filter(must=[_COND_VIGENTE, _COND_TIPO_REGLA])
+# Todo lo demás: tipo="referencia" explícito, o payload mínimo legado sin
+# "tipo" (rag.ingesta.ingerir_fragmentos) -- mismo criterio que el valor
+# por defecto que ya usaba ResultadoBusqueda.tipo.
+_FILTRO_VIGENTE_REFERENCIA = qmodels.Filter(
+    must=[_COND_VIGENTE], must_not=[_COND_TIPO_REGLA]
+)
+
+
+def _a_resultado(punto) -> ResultadoBusqueda:  # noqa: ANN001
+    payload = punto.payload or {}
+    return ResultadoBusqueda(
+        fragmento_id=payload["fragmento_id"],
+        fuente_id=payload["fuente_id"],
+        contenido=payload["contenido"],
+        puntuacion=punto.score,
+        prioridad=payload.get("prioridad", 3),
+        tipo=payload.get("tipo", "referencia"),
+        version=payload.get("version", ""),
+        seccion=payload.get("seccion"),
+        pagina=payload.get("pagina"),
+    )
 
 
 def buscar_fragmentos(
@@ -48,38 +93,33 @@ def buscar_fragmentos(
     funcion_embedding: FuncionEmbedding,
     top_k: int = 3,
     factor_candidatos: int = 5,
+    umbral_referencia: float = UMBRAL_SIMILITUD_REFERENCIA_POR_DEFECTO,
 ) -> list[ResultadoBusqueda]:
     if not cliente.collection_exists(coleccion):
         return []
 
     vector = funcion_embedding(texto_consulta)
-    encontrados = cliente.query_points(
+
+    encontrados_reglas = cliente.query_points(
         collection_name=coleccion,
         query=vector,
-        query_filter=_FILTRO_VIGENTE,
+        query_filter=_FILTRO_VIGENTE_REGLAS,
         limit=max(top_k * factor_candidatos, top_k),
     ).points
-
-    candidatos = [
-        ResultadoBusqueda(
-            fragmento_id=(p.payload or {})["fragmento_id"],
-            fuente_id=(p.payload or {})["fuente_id"],
-            contenido=(p.payload or {})["contenido"],
-            puntuacion=p.score,
-            # Payload mínimo (rag.ingesta.ingerir_fragmentos, CU-01 legado)
-            # vs. payload completo (curaduria.indexacion, Bloque K3): si no
-            # hay prioridad/tipo/version, se asume la prioridad más baja
-            # (referencia) para no ganarle a un resultado sí clasificado.
-            prioridad=(p.payload or {}).get("prioridad", 3),
-            tipo=(p.payload or {}).get("tipo", "referencia"),
-            version=(p.payload or {}).get("version", ""),
-            seccion=(p.payload or {}).get("seccion"),
-            pagina=(p.payload or {}).get("pagina"),
-        )
-        for p in encontrados
-    ]
+    candidatos = [_a_resultado(p) for p in encontrados_reglas]
     candidatos.sort(key=lambda r: (r.prioridad, -r.puntuacion))
-    return candidatos[:top_k]
+    resultado = candidatos[:top_k]
+
+    encontrados_referencia = cliente.query_points(
+        collection_name=coleccion,
+        query=vector,
+        query_filter=_FILTRO_VIGENTE_REFERENCIA,
+        limit=1,
+    ).points
+    if encontrados_referencia and encontrados_referencia[0].score >= umbral_referencia:
+        resultado.append(_a_resultado(encontrados_referencia[0]))
+
+    return resultado
 
 
 # tipo="referencia" (prioridad 3) nunca funda un hallazgo -- solo

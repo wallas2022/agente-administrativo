@@ -225,16 +225,12 @@ def test_pp20_ingesta_pdf_produce_citas_con_seccion_correcta(base_conocimiento_r
 
 
 def test_pp20_ingesta_docx_produce_citas_con_seccion_correcta(base_conocimiento_real) -> None:
-    """top_k amplio a propósito: con los parámetros de producción (top_k=3
-    por defecto), en este corpus de prueba (7 fragmentos de POL-001,
-    prioridad 1, frente a solo 5 de EST-001, prioridad 3) el orden por
-    prioridad de `buscar_fragmentos` empuja a EST-001 fuera del top-3 casi
-    siempre -- ver el hallazgo documentado en
-    test_pp07_hallazgo_referencia_puede_quedar_fuera_del_top_k_por_prioridad.
-    Eso es un efecto legítimo del diseño de K4 (prioridad antes que
-    similitud, ya probado en tests/unit/test_rag.py), no un defecto de la
-    ingesta. Aquí se aísla lo que sí es objetivo de PP-20: que, una vez
-    recuperado, el fragmento de EST-001 trae la sección correcta."""
+    """Con los parámetros de producción (top_k=3 por defecto). Antes de la
+    corrección de K7 (búsqueda de "referencia" aparte, ver rag/busqueda.py),
+    EST-001 podía no aparecer nunca en este corpus (7 fragmentos de POL-001,
+    prioridad 1, contra solo 5 de EST-001, prioridad 3) porque competía por
+    los mismos top_k puestos que las reglas -- ver
+    test_pp07_referencia_aparece_aunque_el_top_k_de_reglas_este_lleno."""
     datos = base_conocimiento_real
     # El primer fragmento (portada/título) puede no tener marca de sección
     # -- se usa uno que sí la tenga para poder verificar la cita completa.
@@ -245,13 +241,10 @@ def test_pp20_ingesta_docx_produce_citas_con_seccion_correcta(base_conocimiento_
         coleccion=COLECCION,
         texto_consulta=fragmento.contenido,
         funcion_embedding=obtener_embedding,
-        top_k=20,
     )
     _, referencia = construir_citas(resultados)
 
-    assert referencia is not None, (
-        f"EST-001 no aparece entre los resultados ampliados: {resultados}"
-    )
+    assert referencia is not None, f"EST-001 no aparece entre los resultados: {resultados}"
     assert "EST-001" in referencia
     assert fragmento.seccion in referencia
 
@@ -287,54 +280,51 @@ def test_pp07_citas_de_una_muestra_real_son_correctas_y_vigentes(
     PP-07.md -- eso queda [POR CONFIRMAR] hasta que exista una base de
     conocimiento de piloto real. Aquí se mide el mismo criterio (fuente
     correcta + vigente) con los parámetros de PRODUCCIÓN de
-    `buscar_fragmentos` (top_k=3 por defecto), sobre el subconjunto donde
-    la muestra sí es representativa: consultas cuya fuente correcta es la
-    de mayor prioridad (POL-001, regla_interna) -- exactamente el caso que
-    más le importa a RF-12 (la "Regla aplicada" de un hallazgo). El
-    subconjunto de EST-001 (referencia) queda fuera de este umbral por una
-    razón real y documentada, no oculta: ver el hallazgo de
-    test_pp07_hallazgo_referencia_puede_quedar_fuera_del_top_k_por_prioridad."""
+    `buscar_fragmentos` (top_k=3 por defecto): una consulta por cada
+    fragmento real de las dos fuentes vigentes, comprobando "Regla
+    aplicada" para POL-001 (regla_interna) y "Referencia" para EST-001
+    (referencia) -- desde la corrección de K7 (rag/busqueda.py busca
+    "referencia" en una consulta aparte, ver
+    test_pp07_referencia_aparece_aunque_el_top_k_de_reglas_este_lleno),
+    ambas categorías conviven en la misma muestra sin que una le quite
+    cupo a la otra."""
     datos = base_conocimiento_real
-    muestra = [f.contenido for f in datos["fragmentos_v2"]]
+    muestra = [(f.contenido, "POL-001", "regla_aplicada") for f in datos["fragmentos_v2"]] + [
+        (f.contenido, "EST-001", "referencia") for f in datos["fragmentos_ref"]
+    ]
 
     correctas = 0
-    for consulta in muestra:
+    for consulta, fuente_esperada, categoria in muestra:
         resultados = buscar_fragmentos(
             datos["cliente_qdrant"],
             coleccion=COLECCION,
             texto_consulta=consulta,
             funcion_embedding=obtener_embedding,
         )
-        regla_aplicada, _ = construir_citas(resultados)
-        if regla_aplicada is not None and "POL-001" in regla_aplicada:
+        regla_aplicada, referencia = construir_citas(resultados)
+        cita = regla_aplicada if categoria == "regla_aplicada" else referencia
+        if cita is not None and fuente_esperada in cita:
             correctas += 1
 
     porcentaje = 100 * correctas / len(muestra)
     with capsys.disabled():
         print(
-            f"\nPP-07 ('Regla aplicada', muestra reproducible de {len(muestra)} consultas "
-            f"reales, no la muestra de piloto de PP-07.md): "
-            f"{porcentaje:.1f}% fuente correcta+vigente"
+            f"\nPP-07 (muestra reproducible de {len(muestra)} consultas reales, "
+            f"no la muestra de piloto de PP-07.md): {porcentaje:.1f}% fuente correcta+vigente"
         )
     assert porcentaje >= 95.0
 
 
-def test_pp07_hallazgo_referencia_puede_quedar_fuera_del_top_k_por_prioridad(
+def test_pp07_referencia_aparece_aunque_el_top_k_de_reglas_este_lleno(
     base_conocimiento_real, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """No es una aserción de umbral de PP-07 -- es un HALLAZGO de este
-    bloque (K7) que se deja documentado en el código y en local-SKB.md,
-    no oculto: con los parámetros de producción (`buscar_fragmentos`
-    top_k=3, factor_candidatos=5) y un área donde una fuente de mayor
-    prioridad tiene >= top_k fragmentos vigentes, una fuente tipo
-    "referencia" puede no aparecer NUNCA como cita para ninguna consulta,
-    incluso siendo la más relevante semánticamente. Es consecuencia directa
-    del diseño intencional de K4 ("prioridad antes que similitud", ya
-    probado en tests/unit/test_rag.py) -- no se cambia aquí porque es una
-    decisión de negocio, no un defecto; se deja constancia para que quede
-    sobre la mesa en una futura revisión de RF-12/K4 (p. ej. ¿debería
-    "Referencia" buscarse con su propio top_k, independiente del de
-    "Regla aplicada"?)."""
+    """Prueba de regresión del hallazgo de K7 (docs/04-pruebas/resultados/
+    local-SKB.md): con los parámetros de producción (`buscar_fragmentos`
+    top_k=3) y este corpus (7 fragmentos de POL-001, regla_interna, contra
+    5 de EST-001, referencia), antes de la corrección "Referencia" nunca
+    aparecía como cita para ninguna consulta de EST-001 -- competía por los
+    mismos top_k puestos que las reglas y siempre perdía por prioridad.
+    Ahora se busca aparte (rag/busqueda.py) y sí aparece."""
     datos = base_conocimiento_real
     consulta = next(f for f in datos["fragmentos_ref"] if f.seccion is not None).contenido
 
@@ -348,6 +338,8 @@ def test_pp07_hallazgo_referencia_puede_quedar_fuera_del_top_k_por_prioridad(
 
     with capsys.disabled():
         print(
-            "\nPP-07 (hallazgo, no umbral): con top_k=3 (producción), la 'Referencia' "
+            "\nPP-07 (regresión): con top_k=3 (producción), la 'Referencia' "
             f"para una consulta real de EST-001 es: {referencia_produccion!r}"
         )
+    assert referencia_produccion is not None
+    assert "EST-001" in referencia_produccion
