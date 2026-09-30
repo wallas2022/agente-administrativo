@@ -1,7 +1,7 @@
 # Requerimiento formal (SRS) — Agente Administrativo
 
-**Versión:** 0.8 (borrador para validación)
-**Fecha:** 2026-09-29
+**Versión:** 0.9 (borrador para validación)
+**Fecha:** 2026-09-30
 **Relacionado con:** docs/00-rol-y-lineamientos.md
 
 | Campo | Valor |
@@ -37,7 +37,7 @@ Implementar un laboratorio de IA on-premise en el que un agente valide, analice 
 | OE-03 | Identificar contenido desactualizado frente a la normativa vigente | ≥ 80 % de secciones desactualizadas identificadas |
 | OE-04 | Convertir imágenes y PDF escaneados a texto editable (OCR) | Precisión de caracteres ≥ 95 % en documentos legibles |
 | OE-05 | Operar una base de conocimiento gobernada (versiones, vigencia, dueños) | 100 % de fuentes con dueño y vigencia |
-| OE-06 | Operar con seguridad: usuarios, roles por área, segregación de funciones y auditoría | 100 % de acciones en bitácora |
+| OE-06 | Operar con seguridad: usuarios, roles por área, segregación de funciones (configurable desde v0.9, ver RNF-02) y auditoría | 100 % de acciones en bitácora |
 | OE-07 | Reducir el tiempo de revisión frente a la revisión manual | Documento complejo resuelto en ≤ 10 min (meta 5–10 min) vs. hasta 60 min manual (≥ 83 % de reducción) |
 
 ## 5. In-Scope / Out-of-Scope
@@ -61,7 +61,7 @@ Implementar un laboratorio de IA on-premise en el que un agente valide, analice 
 | Patrocinador | Servicios Financieros Compartidos (SFC); aprueba alcances y recursos. Responsable nominal [POR CONFIRMAR] |
 | Administrador (TI) | Usuarios, roles, servidor, modelos, respaldos |
 | Curador de conocimiento | Uno por área; aprueba fuentes vigentes |
-| Revisor / Aprobador | Acepta o rechaza hallazgos y libera documentos |
+| Revisor / Aprobador | Acepta o rechaza hallazgos y libera documentos. Desde v0.9, con `SEGREGACION_APROBACION=false` (por defecto) también puede decidir sobre hallazgos de documentos que él mismo cargó -- ver RNF-02 |
 | Analista | Sube documentos y ejecuta análisis |
 | Auditor / Consulta | Solo lectura de historial y bitácora |
 
@@ -88,7 +88,7 @@ Necesidades de alto nivel del negocio; cada uno se descompone en RF y RNF.
 | RG-03 | Los procedimientos y manuales deben reflejar la normativa vigente | RF-08, RF-16 |
 | RG-04 | Los controles internos deben poder evidenciarse de forma uniforme | RF-09, RF-19 |
 | RG-05 | La información en imágenes o escaneos debe poder reutilizarse como texto | RF-11 |
-| RG-06 | Ninguna corrección se aplica sin aprobación de una persona responsable | RF-13, RF-14, RNF-02 |
+| RG-06 | Ninguna corrección se aplica sin aprobación de una persona responsable (rol Revisor/Administrador). v0.9: "persona responsable" ya no exige ser distinta de quien cargó el documento -- ver RNF-02; toda aprobación, autoaprobada o no, queda registrada (RF-19) | RF-13, RF-14, RNF-02 |
 | RG-07 | La información sensible no sale de la infraestructura de la organización | RNF-01, RNF-02 |
 | RG-08 | Toda acción debe ser auditable | RF-19, RNF-06 |
 
@@ -150,7 +150,7 @@ Prioridad MoSCoW: M = debe, S = debería, C = podría.
 | ID | Categoría | Requerimiento |
 | --- | --- | --- |
 | RNF-01 | Privacidad | Procesamiento 100 % local; la VM no tiene salida a internet en operación |
-| RNF-02 | Seguridad | HTTPS interno, cifrado de disco, RBAC por área, segregación de funciones (quien carga no aprueba) |
+| RNF-02 | Seguridad | HTTPS interno, cifrado de disco, RBAC por área, segregación de funciones en CU-01/CU-02/CU-05 (RN-07: "quien carga no aprueba") **configurable** mediante `SEGREGACION_APROBACION` (v0.9, decisión del responsable del proyecto) -- `false` (por defecto): el solicitante puede decidir sobre sus propios hallazgos y generar/descargar el corregido, siempre registrado en bitácora con marca "autoaprobado" (RF-19, RG-06); `true`: restaura el bloqueo original. Ver R-11 (§15) y PP-09 (§14, ahora "0 aprobaciones sin registro") |
 | RNF-03 | Exactitud | Todo cálculo numérico lo hace código determinista; el LLM no genera cifras |
 | RNF-04 | Rendimiento | Documento complejo en ≤ 10 min (meta 5–10 min); documento típico ≤ 5 min; ortografía (CU-05): hallazgos deterministas visibles de inmediato, validación de casos dudosos completa en ≤ 5 min por documento (v0.8 — antes ≤ 1 min medido en stage) |
 | RNF-05 | Capacidad de proceso | ~1,000 documentos/mes (~50 por día hábil); con ≤ 10 min por documento se requieren ≥ 2 workers en paralelo para terminar en la jornada (aprox.); 5–10 usuarios del piloto con cola de trabajos |
@@ -211,6 +211,7 @@ Detalle y seguimiento en [docs/02-analisis/03-riesgos.md](../02-analisis/03-ries
 | R-08 | Falta de datos reales para pruebas | Media | Alto | Dataset anonimizado con errores sembrados | Áreas usuarias |
 | R-09 | Baja adopción | Media | Medio | Usuarios clave en piloto, métricas visibles | Patrocinador |
 | R-10 | Acceso tardío al stage o diferencias local vs. stage | Alta | Medio | Paridad por contenedores (RNF-14), modelos parametrizados, guía de despliegue lista, PP de rendimiento solo en stage | Patrocinador / TI |
+| R-11 | Autoaprobación permitida por defecto (v0.9, `SEGREGACION_APROBACION=false`) reduce el control de cuatro-ojos en CU-01/CU-02/CU-05 | Media | Medio | Toda autoaprobación queda en bitácora y en el reporte "Ajustes autoaprobados" (Jefatura/Auditor); `SEGREGACION_APROBACION=true` restaura el bloqueo si el riesgo se materializa | Jefatura / Auditoría |
 
 ## 16. Plan del piloto
 ```mermaid

@@ -345,3 +345,15 @@ class Bitacora(Base):
     entidad_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     fecha_hora: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     detalle: Mapped[str | None] = mapped_column(Text)
+    # SRS v0.9 (RNF-02, RG-06): el rol se guarda en el momento del hecho, no se
+    # resuelve al consultar -- si el rol de un usuario cambia después, el
+    # historial de bitácora no debe cambiar retroactivamente. Nullable porque
+    # los demás sitios que escriben en Bitacora (curaduria, etc.) no lo
+    # llenan todavía -- solo decidir_hallazgo lo hace, ver api/main.py.
+    rol: Mapped[str | None] = mapped_column(String(20))
+    # True cuando quien decide es el mismo que cargó el documento -- permitido
+    # por defecto desde SRS v0.9 (SEGREGACION_APROBACION=false), antes
+    # bloqueado sin excepción (RN-07). Reemplaza "0 autoaprobaciones
+    # permitidas" (PP-09 anterior) por "0 aprobaciones sin registro": toda
+    # autoaprobación debe quedar marcada así en la bitácora.
+    autoaprobado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

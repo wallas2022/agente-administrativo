@@ -300,6 +300,30 @@ def test_puede_decidir_segun_rol_y_segregacion_de_funciones(cliente: TestClient)
     assert respuesta.json()["puede_decidir"] is True
 
 
+def test_puede_decidir_sobre_lo_propio_segun_segregacion_aprobacion(
+    cliente: TestClient, monkeypatch
+) -> None:
+    """SRS v0.9: a diferencia del caso de arriba (Analista, bloqueado por
+    ROL), este es el caso de identidad -- un Administrador (tiene rol
+    Revisor/Administrador) que además cargó el documento. Por defecto
+    (SEGREGACION_APROBACION sin definir) puede decidir sobre lo suyo; con
+    "true" vuelve el bloqueo anterior (RN-07)."""
+    token_administrador = _token(cliente, "administrador@local")
+
+    monkeypatch.delenv("SEGREGACION_APROBACION", raising=False)
+    _documento_id, analisis_id = _crear_analisis_via_api(cliente, token_administrador)
+    respuesta = cliente.get(
+        f"/analisis/{analisis_id}", headers={"Authorization": f"Bearer {token_administrador}"}
+    )
+    assert respuesta.json()["puede_decidir"] is True
+
+    monkeypatch.setenv("SEGREGACION_APROBACION", "true")
+    respuesta = cliente.get(
+        f"/analisis/{analisis_id}", headers={"Authorization": f"Bearer {token_administrador}"}
+    )
+    assert respuesta.json()["puede_decidir"] is False
+
+
 def test_tiene_version_corregida_solo_si_existe_una_version_marcada(
     cliente: TestClient, sesion_bd
 ) -> None:

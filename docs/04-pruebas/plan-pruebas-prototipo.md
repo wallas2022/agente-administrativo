@@ -1,10 +1,10 @@
 # Plan de pruebas del prototipo
 
-**Versión:** 0.3
-**Fecha:** 2026-09-29
-**Relacionado con:** docs/01-requerimientos/01-requerimiento-formal.md (v0.6), docs/01-requerimientos/03-historias-de-usuario.md
+**Versión:** 0.4
+**Fecha:** 2026-09-30
+**Relacionado con:** docs/01-requerimientos/01-requerimiento-formal.md (v0.9), docs/01-requerimientos/03-historias-de-usuario.md
 
-Objetivo: validar con datos reales (anonimizados) del área de Contabilidad que el agente cumple los objetivos OE-01..OE-07 antes de escalar. Umbrales alineados con el requerimiento formal v0.6. Entrega 1 prioriza CU-01, CU-02 y CU-05.
+Objetivo: validar con datos reales (anonimizados) del área de Contabilidad que el agente cumple los objetivos OE-01..OE-07 antes de escalar. Umbrales alineados con el requerimiento formal v0.9. Entrega 1 prioriza CU-01, CU-02 y CU-05.
 
 ## 1. Conjunto de pruebas (dataset)
 - 30 documentos mínimo, con errores **sembrados y conocidos** (respuesta esperada documentada):
@@ -28,7 +28,7 @@ Detalle individual de cada prueba en [docs/04-pruebas/casos-prueba/](casos-prueb
 | PP-06 | OCR de imágenes de baja calidad | HU-05 | Informa ilegibilidad en lugar de inventar | 100 % | 2 |
 | PP-07 | Citas a la base de conocimiento | RF-12 / RNF-06 | Hallazgos con fuente correcta y vigente | ≥ 95 % | 1 |
 | PP-08 | Uso solo de fuentes vigentes | HU-11 / RF-16 | Citas a versiones obsoletas | 0 | 1 |
-| PP-09 | Segregación de funciones | HU-09 / RNF-02 | Autoaprobaciones permitidas | 0 | 1 |
+| PP-09 | Segregación de funciones (configurable v0.9) | HU-09 / RNF-02 | Aprobaciones sin registro en bitácora | 0 | 1 |
 | PP-10 | Permisos por área | HU-02 / RF-02 | Accesos a documentos de otra área | 0 | 1 |
 | PP-11 | Bitácora completa | HU-13 / RF-19 | Acciones sin registro | 0 | 1 |
 | PP-12 | Tiempo por documento complejo (solo CPU, en stage) | RNF-04 | Tiempo p90 | ≤ 10 min (meta 5–10) | 1 |

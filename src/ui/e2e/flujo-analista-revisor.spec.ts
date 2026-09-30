@@ -43,7 +43,10 @@ test.describe("CU-01: flujo Analista → Revisor", () => {
       "no existe en el catálogo",
     );
 
-    // RN-07 (PP-09): el Analista nunca puede decidir, ni sobre lo suyo.
+    // El Analista nunca puede decidir, sin importar SEGREGACION_APROBACION
+    // (SRS v0.9): este bloqueo es por ROL (requiere Revisor/Administrador),
+    // no por identidad -- distinto de "quien carga no aprueba" (RN-07), que
+    // ahora es configurable (ver tests/unit/test_decisiones_contable.py).
     await expect(paginaAnalista.getByRole("button", { name: "Aceptar" })).toHaveCount(0);
 
     await contextoAnalista.close();

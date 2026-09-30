@@ -34,6 +34,7 @@ from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
 
 from api.esquemas import (
+    AjusteAutoaprobadoEsquema,
     BitacoraEsquema,
     ErrorImportacionEsquema,
     FragmentoVistaPreviaEsquema,
@@ -388,12 +389,28 @@ def _analisis_y_documento_accesibles(
     return analisis, documento
 
 
+def _segregacion_aprobacion_activa() -> bool:
+    """SRS v0.9 (RNF-02, RG-06): la segregación de funciones "quien carga no
+    aprueba" (RN-07) pasó de obligatoria a configurable -- decisión del
+    responsable del proyecto. Por defecto (SEGREGACION_APROBACION=false o
+    sin definir) la autoaprobación está PERMITIDA; con "true" vuelve el
+    bloqueo anterior. La trazabilidad ya no depende de bloquear la
+    autoaprobación sino de registrarla siempre (ver Bitacora.autoaprobado,
+    PP-09 actualizado: "0 aprobaciones sin registro")."""
+    return os.environ.get("SEGREGACION_APROBACION", "false").strip().lower() == "true"
+
+
+def _es_autoaprobacion(usuario: Usuario, documento: Documento | None) -> bool:
+    return documento is not None and documento.usuario_carga_id == usuario.id
+
+
 def _puede_decidir(usuario: Usuario, documento: Documento | None) -> bool:
-    """Mismo criterio que decidir_hallazgo: rol Revisor/Administrador y no
-    ser quien cargó el documento (RN-07, PP-09)."""
+    """Mismo criterio que decidir_hallazgo: rol Revisor/Administrador,
+    y -- solo si SEGREGACION_APROBACION=true -- no ser quien cargó el
+    documento (RN-07, PP-09, SRS v0.9)."""
     if _nombre_rol(usuario) not in (RolUsuario.REVISOR.value, RolUsuario.ADMINISTRADOR.value):
         return False
-    if documento is not None and documento.usuario_carga_id == usuario.id:
+    if _segregacion_aprobacion_activa() and _es_autoaprobacion(usuario, documento):
         return False
     return True
 
@@ -525,14 +542,18 @@ def decidir_hallazgo(
 
     analisis = sesion.get(Analisis, hallazgo.analisis_id)
     documento = sesion.get(Documento, analisis.documento_id) if analisis else None
+    autoaprobado = _es_autoaprobacion(usuario, documento)
 
-    # RN-07 / RNF-02: quien cargó el documento no puede decidir sobre sus propios
-    # hallazgos, ni siquiera si tiene rol Administrador.
-    if documento is not None and documento.usuario_carga_id == usuario.id:
+    # RN-07 / RNF-02 (SRS v0.9): el bloqueo de autoaprobación ahora es
+    # configurable -- ver _segregacion_aprobacion_activa(). Con la config por
+    # defecto (desactivada) se permite decidir sobre lo propio, pero queda
+    # marcado "autoaprobado" en la bitácora (PP-09: "0 aprobaciones sin
+    # registro", no ya "0 autoaprobaciones permitidas").
+    if _segregacion_aprobacion_activa() and autoaprobado:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Quien cargó el documento no puede decidir sobre sus propios hallazgos "
-            "(segregación de funciones, RN-07)",
+            "(segregación de funciones, RN-07, SEGREGACION_APROBACION=true)",
         )
 
     if datos.resultado not in ("aceptado", "rechazado", "deshecho"):
@@ -558,6 +579,8 @@ def decidir_hallazgo(
             entidad_id=hallazgo.id,
             fecha_hora=datetime.now(UTC),
             detalle=datos.comentario,
+            rol=_nombre_rol(usuario),
+            autoaprobado=autoaprobado,
         )
     )
     sesion.commit()
@@ -592,10 +615,12 @@ def generar_corregido(
     if documento is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento no encontrado")
 
-    if documento.usuario_carga_id == usuario.id:
+    # RN-07 (SRS v0.9): configurable, ver _segregacion_aprobacion_activa().
+    if _segregacion_aprobacion_activa() and _es_autoaprobacion(usuario, documento):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Quien cargó el documento no puede generar el corregido (RN-07)",
+            detail="Quien cargó el documento no puede generar el corregido "
+            "(RN-07, SEGREGACION_APROBACION=true)",
         )
     if _nombre_rol(usuario) not in (RolUsuario.ADMINISTRADOR.value, RolUsuario.AUDITOR.value):
         if documento.area_id != usuario.area_id:
@@ -652,6 +677,64 @@ def generar_corregido(
     )
     sesion.commit()
     return RespuestaGenerarCorregido(generado=True)
+
+
+@app.get("/reportes/ajustes-autoaprobados", response_model=list[AjusteAutoaprobadoEsquema])
+def listar_ajustes_autoaprobados(
+    usuario: Annotated[
+        Usuario, Depends(requiere_rol(RolUsuario.ADMINISTRADOR, RolUsuario.AUDITOR))
+    ],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+    fecha_desde: date | None = None,
+    fecha_hasta: date | None = None,
+    usuario_email: str | None = None,
+) -> list[AjusteAutoaprobadoEsquema]:
+    """SRS v0.9 (RG-06, PP-09): ajustes de CU-01 (contable) que el mismo
+    usuario que cargó el documento decidió sobre sí mismo -- visible para
+    Administrador/Auditor ("Jefatura" no es un rol propio del sistema hoy;
+    se cubre con Administrador). Construido directamente sobre la bitácora
+    (Bitacora.autoaprobado, que deja decidir_hallazgo), no sobre Decision:
+    así el reporte es literalmente "lo que quedó en el registro", en línea
+    con el nuevo umbral de PP-09 ("0 aprobaciones sin registro"). Se filtra
+    por correo (no por id) -- es lo que Jefatura/Auditor realmente conoce
+    del usuario, no hay pantalla de "buscar usuario por UUID"."""
+    consulta = (
+        sesion.query(Bitacora, Hallazgo, Analisis, Documento, Usuario)
+        .join(Hallazgo, Bitacora.entidad_id == Hallazgo.id)
+        .join(Analisis, Hallazgo.analisis_id == Analisis.id)
+        .join(Documento, Analisis.documento_id == Documento.id)
+        .join(TipoRevision, Analisis.tipo_revision_id == TipoRevision.id)
+        .join(Usuario, Bitacora.usuario_id == Usuario.id)
+        .filter(
+            Bitacora.entidad_tipo == "hallazgo",
+            Bitacora.autoaprobado.is_(True),
+            TipoRevision.nombre == "contable",
+        )
+    )
+    if fecha_desde is not None:
+        consulta = consulta.filter(Bitacora.fecha_hora >= fecha_desde)
+    if fecha_hasta is not None:
+        consulta = consulta.filter(Bitacora.fecha_hora < fecha_hasta + timedelta(days=1))
+    if usuario_email:
+        consulta = consulta.filter(Usuario.email.ilike(f"%{usuario_email}%"))
+
+    filas = consulta.order_by(Bitacora.fecha_hora.desc()).all()
+    return [
+        AjusteAutoaprobadoEsquema(
+            fecha_hora=bitacora.fecha_hora,
+            usuario_email=usuario_fila.email,
+            usuario_nombre=usuario_fila.nombre,
+            rol=bitacora.rol,
+            documento_id=str(documento.id),
+            documento_nombre=documento.nombre_original,
+            analisis_id=str(analisis.id),
+            hallazgo_id=str(hallazgo.id),
+            hallazgo_descripcion=hallazgo.descripcion,
+            resultado=bitacora.accion.removeprefix("hallazgo_"),
+            comentario=bitacora.detalle,
+        )
+        for bitacora, hallazgo, analisis, documento, usuario_fila in filas
+    ]
 
 
 @app.get("/fuentes-conocimiento", response_model=list[FuenteConocimientoEsquema])

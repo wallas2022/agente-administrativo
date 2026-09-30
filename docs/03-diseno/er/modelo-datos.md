@@ -1,7 +1,7 @@
 # Modelo de datos (ER)
 
-**Versión:** 0.2.0
-**Fecha:** 2026-09-29
+**Versión:** 0.3.0
+**Fecha:** 2026-09-30
 **Relacionado con:** docs/01-requerimientos/01-requerimiento-formal.md (RF-01,02,06,12,13,14,16,17,19; RNF-06,12), docs/02-analisis/02-reglas-de-negocio.md, docs/04-pruebas/resultados/local-SKB.md (Bloque K1)
 
 ```mermaid
@@ -191,6 +191,8 @@ erDiagram
         uuid entidad_id
         datetime fecha_hora
         text detalle
+        string rol "nullable, SRS v0.9"
+        boolean autoaprobado "default false, SRS v0.9"
     }
 ```
 
@@ -210,6 +212,7 @@ erDiagram
 2. `hallazgo.monto` y `hallazgo.moneda` solo se completan cuando el hallazgo proviene de una revisión contable (CU-01); en el resto de casos de uso quedan nulos.
 3. `documento.fecha_expiracion` se calcula como `fecha_carga + 90 días` (RN-08) y es el disparador de la depuración automática (PP-19); no se modela aquí el job de limpieza en sí (ver docs/03-diseno/flujos/pipeline-validacion.md).
 4. `bitacora` es de solo inserción (append-only); ningún proceso la actualiza ni la borra (RF-19, principio de auditoría).
+5. `bitacora.rol` y `bitacora.autoaprobado` (SRS v0.9): el rol se guarda en el momento del hecho (no se resuelve al consultar, para que un cambio de rol posterior no altere el historial); `autoaprobado=true` cuando quien decide es el mismo que cargó el documento -- permitido desde v0.9 (`SEGREGACION_APROBACION=false` por defecto). Solo `decidir_hallazgo` (RF-13) llena estos dos campos por ahora; el resto de escrituras en `bitacora` los deja en `NULL`/`false`.
 5. El binario original y el corregido son dos filas de `version_documento` del mismo `documento`, no un documento distinto — así se conserva la trazabilidad completa de versiones.
 6. `regla.estado`/`regla.version` (existentes desde antes del Bloque K1) se mantienen como campos propios en vez de derivarse por join contra `fuente_conocimiento.estado`: algunas reglas de sistema (p. ej. RN-07..RN-09) no tienen `fuente_id` (son intrínsecas al código, no respaldadas por un documento cargado) y necesitan un estado propio independiente. `glosario`/`cuenta_contable`/`checklist_cierre` en cambio no repiten `estado` -- su vigencia se deriva enteramente de `fuente_conocimiento.estado` vía `fuente_id` (todas sus filas vienen de una fuente cargada, la plantilla del Bloque K2 no tiene columna de estado en esas hojas).
 7. `regla`/`glosario`/`cuenta_contable`/`checklist_cierre` son un espejo informativo/citable de lo que hay en la base de conocimiento (para citar en hallazgos y para el importador del Bloque K2) -- **no** son la fuente que ejecuta la validación en tiempo real: la lógica de RN-01..RN-09 sigue hardcodeada en `src/validadores/contable/reglas.py` (RNF-03). Una fila en `regla` documenta una regla; no la implementa.

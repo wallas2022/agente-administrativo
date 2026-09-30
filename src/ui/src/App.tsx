@@ -7,6 +7,7 @@ import { Hallazgos } from "./paginas/Hallazgos";
 import { Login } from "./paginas/Login";
 import { NuevoAnalisis } from "./paginas/NuevoAnalisis";
 import { Proximamente } from "./paginas/Proximamente";
+import { ReporteAjustesAutoaprobados } from "./paginas/ReporteAjustesAutoaprobados";
 
 export function App() {
   return (
@@ -24,6 +25,7 @@ export function App() {
         <Route path="/analisis/:analisisId/hallazgos" element={<Hallazgos />} />
         <Route path="/historial" element={<Proximamente titulo="Historial" />} />
         <Route path="/base-de-conocimiento" element={<BaseConocimiento />} />
+        <Route path="/ajustes-autoaprobados" element={<ReporteAjustesAutoaprobados />} />
         <Route path="/configuracion" element={<Proximamente titulo="Configuración" />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

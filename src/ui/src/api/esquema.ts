@@ -230,6 +230,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reportes/ajustes-autoaprobados": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Listar Ajustes Autoaprobados
+         * @description SRS v0.9 (RG-06, PP-09): ajustes de CU-01 (contable) que el mismo
+         *     usuario que cargó el documento decidió sobre sí mismo -- visible para
+         *     Administrador/Auditor ("Jefatura" no es un rol propio del sistema hoy;
+         *     se cubre con Administrador). Construido directamente sobre la bitácora
+         *     (Bitacora.autoaprobado, que deja decidir_hallazgo), no sobre Decision:
+         *     así el reporte es literalmente "lo que quedó en el registro", en línea
+         *     con el nuevo umbral de PP-09 ("0 aprobaciones sin registro"). Se filtra
+         *     por correo (no por id) -- es lo que Jefatura/Auditor realmente conoce
+         *     del usuario, no hay pantalla de "buscar usuario por UUID".
+         */
+        get: operations["listar_ajustes_autoaprobados_reportes_ajustes_autoaprobados_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/fuentes-conocimiento": {
         parameters: {
             query?: never;
@@ -457,6 +485,39 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AjusteAutoaprobadoEsquema
+         * @description SRS v0.9 (RG-06, PP-09): una fila del reporte "Ajustes autoaprobados"
+         *     -- un hallazgo de CU-01 (contable) que el mismo usuario que cargó el
+         *     documento decidió sobre sí mismo.
+         */
+        AjusteAutoaprobadoEsquema: {
+            /**
+             * Fecha Hora
+             * Format: date-time
+             */
+            fecha_hora: string;
+            /** Usuario Email */
+            usuario_email: string;
+            /** Usuario Nombre */
+            usuario_nombre: string;
+            /** Rol */
+            rol?: string | null;
+            /** Documento Id */
+            documento_id: string;
+            /** Documento Nombre */
+            documento_nombre: string;
+            /** Analisis Id */
+            analisis_id: string;
+            /** Hallazgo Id */
+            hallazgo_id: string;
+            /** Hallazgo Descripcion */
+            hallazgo_descripcion: string;
+            /** Resultado */
+            resultado: string;
+            /** Comentario */
+            comentario?: string | null;
+        };
         /** BitacoraEsquema */
         BitacoraEsquema: {
             /** Id */
@@ -1201,6 +1262,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RespuestaGenerarCorregido"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listar_ajustes_autoaprobados_reportes_ajustes_autoaprobados_get: {
+        parameters: {
+            query?: {
+                fecha_desde?: string | null;
+                fecha_hasta?: string | null;
+                usuario_email?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AjusteAutoaprobadoEsquema"][];
                 };
             };
             /** @description Validation Error */

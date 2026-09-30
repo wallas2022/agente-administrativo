@@ -60,8 +60,8 @@ class RespuestaAnalisis(BaseModel):
     total_debe: float | None = None
     total_haber: float | None = None
     moneda: str | None = None
-    # Calculado en el servidor (rol + PP-09: quien cargó el documento no
-    # decide sobre sus propios hallazgos) para que la UI no duplique esa
+    # Calculado en el servidor (rol + segregación de funciones configurable,
+    # SRS v0.9: SEGREGACION_APROBACION) para que la UI no duplique esa
     # lógica de negocio — ver decidir_hallazgo en api/main.py.
     puede_decidir: bool = False
     tiene_version_corregida: bool = False
@@ -104,6 +104,24 @@ class BitacoraEsquema(BaseModel):
     accion: str
     fecha_hora: datetime
     detalle: str | None = None
+
+
+class AjusteAutoaprobadoEsquema(BaseModel):
+    """SRS v0.9 (RG-06, PP-09): una fila del reporte "Ajustes autoaprobados"
+    -- un hallazgo de CU-01 (contable) que el mismo usuario que cargó el
+    documento decidió sobre sí mismo."""
+
+    fecha_hora: datetime
+    usuario_email: str
+    usuario_nombre: str
+    rol: str | None = None
+    documento_id: str
+    documento_nombre: str
+    analisis_id: str
+    hallazgo_id: str
+    hallazgo_descripcion: str
+    resultado: str
+    comentario: str | None = None
 
 
 class FuenteConocimientoEsquema(BaseModel):

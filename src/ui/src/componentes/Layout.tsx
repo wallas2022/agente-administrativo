@@ -7,6 +7,7 @@ const ENLACES = [
   { a: "/", etiqueta: "Nuevo análisis" },
   { a: "/historial", etiqueta: "Historial" },
   { a: "/base-de-conocimiento", etiqueta: "Base de conocimiento" },
+  { a: "/ajustes-autoaprobados", etiqueta: "Ajustes autoaprobados" },
   { a: "/configuracion", etiqueta: "Configuración" },
 ];
 

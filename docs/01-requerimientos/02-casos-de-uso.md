@@ -1,7 +1,7 @@
 # Casos de uso — Agente Administrativo
 
-**Versión:** 0.6
-**Fecha:** 2026-09-24
+**Versión:** 0.7
+**Fecha:** 2026-09-30
 **Relacionado con:** RG-01 a RG-08 (ver 01-requerimiento-formal.md §8 y §12)
 
 Actores: **Analista** (carga documentos y ejecuta el análisis), **Revisor/Aprobador** (acepta o rechaza hallazgos y libera documentos), **Curador de conocimiento** (gobierna la base de conocimiento), **Administrador** (usuarios, roles, infraestructura), **Auditor** (consulta de solo lectura).
@@ -140,12 +140,13 @@ Actores: **Analista** (carga documentos y ejecuta el análisis), **Revisor/Aprob
 **Flujo principal:**
 1. El Analista envía el análisis a un Revisor y el sistema lo notifica (RF-20).
 2. El Revisor/Aprobador consulta la lista de hallazgos con su evidencia y fuente.
-3. El sistema verifica que el Revisor/Aprobador no sea el mismo usuario que cargó el documento (RNF-02, segregación de funciones; PP-09).
+3. El sistema verifica si el Revisor/Aprobador es el mismo usuario que cargó el documento (RNF-02, segregación de funciones configurable desde v0.9; PP-09) -- por defecto lo permite y lo marca "autoaprobado" en la bitácora.
 4. El Revisor/Aprobador acepta, rechaza o deshace cada hallazgo (RF-13).
 5. El sistema genera el documento corregido en su formato original con las correcciones aceptadas (RF-14) y registra la decisión en la bitácora (RF-19, CU-10).
 
 **Flujos alternos:**
-- 3a. El Revisor/Aprobador es el mismo usuario que cargó el documento: el sistema bloquea la acción y exige un revisor distinto.
+- 3a. El Revisor/Aprobador es el mismo usuario que cargó el documento y `SEGREGACION_APROBACION=true`: el sistema bloquea la acción y exige un revisor distinto (comportamiento original, antes de v0.9).
+- 3b. El Revisor/Aprobador es el mismo usuario que cargó el documento y `SEGREGACION_APROBACION=false` (por defecto, v0.9): el sistema permite la decisión y la marca "autoaprobado" en la bitácora; el ajuste queda visible en el reporte "Ajustes autoaprobados" (CU-01) para Jefatura/Auditor.
 
 **Postcondición:** Documento en estado `aprobado`, `rechazado` o `cerrado` (ver docs/03-diseno/estados/estados-analisis.md).
 

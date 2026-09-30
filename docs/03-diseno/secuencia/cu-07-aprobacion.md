@@ -1,8 +1,8 @@
 # Secuencia — CU-07 Aprobar o rechazar hallazgos
 
-**Versión:** 0.1.0
-**Fecha:** 2026-09-24
-**Relacionado con:** docs/01-requerimientos/02-casos-de-uso.md#cu-07, RF-13,14,20; RNF-02; RN-07
+**Versión:** 0.2.0
+**Fecha:** 2026-09-30
+**Relacionado con:** docs/01-requerimientos/02-casos-de-uso.md#cu-07, RF-13,14,20; RNF-02; RN-07 (configurable desde v0.9, ver `SEGREGACION_APROBACION`)
 
 ```mermaid
 sequenceDiagram
@@ -29,12 +29,13 @@ sequenceDiagram
 
     RV->>UI: Decidir (aceptar/rechazar/deshacer) cada hallazgo
     UI->>API: POST /hallazgos/{id}/decision
-    API->>PG: Verificar revisor_id != documento.usuario_carga_id (RN-07)
+    API->>PG: ¿revisor_id == documento.usuario_carga_id? (autoaprobación)
 
-    alt Revisor es el mismo que cargó
-        API-->>UI: 403 — acción bloqueada, exige otro revisor
-    else Revisor distinto (permitido)
+    alt Revisor es el mismo que cargó Y SEGREGACION_APROBACION=true
+        API-->>UI: 403 — acción bloqueada, exige otro revisor (RN-07 original)
+    else Permitido (revisor distinto, o autoaprobación con la config por defecto)
         API->>PG: Guardar decision (resultado, comentario, fecha)
+        API->>PG: Guardar bitacora (usuario, rol, fecha, hallazgo, autoaprobado=true/false)
         API->>WK: Notificar decisiones completas
         WK->>COR: Generar documento corregido (solo hallazgos aceptados)
         COR->>MN: Guardar version_documento (es_corregida=true)
@@ -49,14 +50,14 @@ sequenceDiagram
 
 | Elemento | Responsabilidad | Tecnología |
 | --- | --- | --- |
-| api | Valida segregación de funciones antes de aceptar la decisión | FastAPI |
-| postgres | Verifica `usuario_carga_id` vs. revisor; persiste `decision` | PostgreSQL 16 |
+| api | Valida segregación de funciones antes de aceptar la decisión (configurable, `SEGREGACION_APROBACION`) | FastAPI |
+| postgres | Verifica `usuario_carga_id` vs. revisor; persiste `decision` y la marca `autoaprobado` en `bitacora` | PostgreSQL 16 |
 | Generador de documento corregido | Aplica solo las correcciones aceptadas al formato original | `src/parsers` |
 | minio | Almacena la nueva versión corregida del documento | MinIO |
 
 ## Supuestos
 
-1. La verificación de segregación de funciones (RN-07) ocurre en `api` antes de tocar cualquier dato, no como validación posterior.
+1. La verificación de segregación de funciones (RN-07) ocurre en `api` antes de tocar cualquier dato, no como validación posterior. Desde v0.9 es condicional a `SEGREGACION_APROBACION` (por defecto `false`: no bloquea, pero toda autoaprobación se marca en `bitacora` y aparece en el reporte "Ajustes autoaprobados", GET /reportes/ajustes-autoaprobados).
 2. "Deshacer" un hallazgo genera una nueva fila en `decision` (historial), no sobrescribe la anterior — ver docs/03-diseno/er/modelo-datos.md.
 3. El documento corregido solo se genera si al menos un hallazgo fue aceptado; si todos se rechazan, no hay nueva `version_documento`.
 4. La notificación (RF-20) es interna a la aplicación (bandeja/estado); no se asume correo electrónico [POR CONFIRMAR canal real].

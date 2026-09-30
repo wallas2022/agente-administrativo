@@ -1,7 +1,7 @@
 # Matriz de trazabilidad — Agente Administrativo
 
-**Versión:** 0.6.2
-**Fecha:** 2026-09-29
+**Versión:** 0.6.3
+**Fecha:** 2026-09-30
 **Relacionado con:** docs/01-requerimientos/01-requerimiento-formal.md, 02-casos-de-uso.md, 03-historias-de-usuario.md, docs/04-pruebas/plan-pruebas-prototipo.md
 
 Trazabilidad OE → RG → RF → CU → HU → PP, construida a partir del SRS v0.6 y el plan de pruebas v0.3. Columna **Entrega**: 1 = MVP (CU-01, CU-02, CU-05 y transversales CU-07..10); 2 = iteración siguiente (CU-03, CU-04, CU-06, incluido RF-11/OCR).
@@ -44,7 +44,7 @@ Varias pruebas del plan validan un RNF u OE completo, no un RF puntual:
 | ID | PP | Umbral |
 | --- | --- | --- |
 | RNF-01 (privacidad) | PP-14 | 0 conexiones externas |
-| RNF-02 (segregación de funciones) | PP-09 | 0 autoaprobaciones |
+| RNF-02 (segregación de funciones, configurable v0.9) | PP-09 | 0 aprobaciones sin registro en bitácora |
 | RNF-03 (exactitud) | PP-02 | 0 cifras incorrectas |
 | RNF-04 (rendimiento) | PP-12 | ≤ 10 min p90 (meta 5–10) |
 | RNF-05 (capacidad de proceso) | PP-13 | ≥ 50 documentos/jornada, 0 errores |

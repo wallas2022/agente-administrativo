@@ -1,7 +1,7 @@
 # Historias de usuario — Agente Administrativo
 
-**Versión:** 0.6
-**Fecha:** 2026-09-24
+**Versión:** 0.7
+**Fecha:** 2026-09-30
 **Relacionado con:** docs/01-requerimientos/02-casos-de-uso.md, docs/01-requerimientos/01-requerimiento-formal.md, docs/04-pruebas/plan-pruebas-prototipo.md
 
 Formato: Como / quiero / para, con criterios de aceptación en Gherkin (Dado/Cuando/Entonces). La numeración HU-01 a HU-14 se fijó para que coincida con las referencias del plan de pruebas ([docs/04-pruebas/plan-pruebas-prototipo.md](../04-pruebas/plan-pruebas-prototipo.md) §2).
@@ -173,20 +173,29 @@ Característica: Evaluación de checklist
 
 ---
 
-## HU-09 — Segregación de funciones en aprobación
+## HU-09 — Segregación de funciones en aprobación (configurable desde v0.9)
 
 **CU:** CU-07 · **Relacionado con:** RNF-02 · **Entrega:** 1
 
-Como **Revisor/Aprobador**, quiero que el sistema me impida aprobar documentos que yo mismo cargué, para respetar la segregación de funciones.
+**v0.9 (decisión del responsable del proyecto):** la segregación de funciones pasó de obligatoria a **configurable** mediante `SEGREGACION_APROBACION` (por defecto `false` = autoaprobación permitida). El escenario original (bloqueo) se conserva para cuando `SEGREGACION_APROBACION=true`; se agrega el escenario por defecto, donde lo que importa es que la autoaprobación quede siempre registrada.
+
+Como **Revisor/Aprobador**, quiero poder decidir sobre hallazgos de documentos que yo mismo cargué cuando la organización lo permita, y que esa decisión quede siempre registrada, para no bloquear el trabajo sin perder trazabilidad.
 
 ```gherkin
-Característica: Segregación de funciones
+Característica: Segregación de funciones configurable
 
-  Escenario: El cargador intenta aprobar su propio documento
+  Escenario: SEGREGACION_APROBACION=false (por defecto) -- autoaprobación permitida y registrada
+    Dado que un usuario con rol Revisor o Administrador cargó un documento
+    Cuando ese mismo usuario decide sobre los hallazgos del documento
+    Entonces el sistema permite la decisión
+    Y la bitácora registra usuario, rol, fecha, hallazgo y la marca "autoaprobado"
+    Y el ajuste aparece en el reporte "Ajustes autoaprobados" (CU-01) visible para Jefatura/Auditor (PP-09: 0 aprobaciones sin registro)
+
+  Escenario: SEGREGACION_APROBACION=true -- el cargador intenta aprobar su propio documento
     Dado que un usuario cargó un documento
     Cuando ese mismo usuario intenta decidir sobre los hallazgos del documento
     Entonces el sistema bloquea la acción
-    Y exige que la decisión la tome un usuario distinto con rol Revisor/Aprobador (PP-09: 0 autoaprobaciones permitidas)
+    Y exige que la decisión la tome un usuario distinto con rol Revisor/Aprobador
 ```
 
 ---

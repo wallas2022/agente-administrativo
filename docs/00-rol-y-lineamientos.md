@@ -1,7 +1,7 @@
 # Rol y lineamientos del proyecto — Agente Administrativo
 
-**Versión:** 0.2.0
-**Fecha:** 2026-09-24
+**Versión:** 0.3.0
+**Fecha:** 2026-09-30
 **Relacionado con:** N/A (documento raíz de gobierno documental)
 
 ## 1. Rol de este documento
@@ -86,7 +86,7 @@ Fuente: SRS §6 (Interesados y roles). Roles del sistema:
 | Patrocinador (SFC) | Aprueba alcances y recursos del proyecto | No opera el sistema |
 | Administrador (TI) | Gestiona usuarios, roles, servidor, modelos y respaldos | No aprueba contenido de negocio |
 | Curador de conocimiento (por área) | Aprueba y mantiene vigentes las fuentes de conocimiento de su área | No aprueba sus propias cargas sin revisión par [POR CONFIRMAR] |
-| Revisor/Aprobador | Acepta o rechaza hallazgos y libera documentos | Revisor ≠ quien cargó el documento (segregación de funciones, RNF-02) |
+| Revisor/Aprobador | Acepta o rechaza hallazgos y libera documentos | Segregación de funciones configurable desde v0.9 (RNF-02, `SEGREGACION_APROBACION`): por defecto puede decidir sobre lo que él mismo cargó (queda marcado "autoaprobado" en bitácora); con la variable en `true`, vuelve a exigirse Revisor ≠ quien cargó |
 | Analista | Carga documentos y ejecuta el análisis | No aprueba sus propios análisis |
 | Auditor / Consulta | Consulta historial y bitácora, solo lectura | Sin permisos de escritura |
 

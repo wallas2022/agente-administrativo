@@ -212,9 +212,31 @@ def test_generar_corregido_rechaza_analisis_que_no_es_ortografia(cliente: TestCl
     assert respuesta.status_code == 400
 
 
-def test_generar_corregido_rn07_quien_cargo_no_puede_aunque_sea_administrador(
-    cliente: TestClient, sesion_bd
+def test_generar_corregido_permite_autoaprobacion_por_defecto(
+    cliente: TestClient, monkeypatch
 ) -> None:
+    """SRS v0.9: SEGREGACION_APROBACION sin definir (o "false") permite que
+    quien cargó el documento genere su propio corregido."""
+    monkeypatch.delenv("SEGREGACION_APROBACION", raising=False)
+    token_administrador = _token(cliente, "administrador@local")
+    _documento_id, analisis_id = _crear_analisis_ortografia_via_api(
+        cliente, token_administrador, contenido=b"Texto de prueba"
+    )
+
+    respuesta = cliente.post(
+        f"/analisis/{analisis_id}/generar-corregido",
+        headers={"Authorization": f"Bearer {token_administrador}"},
+    )
+
+    assert respuesta.status_code == 200
+
+
+def test_generar_corregido_rn07_quien_cargo_no_puede_con_segregacion_activa(
+    cliente: TestClient, monkeypatch
+) -> None:
+    """RN-07 tal como era antes de SRS v0.9, ahora detrás de
+    SEGREGACION_APROBACION=true."""
+    monkeypatch.setenv("SEGREGACION_APROBACION", "true")
     token_administrador = _token(cliente, "administrador@local")
     _documento_id, analisis_id = _crear_analisis_ortografia_via_api(
         cliente, token_administrador, contenido=b"Texto de prueba"
