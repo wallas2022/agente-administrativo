@@ -91,6 +91,8 @@ describe("subirDocumento", () => {
       [{ numeroParte: 1, etag: "etag-1-1024" }],
       "contable",
       "2026-01",
+      undefined,
+      undefined,
     );
   });
 
@@ -140,6 +142,8 @@ describe("subirDocumento", () => {
       [parteYaSubida, { numeroParte: 2, etag: `etag-2-${TAMANO_PARTE_BYTES}` }],
       "contable",
       "2026-01",
+      undefined,
+      undefined,
     );
     expect(resultado.documentoId).toBe("doc-1"); // viene de completarCarga (respuesta del servidor)
   });
@@ -203,6 +207,30 @@ describe("subirDocumento", () => {
       [{ numeroParte: 1, etag: "etag-1-100" }],
       "ortografia",
       undefined,
+      undefined,
+      undefined,
+    );
+  });
+
+  it("sube un análisis de redacción con tipo de documento y acción (CU-02)", async () => {
+    const deps = depsFalsas();
+    const archivo = archivoDePrueba("texto-pegado.txt", 100);
+
+    await subirDocumento(
+      archivo,
+      { tipoRevision: "redaccion", tipoDocumento: "Correo", accion: "corregir" },
+      deps,
+    );
+
+    expect(deps.completarCarga).toHaveBeenCalledWith(
+      "doc-1",
+      "upload-1",
+      "area/doc-1/archivo.xlsx",
+      [{ numeroParte: 1, etag: "etag-1-100" }],
+      "redaccion",
+      undefined,
+      "Correo",
+      "corregir",
     );
   });
 

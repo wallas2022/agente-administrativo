@@ -24,6 +24,11 @@ export interface OpcionesSubida {
   // Solo lo exige tipo_revision=="contable" (RN-03) -- CU-05 (ortografía) no
   // tiene período de cierre. Ver api/esquemas.py, SolicitudCompletarCarga.
   periodoCierre?: string;
+  // Solo los exige tipo_revision=="redaccion" (CU-02): Correo|Memo|
+  // Procedimiento|Informe y Corregir|Aclarar|Formalizar. Ver
+  // api/esquemas.py, SolicitudCompletarCarga.
+  tipoDocumento?: string;
+  accion?: string;
   onProgreso?: (progreso: ProgresoSubida) => void;
 }
 
@@ -64,6 +69,8 @@ export interface DependenciasSubida {
     partes: ParteSubida[],
     tipoRevision: string,
     periodoCierre: string | undefined,
+    tipoDocumento: string | undefined,
+    accion: string | undefined,
   ): Promise<{ documento_id: string; analisis_id: string; estado: string }>;
 }
 
@@ -203,6 +210,8 @@ export async function subirDocumento(
     partesFinales.sort((a, b) => a.numeroParte - b.numeroParte),
     opciones.tipoRevision,
     opciones.periodoCierre,
+    opciones.tipoDocumento,
+    opciones.accion,
   );
   borrarEstadoReanudable(clave);
 

@@ -8,10 +8,11 @@ docs/03-diseno/secuencia/cu-01-excel-contable.md.
 """
 
 import hashlib
+import json
 import mimetypes
 import os
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
@@ -28,6 +29,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWTError
 from qdrant_client import QdrantClient
@@ -93,6 +95,9 @@ from curaduria.indexacion import (
 from curaduria.plantilla import ResultadoImportacion, cargar_plantilla, leer_plantilla
 from ortografia.generar_corregido import generar_documento_corregido
 from rag.cliente_embeddings import DIMENSION_BGE_M3, obtener_embedding
+from rag.cliente_llm import generar_texto
+from validadores.redaccion.extraccion import extraer_parrafos
+from validadores.redaccion.mejora import ACCIONES_VALIDAS, mejorar_parrafo
 
 
 @asynccontextmanager
@@ -168,6 +173,19 @@ def obtener_funcion_embedding() -> Callable[[str], list[float]]:  # pragma: no c
 
 def obtener_coleccion_kb() -> str:
     return os.environ.get("QDRANT_COLECCION", COLECCION_KB)
+
+
+def obtener_funcion_llm() -> Callable[[str], str]:  # pragma: no cover - override en pruebas
+    return generar_texto
+
+
+def obtener_fabrica_sesion_stream() -> Callable[[], Session]:  # pragma: no cover - override
+    """Fábrica de sesiones para rutas de streaming (ver
+    mejorar_redaccion_stream): `Depends(obtener_sesion)` se cierra antes de
+    que arranque el envío del cuerpo de la respuesta -- gotcha conocido de
+    FastAPI con `StreamingResponse` + dependencias "yield" -- así que esas
+    rutas abren su propia sesión, aparte, y la cierran ellas mismas."""
+    return obtener_fabrica_sesion()
 
 
 def usuario_actual(
@@ -333,6 +351,24 @@ def completar_carga(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="periodo_cierre es obligatorio para tipo_revision='contable'",
         )
+    # CU-02: mismo criterio que periodo_cierre arriba -- sin esto, la falta
+    # del campo solo se descubriría más tarde, en el worker.
+    if datos.tipo_revision == "redaccion":
+        if not datos.tipo_documento:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="tipo_documento es obligatorio para tipo_revision='redaccion'",
+            )
+        if not datos.accion:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="accion es obligatoria para tipo_revision='redaccion'",
+            )
+        if datos.accion.strip().lower() not in ACCIONES_VALIDAS:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"accion debe ser una de {sorted(ACCIONES_VALIDAS)}",
+            )
 
     partes: list[almacenamiento.ParteSubida] = [
         {"PartNumber": p.numero_parte, "ETag": p.etag} for p in datos.partes
@@ -364,6 +400,8 @@ def completar_carga(
         fecha_inicio=datetime.now(UTC),
         estado=EstadoAnalisis.PROCESANDO.value,
         periodo_cierre=datos.periodo_cierre,
+        tipo_documento=datos.tipo_documento,
+        accion=datos.accion.strip().lower() if datos.accion else None,
     )
     sesion.add(analisis)
     sesion.commit()
@@ -500,6 +538,154 @@ def listar_hallazgos(
         )
         for h in hallazgos
     ]
+
+
+# Etiqueta corta para Hallazgo.estado (String(20)) -- el texto completo de la
+# guardia ("sin cambio por seguridad", RNF-03) no entra en esa columna; el
+# motivo completo queda en `descripcion`.
+_ESTADO_SIN_CAMBIO_POR_GUARDIA = "sin_cambio"
+
+
+@app.get("/analisis/{analisis_id}/mejorar-stream")
+def mejorar_redaccion_stream(
+    analisis_id: str,
+    usuario: Annotated[Usuario, Depends(usuario_actual)],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+    cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
+    cliente_qdrant: Annotated[QdrantClient, Depends(obtener_cliente_qdrant)],
+    coleccion_rag: Annotated[str, Depends(obtener_coleccion_kb)],
+    funcion_embedding: Annotated[
+        Callable[[str], list[float]], Depends(obtener_funcion_embedding)
+    ],
+    funcion_llm: Annotated[Callable[[str], str], Depends(obtener_funcion_llm)],
+    fabrica_sesion: Annotated[Callable[[], Session], Depends(obtener_fabrica_sesion_stream)],
+) -> StreamingResponse:
+    """Fase 2 de CU-02 (RF-07, RF-12): LLM por párrafo con streaming SSE, uno
+    por párrafo, apenas está listo -- ver
+    docs/02-analisis/02-analisis-cu02-redaccion-amigable.md §2.1. Corre
+    síncrona dentro de esta misma conexión HTTP porque no hay un worker
+    Celery que pueda empujar eventos a una conexión ya abierta (primer
+    endpoint de streaming de toda la API). Se autentica con el mismo Bearer
+    de siempre -- a propósito no es un token por query param -- así que el
+    frontend debe consumirlo con `fetch` + lector de stream, no con
+    `EventSource` nativo (que no manda headers)."""
+    analisis, documento = _analisis_y_documento_accesibles(
+        sesion, usuario, analisis_id, mensaje_403="No puede mejorar la redacción de otra área"
+    )
+    if documento is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento no encontrado")
+
+    tipo_revision = sesion.get(TipoRevision, analisis.tipo_revision_id)
+    if tipo_revision is None or tipo_revision.nombre != "redaccion":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Solo aplica a análisis de tipo 'redaccion'",
+        )
+    if not analisis.accion:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="El análisis no tiene 'accion' definida"
+        )
+
+    version_original = (
+        sesion.query(VersionDocumento)
+        .filter_by(documento_id=documento.id, es_corregida=False)
+        .order_by(VersionDocumento.numero_version.asc())
+        .first()
+    )
+    if version_original is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No se encontró el documento original"
+        )
+
+    contenido_original = almacenamiento.descargar_objeto(
+        cliente_s3, BUCKET_DOCUMENTOS, version_original.ruta_almacenamiento
+    )
+    try:
+        parrafos = extraer_parrafos(documento.tipo_archivo, contenido_original)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+
+    accion = analisis.accion
+    analisis_id_uuid = analisis.id
+    version_original_id = version_original.id
+    documento_id = documento.id
+
+    def _generador() -> Iterator[str]:
+        # Sesión propia: la que inyecta Depends(obtener_sesion) se cierra en
+        # cuanto termina esta función (antes de que FastAPI empiece a leer
+        # el generador del cuerpo de la respuesta), así que no sirve acá.
+        sesion_fase2 = fabrica_sesion()
+        try:
+            hubo_hallazgos_nuevos = False
+            for indice, parrafo in enumerate(parrafos):
+                resultado = mejorar_parrafo(
+                    parrafo.texto,
+                    ubicacion=parrafo.ubicacion,
+                    accion=accion,
+                    funcion_llm=funcion_llm,
+                    cliente_qdrant=cliente_qdrant,  # type: ignore[arg-type]
+                    coleccion_rag=coleccion_rag,
+                    funcion_embedding=funcion_embedding,
+                )
+                if resultado.tiene_sugerencia:
+                    sesion_fase2.add(
+                        Hallazgo(
+                            analisis_id=analisis_id_uuid,
+                            version_documento_id=version_original_id,
+                            severidad="baja",
+                            ubicacion=resultado.ubicacion,
+                            descripcion=f"Mejora de redacción sugerida (acción: {accion}).",
+                            correccion_sugerida=resultado.parrafo_sugerido,
+                            texto_original=resultado.parrafo_original[:500],
+                            estado="pendiente",
+                            fuente_citada=resultado.fuente_citada,
+                        )
+                    )
+                    hubo_hallazgos_nuevos = True
+                elif resultado.descartado_por_guardia:
+                    sesion_fase2.add(
+                        Hallazgo(
+                            analisis_id=analisis_id_uuid,
+                            version_documento_id=version_original_id,
+                            severidad="baja",
+                            ubicacion=resultado.ubicacion,
+                            descripcion=(
+                                "Sugerencia descartada por la guardia de integridad "
+                                f"(RNF-03): {resultado.razon_descarte}. Se conserva el "
+                                "párrafo original."
+                            ),
+                            texto_original=resultado.parrafo_original[:500],
+                            estado=_ESTADO_SIN_CAMBIO_POR_GUARDIA,
+                            fuente_citada=resultado.fuente_citada,
+                        )
+                    )
+                    hubo_hallazgos_nuevos = True
+
+                datos_evento = {
+                    "indice": indice,
+                    "ubicacion": resultado.ubicacion,
+                    "parrafo_original": resultado.parrafo_original,
+                    "tiene_sugerencia": resultado.tiene_sugerencia,
+                    "parrafo_sugerido": resultado.parrafo_sugerido,
+                    "fuente_citada": resultado.fuente_citada,
+                    "descartado_por_guardia": resultado.descartado_por_guardia,
+                }
+                yield f"event: parrafo\ndata: {json.dumps(datos_evento, ensure_ascii=False)}\n\n"
+
+            sesion_fase2.commit()
+            if hubo_hallazgos_nuevos:
+                documento_fase2 = sesion_fase2.get(Documento, documento_id)
+                if (
+                    documento_fase2 is not None
+                    and documento_fase2.estado == EstadoDocumento.EN_REVISION.value
+                ):
+                    documento_fase2.estado = EstadoDocumento.CON_HALLAZGOS.value
+                    sesion_fase2.commit()
+            yield "event: fin\ndata: {}\n\n"
+        finally:
+            sesion_fase2.close()
+
+    return StreamingResponse(_generador(), media_type="text/event-stream")
 
 
 @app.get("/analisis/{analisis_id}/bitacora", response_model=list[BitacoraEsquema])

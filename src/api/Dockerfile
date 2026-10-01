@@ -29,6 +29,12 @@ COPY ortografia ./ortografia
 # docs/04-pruebas/resultados/local-SKB.md), sin pasar por el worker.
 COPY rag ./rag
 COPY curaduria ./curaduria
+# CU-02 (Bloque 1): la ruta SSE /analisis/{id}/mejorar-stream corre la fase
+# 2 (LLM por párrafo + guardia de integridad) síncrona dentro de la propia
+# conexión HTTP -- la API necesita estos validadores directamente, sin
+# pasar por el paquete "orquestador" (ese registra tareas de Celery al
+# importarse).
+COPY validadores ./validadores
 
 EXPOSE 8000
 

@@ -30,6 +30,7 @@ from orquestador.pipeline_ortografia import (
     procesar_documento_ortografia,
     resolver_dudosos_ortografia,
 )
+from orquestador.pipeline_redaccion import procesar_documento_redaccion
 from parsers.pdf import PdfSinTextoError
 
 FuncionEncolarValidacionDudosos = Callable[[str], str]
@@ -196,6 +197,38 @@ def ejecutar_analisis(
             # Mensaje amable y específico (no inventa nada: refleja RF-11 --
             # "requiere OCR, iteración 2" -- en vez del str() genérico de
             # cualquier otra excepción).
+            return _marcar_fallido(
+                sesion, documento=documento, analisis=analisis, detalle=str(error)
+            )
+        except Exception as error:  # ver _marcar_fallido
+            return _marcar_fallido(
+                sesion, documento=documento, analisis=analisis, detalle=str(error)
+            )
+    elif (
+        tipo_revision is not None
+        and tipo_revision.nombre == "redaccion"
+        and version_original is not None
+        and cliente_s3 is not None
+        and bucket is not None
+    ):
+        # Fase 1 (determinista, sin LLM) -- ver docs/02-analisis/
+        # 02-analisis-cu02-redaccion-amigable.md §2.1. La fase 2 (LLM por
+        # párrafo, streaming) NO corre acá: el frontend la dispara aparte
+        # contra GET /analisis/{id}/mejorar-stream apenas aterriza en la
+        # pantalla de resultados.
+        contenido_original = almacenamiento.descargar_objeto(
+            cliente_s3, bucket, version_original.ruta_almacenamiento
+        )
+        try:
+            hallazgos, _parrafos = procesar_documento_redaccion(
+                sesion,
+                analisis=analisis,
+                version_original=version_original,
+                contenido_original=contenido_original,
+                tipo_archivo=documento.tipo_archivo,
+                tipo_documento=analisis.tipo_documento or "",
+            )
+        except PdfSinTextoError as error:
             return _marcar_fallido(
                 sesion, documento=documento, analisis=analisis, detalle=str(error)
             )

@@ -40,6 +40,12 @@ class SolicitudCompletarCarga(BaseModel):
     # fecha en que se ejecuta el análisis. Solo aplica a tipo_revision=="contable"
     # -- CU-05 (ortografía) no tiene período de cierre.
     periodo_cierre: str | None = Field(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    # Solo aplica a tipo_revision=="redaccion" (CU-02): tipo de documento
+    # (Correo|Memo|Procedimiento|Informe -- solo "Procedimiento" activa RD-01,
+    # ver validadores.redaccion.reglas) y acción (Corregir|Aclarar|Formalizar,
+    # ver validadores.redaccion.mejora.ACCIONES_VALIDAS).
+    tipo_documento: str | None = None
+    accion: str | None = None
 
 
 class RespuestaCompletarCarga(BaseModel):

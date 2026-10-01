@@ -128,6 +128,11 @@ class Analisis(Base):
     total_debe: Mapped[float | None] = mapped_column(Numeric(18, 2))
     total_haber: Mapped[float | None] = mapped_column(Numeric(18, 2))
     moneda: Mapped[str | None] = mapped_column(String(10))
+    # Solo aplica a tipo_revision=="redaccion" (CU-02): Correo|Memo|
+    # Procedimiento|Informe (solo "Procedimiento" activa RD-01, secciones
+    # obligatorias) y Corregir|Aclarar|Formalizar (fase 2, por párrafo).
+    tipo_documento: Mapped[str | None] = mapped_column(String(20))
+    accion: Mapped[str | None] = mapped_column(String(20))
 
     hallazgos: Mapped[list["Hallazgo"]] = relationship(back_populates="analisis")
 

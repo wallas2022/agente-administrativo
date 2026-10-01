@@ -85,6 +85,8 @@ export const dependenciasReales: DependenciasSubida = {
     partes,
     tipoRevision,
     periodoCierre,
+    tipoDocumento,
+    accion,
   ) {
     const { data, error } = await clienteApi.POST("/documentos/{documento_id}/completar", {
       params: {
@@ -95,6 +97,8 @@ export const dependenciasReales: DependenciasSubida = {
         partes: partes.map((p) => ({ numero_parte: p.numeroParte, etag: p.etag })),
         tipo_revision: tipoRevision,
         periodo_cierre: periodoCierre,
+        tipo_documento: tipoDocumento,
+        accion: accion,
       },
     });
     if (error || !data) {

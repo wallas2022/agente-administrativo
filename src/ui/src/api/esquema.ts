@@ -165,6 +165,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analisis/{analisis_id}/mejorar-stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mejorar Redaccion Stream
+         * @description Fase 2 de CU-02 (RF-07, RF-12): LLM por párrafo con streaming SSE, uno
+         *     por párrafo, apenas está listo -- ver
+         *     docs/02-analisis/02-analisis-cu02-redaccion-amigable.md §2.1. Corre
+         *     síncrona dentro de esta misma conexión HTTP porque no hay un worker
+         *     Celery que pueda empujar eventos a una conexión ya abierta (primer
+         *     endpoint de streaming de toda la API). Se autentica con el mismo Bearer
+         *     de siempre -- a propósito no es un token por query param -- así que el
+         *     frontend debe consumirlo con `fetch` + lector de stream, no con
+         *     `EventSource` nativo (que no manda headers).
+         */
+        get: operations["mejorar_redaccion_stream_analisis__analisis_id__mejorar_stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/analisis/{analisis_id}/bitacora": {
         parameters: {
             query?: never;
@@ -839,6 +867,10 @@ export interface components {
             tipo_revision: string;
             /** Periodo Cierre */
             periodo_cierre?: string | null;
+            /** Tipo Documento */
+            tipo_documento?: string | null;
+            /** Accion */
+            accion?: string | null;
         };
         /** SolicitudDecision */
         SolicitudDecision: {
@@ -1165,6 +1197,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HallazgoEsquema"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mejorar_redaccion_stream_analisis__analisis_id__mejorar_stream_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                analisis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

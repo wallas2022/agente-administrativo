@@ -9,7 +9,7 @@ import "./NuevoAnalisis.css";
 const TIPOS_REVISION = [
   { valor: "contable", etiqueta: "Excel contable", habilitado: true },
   { valor: "ortografia", etiqueta: "Revisión ortográfica", habilitado: true },
-  { valor: "redaccion", etiqueta: "Redacción", habilitado: false },
+  { valor: "redaccion", etiqueta: "Mejorar redacción", habilitado: true },
   { valor: "actualizacion_normativa", etiqueta: "Actualización normativa", habilitado: false },
   { valor: "control", etiqueta: "Control", habilitado: false },
   { valor: "ocr", etiqueta: "OCR", habilitado: false },
@@ -18,7 +18,15 @@ const TIPOS_REVISION = [
 const EXTENSIONES_ACEPTADAS: Record<string, string[]> = {
   contable: ["xlsx"],
   ortografia: ["docx", "pptx", "xlsx", "pdf"],
+  // CU-02 (RF-07): solo PDF/Word/texto -- a diferencia de CU-05, sin Excel
+  // ni PowerPoint (ver validadores/redaccion/extraccion.py).
+  redaccion: ["docx", "pdf"],
 };
+
+// Tipos de revisión que, además de subir un archivo, aceptan pegar el texto
+// directamente (CU-05 y CU-02 comparten el mismo "documento virtual" --
+// ver docs/02-analisis/02-analisis-cu02-redaccion-amigable.md §2.5).
+const TIPOS_CON_TEXTO_PEGADO = new Set(["ortografia", "redaccion"]);
 
 // CU-05 no tiene período de cierre (RN-03 es exclusivo de CU-01 contable) --
 // el backend también lo hace opcional salvo para "contable" (ver
@@ -26,6 +34,16 @@ const EXTENSIONES_ACEPTADAS: Record<string, string[]> = {
 function requierePeriodoCierre(tipoRevision: string): boolean {
   return tipoRevision === "contable";
 }
+
+// CU-02 (RF-07): tipo de documento y acción -- ver
+// validadores/redaccion/reglas.py (solo "Procedimiento" activa RD-01) y
+// validadores/redaccion/mejora.py (ACCIONES_VALIDAS).
+const TIPOS_DOCUMENTO_REDACCION = ["Correo", "Memo", "Procedimiento", "Informe"] as const;
+const ACCIONES_REDACCION = [
+  { valor: "corregir", etiqueta: "Corregir" },
+  { valor: "aclarar", etiqueta: "Aclarar" },
+  { valor: "formalizar", etiqueta: "Formalizar" },
+] as const;
 
 // Mismo patrón que SolicitudCompletarCarga.periodo_cierre en el backend. Se
 // valida también acá porque <input type="month"> no es soportado igual en
@@ -55,6 +73,10 @@ export function NuevoAnalisis() {
   const [archivo, setArchivo] = useState<File | null>(null);
   const [modoOrtografia, setModoOrtografia] = useState<"archivo" | "texto">("archivo");
   const [textoPegado, setTextoPegado] = useState("");
+  const [tipoDocumentoRedaccion, setTipoDocumentoRedaccion] = useState<string>(
+    TIPOS_DOCUMENTO_REDACCION[0],
+  );
+  const [accionRedaccion, setAccionRedaccion] = useState<string>(ACCIONES_REDACCION[0].valor);
   const [fuentes, setFuentes] = useState<FuenteConocimiento[] | null>(null);
   // [PENDIENTE] La API todavía no acepta qué fuentes consultar por análisis
   // (SolicitudCompletarCarga no tiene ese campo); la selección queda guardada
@@ -84,7 +106,7 @@ export function NuevoAnalisis() {
     evento.preventDefault();
     setError(null);
 
-    const usaTextoPegado = tipoRevision === "ortografia" && modoOrtografia === "texto";
+    const usaTextoPegado = TIPOS_CON_TEXTO_PEGADO.has(tipoRevision) && modoOrtografia === "texto";
     let archivoAEnviar: File | null = archivo;
 
     if (usaTextoPegado) {
@@ -124,6 +146,8 @@ export function NuevoAnalisis() {
         {
           tipoRevision,
           periodoCierre: requierePeriodoCierre(tipoRevision) ? periodoCierre : undefined,
+          tipoDocumento: tipoRevision === "redaccion" ? tipoDocumentoRedaccion : undefined,
+          accion: tipoRevision === "redaccion" ? accionRedaccion : undefined,
           onProgreso: setProgreso,
         },
         dependenciasReales,
@@ -187,7 +211,35 @@ export function NuevoAnalisis() {
             </label>
           )}
 
-          {tipoRevision === "ortografia" && (
+          {tipoRevision === "redaccion" && (
+            <>
+              <label className="nuevo-analisis__campo">
+                Tipo de documento
+                <select
+                  value={tipoDocumentoRedaccion}
+                  onChange={(e) => setTipoDocumentoRedaccion(e.target.value)}
+                >
+                  {TIPOS_DOCUMENTO_REDACCION.map((tipo) => (
+                    <option key={tipo} value={tipo}>
+                      {tipo}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="nuevo-analisis__campo">
+                Acción
+                <select value={accionRedaccion} onChange={(e) => setAccionRedaccion(e.target.value)}>
+                  {ACCIONES_REDACCION.map((accion) => (
+                    <option key={accion.valor} value={accion.valor}>
+                      {accion.etiqueta}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
+
+          {TIPOS_CON_TEXTO_PEGADO.has(tipoRevision) && (
             <fieldset className="nuevo-analisis__campo">
               <legend>Origen del texto</legend>
               <div className="nuevo-analisis__opciones">
@@ -213,7 +265,7 @@ export function NuevoAnalisis() {
             </fieldset>
           )}
 
-          {tipoRevision === "ortografia" && modoOrtografia === "texto" ? (
+          {TIPOS_CON_TEXTO_PEGADO.has(tipoRevision) && modoOrtografia === "texto" ? (
             <label className="nuevo-analisis__campo">
               Texto a revisar
               <textarea
