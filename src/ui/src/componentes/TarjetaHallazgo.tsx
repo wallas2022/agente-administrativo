@@ -26,7 +26,10 @@ const RESUELTOS = new Set(["aceptado", "rechazado"]);
 // CU-05 (RNF-04, Bloque O6): mientras el LLM valida un caso dudoso
 // ("en_validacion") o después de descartarlo ("descartado") no hay nada que
 // el Revisor pueda decidir todavía -- ni Aceptar/Rechazar ni Deshacer.
-const NO_DECIDIBLES = new Set(["en_validacion", "descartado"]);
+// CU-02 (RNF-03): "sin_cambio" es la guardia de integridad descartando una
+// sugerencia -- tampoco hay nada que decidir, el párrafo original ya quedó
+// intacto (ver validadores/redaccion/guardia.py).
+const NO_DECIDIBLES = new Set(["en_validacion", "descartado", "sin_cambio"]);
 
 // ortografia.revision (Bloque O2) formatea descripcion como «texto marcado»:
 // mensaje -- se detecta ese patrón para mostrar el error tachado → la

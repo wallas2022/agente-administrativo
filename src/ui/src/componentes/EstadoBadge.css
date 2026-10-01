@@ -41,7 +41,8 @@
   color: var(--color-bajo-texto);
 }
 
-.estado-badge--descartado {
+.estado-badge--descartado,
+.estado-badge--sin_cambio {
   background: var(--color-borde);
   color: var(--color-texto-tenue);
 }

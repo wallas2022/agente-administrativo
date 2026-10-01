@@ -545,6 +545,16 @@ def listar_hallazgos(
 # motivo completo queda en `descripcion`.
 _ESTADO_SIN_CAMBIO_POR_GUARDIA = "sin_cambio"
 
+# Prefijos fijos de `descripcion` para los dos únicos resultados de la fase 2
+# que se persisten como Hallazgo (ver _generador más abajo). Sirven también
+# para detectar, sin una columna nueva, si la fase 2 ya corrió para un
+# análisis -- sin esto, reabrir la pantalla de resultados dispararía otra
+# vez el LLM por párrafo y duplicaría los hallazgos ya guardados (la fase 2
+# es determinista -- temperature=0/seed fija -- así que el resultado sería
+# idéntico, solo repetido).
+_PREFIJO_DESCRIPCION_MEJORA_FASE2 = "Mejora de redacción sugerida (acción: "
+_PREFIJO_DESCRIPCION_DESCARTE_FASE2 = "Sugerencia descartada por la guardia de integridad"
+
 
 @app.get("/analisis/{analisis_id}/mejorar-stream")
 def mejorar_redaccion_stream(
@@ -585,6 +595,26 @@ def mejorar_redaccion_stream(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="El análisis no tiene 'accion' definida"
         )
+
+    ya_proceso_fase2 = (
+        sesion.query(Hallazgo)
+        .filter_by(analisis_id=analisis.id)
+        .filter(
+            Hallazgo.descripcion.like(f"{_PREFIJO_DESCRIPCION_MEJORA_FASE2}%")
+            | Hallazgo.descripcion.like(f"{_PREFIJO_DESCRIPCION_DESCARTE_FASE2}%")
+        )
+        .first()
+        is not None
+    )
+    if ya_proceso_fase2:
+        # Idempotencia: la fase 2 ya corrió para este análisis (p. ej. el
+        # usuario volvió a entrar a la pantalla de resultados) -- los
+        # hallazgos ya persistidos la vez anterior se consultan con el GET
+        # normal de hallazgos, no hace falta volver a llamar al LLM.
+        def _generador_ya_procesado() -> Iterator[str]:
+            yield 'event: fin\ndata: {"ya_procesado": true}\n\n'
+
+        return StreamingResponse(_generador_ya_procesado(), media_type="text/event-stream")
 
     version_original = (
         sesion.query(VersionDocumento)
@@ -634,7 +664,7 @@ def mejorar_redaccion_stream(
                             version_documento_id=version_original_id,
                             severidad="baja",
                             ubicacion=resultado.ubicacion,
-                            descripcion=f"Mejora de redacción sugerida (acción: {accion}).",
+                            descripcion=f"{_PREFIJO_DESCRIPCION_MEJORA_FASE2}{accion}).",
                             correccion_sugerida=resultado.parrafo_sugerido,
                             texto_original=resultado.parrafo_original[:500],
                             estado="pendiente",
@@ -650,7 +680,7 @@ def mejorar_redaccion_stream(
                             severidad="baja",
                             ubicacion=resultado.ubicacion,
                             descripcion=(
-                                "Sugerencia descartada por la guardia de integridad "
+                                f"{_PREFIJO_DESCRIPCION_DESCARTE_FASE2} "
                                 f"(RNF-03): {resultado.razon_descarte}. Se conserva el "
                                 "párrafo original."
                             ),

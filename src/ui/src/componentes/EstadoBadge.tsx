@@ -15,6 +15,9 @@ const ETIQUETAS: Record<string, string> = {
   en_validacion: "En validación",
   confirmado: "Confirmado",
   descartado: "Descartado",
+  // CU-02 (RNF-03, Bloque 1): la guardia de integridad descartó la
+  // sugerencia del LLM -- el párrafo original queda sin cambios.
+  sin_cambio: "Sin cambio por seguridad",
 };
 
 /** docs/03-diseno/estados/estados-analisis.md */

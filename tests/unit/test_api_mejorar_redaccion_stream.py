@@ -180,6 +180,18 @@ def test_stream_persiste_mejora_sugerida_y_marca_documento_con_hallazgos(
     assert documento.estado == EstadoDocumento.CON_HALLAZGOS.value
     sesion.close()
 
+    # Idempotencia: volver a entrar a la pantalla de resultados (p. ej. el
+    # usuario recarga la página) no debe volver a llamar al LLM ni duplicar
+    # el Hallazgo ya persistido.
+    segunda_respuesta = cliente.get(f"/analisis/{analisis_id}/mejorar-stream", headers=encabezados)
+    assert segunda_respuesta.status_code == 200
+    assert '"ya_procesado": true' in segunda_respuesta.text
+    assert _parsear_eventos_parrafo(segunda_respuesta.text) == []
+
+    sesion = fabrica()
+    assert sesion.query(Hallazgo).count() == 1
+    sesion.close()
+
 
 @pytest.mark.parametrize("cliente", [_llm_que_ignora_el_monto], indirect=True)
 def test_stream_la_guardia_descarta_sugerencia_que_altera_un_monto(

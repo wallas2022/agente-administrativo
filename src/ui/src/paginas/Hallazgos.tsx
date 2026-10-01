@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { descargarArchivo } from "../api/descargas";
-import { clienteApi } from "../api/cliente";
+import { clienteApi, obtenerTokenActual, URL_BASE_API } from "../api/cliente";
 import { EstadoBadge } from "../componentes/EstadoBadge";
 import { TarjetaHallazgo, type Hallazgo } from "../componentes/TarjetaHallazgo";
 import "./Hallazgos.css";
@@ -10,9 +10,59 @@ const RESUELTOS = new Set(["aceptado", "rechazado"]);
 
 // CU-05 (RNF-04, Bloque O6): un caso todavía "en_validacion" (el LLM no ha
 // terminado) o ya "descartado" (falso positivo) no es decidible -- "Aceptar
-// todos" no debe tocarlos.
-const NO_DECIDIBLES = new Set(["en_validacion", "descartado"]);
+// todos" no debe tocarlos. CU-02 (RNF-03): "sin_cambio" es la guardia de
+// integridad descartando una sugerencia -- tampoco hay nada que decidir.
+const NO_DECIDIBLES = new Set(["en_validacion", "descartado", "sin_cambio"]);
 const esDecidible = (h: Hallazgo) => !RESUELTOS.has(h.estado) && !NO_DECIDIBLES.has(h.estado);
+
+// Estados en los que el documento todavía no terminó la fase 1 (worker) --
+// disparar la fase 2 (CU-02) antes de eso no tendría nada que leer todavía.
+const ESTADOS_FASE1_EN_CURSO = new Set(["cargado", "procesando"]);
+
+/** CU-02 (RF-12): consume la ruta SSE de la fase 2 (mejora por párrafo).
+ * No usa `EventSource` nativo porque necesita mandar el header
+ * `Authorization` (ver docstring de la ruta en api/main.py) -- se lee el
+ * `body` de `fetch` a mano, separando por el bloque en blanco que delimita
+ * cada evento SSE ("\n\n"). */
+async function consumirMejoraRedaccionStream(
+  analisisId: string,
+  onParrafo: (indice: number) => void,
+): Promise<void> {
+  const token = obtenerTokenActual();
+  const respuesta = await fetch(`${URL_BASE_API}/analisis/${analisisId}/mejorar-stream`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  if (!respuesta.ok || !respuesta.body) {
+    throw new Error(`No se pudo mejorar la redacción (HTTP ${respuesta.status})`);
+  }
+
+  const lector = respuesta.body.getReader();
+  const decodificador = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await lector.read();
+    if (done) break;
+    buffer += decodificador.decode(value, { stream: true });
+
+    let indiceSeparador = buffer.indexOf("\n\n");
+    while (indiceSeparador !== -1) {
+      const bloque = buffer.slice(0, indiceSeparador);
+      buffer = buffer.slice(indiceSeparador + 2);
+      if (bloque.startsWith("event: parrafo")) {
+        const lineaDatos = bloque.split("\n").find((linea) => linea.startsWith("data: "));
+        if (lineaDatos) {
+          try {
+            const datos = JSON.parse(lineaDatos.slice("data: ".length)) as { indice: number };
+            onParrafo(datos.indice);
+          } catch {
+            // Evento mal formado: se ignora, no detiene el resto del stream.
+          }
+        }
+      }
+      indiceSeparador = buffer.indexOf("\n\n");
+    }
+  }
+}
 
 type Analisis = {
   id: string;
@@ -40,6 +90,12 @@ export function Hallazgos() {
   const [error, setError] = useState<string | null>(null);
   const [descargando, setDescargando] = useState(false);
   const [procesandoLote, setProcesandoLote] = useState(false);
+  const [mejorandoRedaccion, setMejorandoRedaccion] = useState(false);
+  const [parrafoEnCurso, setParrafoEnCurso] = useState<number | null>(null);
+  // Evita disparar la fase 2 más de una vez para el mismo análisis (p. ej.
+  // si el efecto se vuelve a ejecutar) -- el endpoint ya es idempotente del
+  // lado del servidor, pero no tiene sentido abrir el stream dos veces.
+  const fase2DisparadaRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!analisisId) return;
@@ -61,12 +117,36 @@ export function Hallazgos() {
         setError("No se pudo consultar el análisis");
         return;
       }
-      setAnalisis(respuestaAnalisis.data);
+      const analisisActual = respuestaAnalisis.data;
+      setAnalisis(analisisActual);
 
       let hayEnValidacion = false;
       if (!respuestaHallazgos.error && respuestaHallazgos.data) {
         setHallazgos(respuestaHallazgos.data);
         hayEnValidacion = respuestaHallazgos.data.some((h) => h.estado === "en_validacion");
+      }
+
+      // CU-02 (RF-12): apenas la fase 1 (worker) termina, se dispara la fase
+      // 2 (LLM por párrafo, streaming SSE) -- ver
+      // docs/02-analisis/02-analisis-cu02-redaccion-amigable.md §2.1.
+      if (
+        analisisActual.tipo_revision === "redaccion" &&
+        !ESTADOS_FASE1_EN_CURSO.has(analisisActual.estado) &&
+        analisisActual.estado !== "fallido" &&
+        fase2DisparadaRef.current !== analisisId
+      ) {
+        fase2DisparadaRef.current = analisisId;
+        setMejorandoRedaccion(true);
+        consumirMejoraRedaccionStream(analisisId as string, setParrafoEnCurso)
+          .catch(() => {
+            if (!cancelado) setError("No se pudo mejorar la redacción");
+          })
+          .finally(() => {
+            if (cancelado) return;
+            setMejorandoRedaccion(false);
+            setParrafoEnCurso(null);
+            void cargar(); // refresca hallazgos + estado del análisis tras la fase 2
+          });
       }
 
       // CU-05 (RNF-04, Bloque O6): la validación LLM de casos dudosos corre
@@ -230,8 +310,17 @@ export function Hallazgos() {
           </button>
         )}
 
+      {mejorandoRedaccion && (
+        <p className="hallazgos__mensaje" role="status">
+          Mejorando redacción…
+          {parrafoEnCurso != null && ` (párrafo ${parrafoEnCurso + 1})`}
+        </p>
+      )}
+
       {hallazgosOrdenados.length === 0 ? (
-        <p className="hallazgos__mensaje">Este análisis no tiene hallazgos.</p>
+        !mejorandoRedaccion && (
+          <p className="hallazgos__mensaje">Este análisis no tiene hallazgos.</p>
+        )
       ) : (
         <div className="hallazgos__lista">
           {hallazgosOrdenados.map((h) => (
