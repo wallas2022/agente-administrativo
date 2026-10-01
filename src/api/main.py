@@ -678,68 +678,73 @@ def mejorar_redaccion_stream(
                     funcion_embedding=funcion_embedding,
                 )
                 opciones_aprobadas = [o for o in resultado.opciones if o.aprobada_guardia]
+                hallazgo_id: str | None = None
                 # El Hallazgo persistido es traza/auditoría (bitácora de lo
                 # que se le ofreció al usuario) -- la pantalla de resultados
                 # (Bloque 2) consume principalmente el propio evento SSE en
-                # vivo. `correccion_sugerida` guarda las opciones como JSON
-                # (no un solo texto): Hallazgo no tiene hoy un campo
-                # estructurado para "hasta 2 opciones por párrafo", y crear
-                # uno es una decisión de modelo de datos que le corresponde
-                # al Bloque 2, cuando se sepa qué necesita la UI de verdad.
+                # vivo, pero manda `hallazgo_id` en la decisión del usuario
+                # (POST /hallazgos/{id}/decision) para que quede en bitácora
+                # qué opción se eligió por párrafo. `correccion_sugerida`
+                # guarda las opciones como JSON (no un solo texto): Hallazgo
+                # no tiene hoy un campo estructurado para "hasta 2 opciones
+                # por párrafo".
                 if opciones_aprobadas:
-                    sesion_fase2.add(
-                        Hallazgo(
-                            analisis_id=analisis_id_uuid,
-                            version_documento_id=version_original_id,
-                            severidad="baja",
-                            ubicacion=resultado.ubicacion,
-                            descripcion=f"{_PREFIJO_DESCRIPCION_MEJORA_FASE2}{accion}).",
-                            correccion_sugerida=json.dumps(
-                                {
-                                    "parrafo_base": resultado.parrafo_base,
-                                    "opciones": [
-                                        {
-                                            "estilo": o.estilo,
-                                            "texto": o.texto,
-                                            "motivos": o.motivos,
-                                        }
-                                        for o in opciones_aprobadas
-                                    ],
-                                },
-                                ensure_ascii=False,
-                            ),
-                            texto_original=resultado.parrafo_original[:500],
-                            estado="pendiente",
-                            fuente_citada=resultado.fuente_citada,
-                        )
+                    fila = Hallazgo(
+                        analisis_id=analisis_id_uuid,
+                        version_documento_id=version_original_id,
+                        severidad="baja",
+                        ubicacion=resultado.ubicacion,
+                        descripcion=f"{_PREFIJO_DESCRIPCION_MEJORA_FASE2}{accion}).",
+                        correccion_sugerida=json.dumps(
+                            {
+                                "parrafo_base": resultado.parrafo_base,
+                                "opciones": [
+                                    {
+                                        "estilo": o.estilo,
+                                        "texto": o.texto,
+                                        "motivos": o.motivos,
+                                    }
+                                    for o in opciones_aprobadas
+                                ],
+                            },
+                            ensure_ascii=False,
+                        ),
+                        texto_original=resultado.parrafo_original[:500],
+                        estado="pendiente",
+                        fuente_citada=resultado.fuente_citada,
                     )
+                    sesion_fase2.add(fila)
+                    sesion_fase2.flush()  # para tener fila.id disponible ya
+                    hallazgo_id = str(fila.id)
                     hubo_hallazgos_nuevos = True
                 elif resultado.opciones:
                     # Hubo opciones, pero la guardia descartó todas.
                     razones = "; ".join(
                         f"{o.estilo}: {o.razon_descarte}" for o in resultado.opciones
                     )
-                    sesion_fase2.add(
-                        Hallazgo(
-                            analisis_id=analisis_id_uuid,
-                            version_documento_id=version_original_id,
-                            severidad="baja",
-                            ubicacion=resultado.ubicacion,
-                            descripcion=(
-                                f"{_PREFIJO_DESCRIPCION_DESCARTE_FASE2} (RNF-03): {razones}. "
-                                "Se conserva el párrafo con el formato corregido."
-                            ),
-                            texto_original=resultado.parrafo_original[:500],
-                            correccion_sugerida=resultado.parrafo_base,
-                            estado=_ESTADO_SIN_CAMBIO_POR_GUARDIA,
-                            fuente_citada=resultado.fuente_citada,
-                        )
+                    fila = Hallazgo(
+                        analisis_id=analisis_id_uuid,
+                        version_documento_id=version_original_id,
+                        severidad="baja",
+                        ubicacion=resultado.ubicacion,
+                        descripcion=(
+                            f"{_PREFIJO_DESCRIPCION_DESCARTE_FASE2} (RNF-03): {razones}. "
+                            "Se conserva el párrafo con el formato corregido."
+                        ),
+                        texto_original=resultado.parrafo_original[:500],
+                        correccion_sugerida=resultado.parrafo_base,
+                        estado=_ESTADO_SIN_CAMBIO_POR_GUARDIA,
+                        fuente_citada=resultado.fuente_citada,
                     )
+                    sesion_fase2.add(fila)
+                    sesion_fase2.flush()
+                    hallazgo_id = str(fila.id)
                     hubo_hallazgos_nuevos = True
 
                 datos_evento = {
                     "indice": indice,
                     "ubicacion": resultado.ubicacion,
+                    "hallazgo_id": hallazgo_id,
                     "parrafo_original": resultado.parrafo_original,
                     "parrafo_base": resultado.parrafo_base,
                     "opciones": [

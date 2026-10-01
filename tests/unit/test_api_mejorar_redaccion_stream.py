@@ -192,10 +192,12 @@ def test_stream_persiste_mejora_sugerida_y_marca_documento_con_hallazgos(
     assert eventos[0]["tiene_opciones_aprobadas"] is True
     assert {o["estilo"] for o in eventos[0]["opciones"]} == {"Formal", "Breve"}
     assert all(o["aprobada_guardia"] for o in eventos[0]["opciones"])
+    assert eventos[0]["hallazgo_id"] is not None
 
     sesion = fabrica()
     hallazgos = sesion.query(Hallazgo).all()
     assert len(hallazgos) == 1
+    assert str(hallazgos[0].id) == eventos[0]["hallazgo_id"]
     assert hallazgos[0].estado == "pendiente"
     cuerpo_guardado = json.loads(hallazgos[0].correccion_sugerida)
     assert {o["estilo"] for o in cuerpo_guardado["opciones"]} == {"Formal", "Breve"}
