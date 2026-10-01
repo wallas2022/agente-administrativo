@@ -10,8 +10,6 @@ const TIPOS_REVISION = [
   { valor: "contable", etiqueta: "Excel contable", habilitado: true },
   { valor: "ortografia", etiqueta: "Revisión ortográfica", habilitado: true },
   { valor: "redaccion", etiqueta: "Mejorar redacción", habilitado: true },
-  { valor: "actualizacion_normativa", etiqueta: "Actualización normativa", habilitado: false },
-  { valor: "control", etiqueta: "Control", habilitado: false },
   { valor: "ocr", etiqueta: "OCR", habilitado: false },
 ] as const;
 
