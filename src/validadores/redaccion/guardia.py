@@ -35,6 +35,19 @@ _PATRON_FECHA = re.compile(
     r"|\d{1,2}\s+de\s+[a-záéíóúñ]+(?:\s+de\s+\d{2,4})?",
     re.IGNORECASE,
 )
+# Códigos tipo "6112.03.00" o "A-123": varios segmentos numéricos unidos por
+# punto o guion -- un monto como "1,250.00" NO calza acá (un solo punto, sin
+# guion) así que no se solapa con _PATRON_NUMERO; se agregó después de
+# encontrar, probando con texto real, que un código de más de un segmento
+# no quedaba protegido por ningún patrón existente.
+_PATRON_CODIGO = re.compile(r"\b[A-Za-z]*\d+(?:[.\-]\d+){1,}\b")
+# Siglas: 2+ mayúsculas seguidas, en cualquier posición -- a diferencia de
+# _nombres_propios (que se salta la primera palabra de cada oración para no
+# marcar cualquier mayúscula inicial normal), una sigla al inicio de oración
+# igual debe quedar protegida. Encontrado probando con texto real: "DAF" al
+# final de una oración ya quedaba cubierto por _nombres_propios, pero una
+# sigla al inicio de oración no -- este patrón aparte cierra ese hueco.
+_PATRON_SIGLA = re.compile(r"\b[A-ZÁÉÍÓÚÑ]{2,}\b")
 _PATRON_PALABRA = re.compile(r"[A-Za-záéíóúñÁÉÍÓÚÑ]+")
 _PATRON_FIN_ORACION = re.compile(r"(?<=[.!?])\s+")
 
@@ -56,9 +69,10 @@ def _nombres_propios(texto: str) -> set[str]:
 
 
 def verificar_integridad(original: str, sugerido: str) -> ResultadoGuardia:
-    """Compara original vs. sugerido; aprueba solo si cifras, fechas y
-    nombres propios son exactamente los mismos conjuntos (el orden y la
-    redacción alrededor sí pueden cambiar -- eso es lo que CU-02 mejora)."""
+    """Compara original vs. sugerido; aprueba solo si fechas, cifras,
+    códigos, siglas y nombres propios son exactamente los mismos conjuntos
+    (el orden y la redacción alrededor sí pueden cambiar -- eso es lo que
+    CU-02 mejora)."""
     # Fechas antes que números: una fecha también está hecha de dígitos, así
     # que si cambia, también rompería la comparación de números -- se
     # verifica primero para que el motivo reportado sea el más específico.
@@ -76,6 +90,22 @@ def verificar_integridad(original: str, sugerido: str) -> ResultadoGuardia:
         return ResultadoGuardia(
             aprobado=False,
             razon="Las cifras del párrafo sugerido no coinciden con el original",
+        )
+
+    codigos_original = set(_PATRON_CODIGO.findall(original))
+    codigos_sugerido = set(_PATRON_CODIGO.findall(sugerido))
+    if codigos_original != codigos_sugerido:
+        return ResultadoGuardia(
+            aprobado=False,
+            razon="Los códigos del párrafo sugerido no coinciden con el original",
+        )
+
+    siglas_original = set(_PATRON_SIGLA.findall(original))
+    siglas_sugerido = set(_PATRON_SIGLA.findall(sugerido))
+    if siglas_original != siglas_sugerido:
+        return ResultadoGuardia(
+            aprobado=False,
+            razon="Las siglas del párrafo sugerido no coinciden con el original",
         )
 
     nombres_original = _nombres_propios(original)

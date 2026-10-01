@@ -25,9 +25,17 @@ from comun.semillas import sembrar_datos_de_prueba  # noqa: E402
 COLECCION_PRUEBA = "kb_prueba_cu02_stream"
 
 # Sin cifras/fechas/nombres propios -- cualquier reescritura del LLM pasa la
-# guardia de integridad sin importar qué tanto cambie la redacción.
-_PARRAFO_SIN_DATOS_SENSIBLES = "hola, este es un parrafo de prueba bastante corto y sencillo."
-_PARRAFO_CON_MONTO = "el ajuste fue por Q 100.00 segun lo revisado."
+# guardia de integridad sin importar qué tanto cambie la redacción. >=25
+# palabras para que el Bloque 4 no lo salte.
+_PARRAFO_SIN_DATOS_SENSIBLES = (
+    "hola, este es un parrafo de prueba bastante corto y sencillo que de todas "
+    "formas tiene que llegar a veinticinco palabras para que no se salte el llamado al modelo."
+)
+_PARRAFO_CON_MONTO = (
+    "el ajuste fue por Q 100.00 segun lo revisado por el area correspondiente "
+    "hace ya varias semanas, antes del cierre contable del periodo anterior, "
+    "y quedo debidamente documentado en el expediente correspondiente."
+)
 
 
 def _embedding_falso(_texto: str) -> list[float]:
@@ -38,31 +46,18 @@ def _sin_coincidencias_lt(_texto: str) -> list:
     return []
 
 
-def _opciones(formal: str, breve: str) -> str:
-    return json.dumps(
-        {
-            "opciones": [
-                {"estilo": "Formal", "texto": formal, "motivos": ["más institucional"]},
-                {"estilo": "Breve", "texto": breve, "motivos": ["más corto"]},
-            ]
-        }
-    )
+def _llm_que_reescribe(prompt: str) -> str:
+    if "institucional, completo" in prompt:
+        return "Hola, este es un párrafo de prueba corregido, versión formal."
+    return "Párrafo de prueba corregido, versión breve."
 
 
-def _llm_que_reescribe(_prompt: str) -> str:
-    return _opciones(
-        "Hola, este es un párrafo de prueba corregido, versión formal.",
-        "Párrafo de prueba corregido.",
-    )
-
-
-def _llm_que_ignora_el_monto(_prompt: str) -> str:
+def _llm_que_ignora_el_monto(prompt: str) -> str:
     # Ambas opciones pierden "Q 100.00" -- deben activar la guardia (RNF-03)
     # y descartarse las dos, conservando el párrafo base.
-    return _opciones(
-        "El ajuste fue aprobado según lo revisado, de forma institucional.",
-        "El ajuste fue aprobado.",
-    )
+    if "institucional, completo" in prompt:
+        return "El ajuste fue aprobado según lo revisado, de forma institucional."
+    return "El ajuste fue aprobado hace varias semanas."
 
 
 @pytest.fixture()
@@ -159,10 +154,10 @@ def _cargar_documento_redaccion(
     return respuesta.json()["analisis_id"]
 
 
-def _parsear_eventos_parrafo(texto_sse: str) -> list[dict]:
+def _parsear_eventos(texto_sse: str, nombre_evento: str) -> list[dict]:
     eventos = []
     for bloque in texto_sse.split("\n\n"):
-        if bloque.startswith("event: parrafo"):
+        if bloque.startswith(f"event: {nombre_evento}"):
             _, _, linea_datos = bloque.partition("data: ")
             eventos.append(json.loads(linea_datos))
     return eventos
@@ -187,18 +182,24 @@ def test_stream_persiste_mejora_sugerida_y_marca_documento_con_hallazgos(
     assert respuesta.headers["content-type"].startswith("text/event-stream")
     assert "event: fin" in respuesta.text
 
-    eventos = _parsear_eventos_parrafo(respuesta.text)
-    assert len(eventos) == 1
-    assert eventos[0]["tiene_opciones_aprobadas"] is True
-    assert {o["estilo"] for o in eventos[0]["opciones"]} == {"Formal", "Breve"}
-    assert all(o["aprobada_guardia"] for o in eventos[0]["opciones"])
-    assert eventos[0]["hallazgo_id"] is not None
+    inicio = _parsear_eventos(respuesta.text, "inicio")
+    assert inicio == [{"total_parrafos": 1}]
+
+    opciones = _parsear_eventos(respuesta.text, "opcion")
+    assert {o["estilo"] for o in opciones} == {"Formal", "Breve"}
+    assert all(o["aprobada_guardia"] for o in opciones)
+    assert all(o["hallazgo_id"] is not None for o in opciones)
+
+    parrafo_fin = _parsear_eventos(respuesta.text, "parrafo_fin")
+    assert len(parrafo_fin) == 1
+    assert parrafo_fin[0]["tiene_opciones_aprobadas"] is True
+    assert parrafo_fin[0]["omitido"] is False
 
     sesion = fabrica()
     hallazgos = sesion.query(Hallazgo).all()
     assert len(hallazgos) == 1
-    assert str(hallazgos[0].id) == eventos[0]["hallazgo_id"]
     assert hallazgos[0].estado == "pendiente"
+    assert str(hallazgos[0].id) == opciones[0]["hallazgo_id"]
     cuerpo_guardado = json.loads(hallazgos[0].correccion_sugerida)
     assert {o["estilo"] for o in cuerpo_guardado["opciones"]} == {"Formal", "Breve"}
 
@@ -212,7 +213,7 @@ def test_stream_persiste_mejora_sugerida_y_marca_documento_con_hallazgos(
     segunda_respuesta = cliente.get(f"/analisis/{analisis_id}/mejorar-stream", headers=encabezados)
     assert segunda_respuesta.status_code == 200
     assert '"ya_procesado": true' in segunda_respuesta.text
-    assert _parsear_eventos_parrafo(segunda_respuesta.text) == []
+    assert _parsear_eventos(segunda_respuesta.text, "opcion") == []
 
     sesion = fabrica()
     assert sesion.query(Hallazgo).count() == 1
@@ -229,18 +230,40 @@ def test_stream_la_guardia_descarta_ambas_opciones_que_alteran_un_monto(
     respuesta = cliente.get(f"/analisis/{analisis_id}/mejorar-stream", headers=encabezados)
     assert respuesta.status_code == 200
 
-    eventos = _parsear_eventos_parrafo(respuesta.text)
-    assert len(eventos) == 1
-    assert eventos[0]["tiene_opciones_aprobadas"] is False
-    assert len(eventos[0]["opciones"]) == 2
-    assert all(not o["aprobada_guardia"] for o in eventos[0]["opciones"])
+    opciones = _parsear_eventos(respuesta.text, "opcion")
+    assert len(opciones) == 2
+    assert all(not o["aprobada_guardia"] for o in opciones)
+
+    parrafo_fin = _parsear_eventos(respuesta.text, "parrafo_fin")
+    assert parrafo_fin[0]["tiene_opciones_aprobadas"] is False
 
     sesion = fabrica()
     hallazgos = sesion.query(Hallazgo).all()
     assert len(hallazgos) == 1
     assert hallazgos[0].estado == "sin_cambio"
     assert "guardia" in hallazgos[0].descripcion.lower()
-    assert hallazgos[0].correccion_sugerida == "el ajuste fue por Q 100.00 segun lo revisado."
+    sesion.close()
+
+
+def test_stream_omite_el_llm_en_un_parrafo_corto_y_limpio(cliente: TestClient, fabrica) -> None:
+    """Bloque 4 (rendimiento): un párrafo corto sin hallazgos no debería ni
+    siquiera llamar al LLM -- se verifica indirectamente: no hay eventos
+    "opcion" y el párrafo queda marcado "omitido"."""
+    encabezados = {"Authorization": f"Bearer {_token(cliente, 'analista@local')}"}
+    analisis_id = _cargar_documento_redaccion(
+        cliente, encabezados, contenido="Todo quedó en orden y sin pendientes."
+    )
+
+    respuesta = cliente.get(f"/analisis/{analisis_id}/mejorar-stream", headers=encabezados)
+    assert respuesta.status_code == 200
+
+    assert _parsear_eventos(respuesta.text, "opcion") == []
+    parrafo_fin = _parsear_eventos(respuesta.text, "parrafo_fin")
+    assert len(parrafo_fin) == 1
+    assert parrafo_fin[0]["omitido"] is True
+
+    sesion = fabrica()
+    assert sesion.query(Hallazgo).count() == 0
     sesion.close()
 
 

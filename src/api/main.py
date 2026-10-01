@@ -99,7 +99,14 @@ from ortografia.generar_corregido import generar_documento_corregido
 from rag.cliente_embeddings import DIMENSION_BGE_M3, obtener_embedding
 from rag.cliente_llm import generar_texto
 from validadores.redaccion.extraccion import extraer_parrafos
-from validadores.redaccion.mejora import ACCIONES_VALIDAS, mejorar_parrafo
+from validadores.redaccion.mejora import (
+    ACCIONES_VALIDAS,
+    ESTILOS,
+    OpcionMejora,
+    generar_opcion,
+    preparar_parrafo,
+    puede_omitir_llm,
+)
 
 
 @asynccontextmanager
@@ -178,9 +185,15 @@ def obtener_coleccion_kb() -> str:
 
 
 def obtener_funcion_llm() -> Callable[[str], str]:  # pragma: no cover - override en pruebas
-    """CU-02 (fase 2): `format="json"` reduce la chance de que el modelo
-    agregue texto fuera del objeto JSON de las 2 opciones de estilo."""
-    return lambda prompt: generar_texto(prompt, formato="json")
+    """CU-02 (fase 2, rendimiento -- ver
+    docs/04-pruebas/resultados/local-cu02-rendimiento.md): cada opción de
+    estilo se pide en texto plano, una por llamada (no JSON con las 2
+    opciones juntas) -- `think="low"` + `num_ctx`/`num_predict` acotados
+    bajaron el tiempo medido de la primera tarjeta de 208s a 10-26s contra
+    gpt-oss:20b real en este hardware sin GPU."""
+    return lambda prompt: generar_texto(
+        prompt, pensamiento="low", num_ctx=2048, num_predict=400
+    )
 
 
 def obtener_funcion_revisar_lt() -> Callable[[str], list[CoincidenciaLT]]:  # pragma: no cover
@@ -654,6 +667,7 @@ def mejorar_redaccion_stream(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
 
     accion = analisis.accion
+    tipo_documento = analisis.tipo_documento or ""
     analisis_id_uuid = analisis.id
     version_original_id = version_original.id
     documento_id = documento.id
@@ -665,102 +679,153 @@ def mejorar_redaccion_stream(
         sesion_fase2 = fabrica_sesion()
         try:
             hubo_hallazgos_nuevos = False
+            yield (
+                "event: inicio\n"
+                f"data: {json.dumps({'total_parrafos': len(parrafos)})}\n\n"
+            )
+
             for indice, parrafo in enumerate(parrafos):
-                resultado = mejorar_parrafo(
+                yield (
+                    "event: parrafo_inicio\n"
+                    f"data: {json.dumps({'indice': indice, 'ubicacion': parrafo.ubicacion})}\n\n"
+                )
+
+                # Bloque 4 (rendimiento): un párrafo corto y sin ningún
+                # hallazgo de LanguageTool ni de EST-001 ya está bien tal
+                # cual -- no hace falta gastar una llamada al LLM en él.
+                coincidencias_lt = funcion_revisar_lt(parrafo.texto)
+                if puede_omitir_llm(
+                    parrafo.texto, coincidencias_lt=coincidencias_lt, tipo_documento=tipo_documento
+                ):
+                    yield (
+                        "event: parrafo_fin\n"
+                        f"data: {
+                            json.dumps(
+                                {
+                                    'indice': indice,
+                                    'ubicacion': parrafo.ubicacion,
+                                    'parrafo_original': parrafo.texto,
+                                    'parrafo_base': parrafo.texto,
+                                    'fuente_citada': None,
+                                    'omitido': True,
+                                    'tiene_opciones_aprobadas': False,
+                                    'hallazgo_id': None,
+                                },
+                                ensure_ascii=False,
+                            )
+                        }\n\n"
+                    )
+                    continue
+
+                preparado = preparar_parrafo(
                     parrafo.texto,
-                    ubicacion=parrafo.ubicacion,
-                    accion=accion,
-                    funcion_llm=funcion_llm,
                     funcion_revisar_lt=funcion_revisar_lt,
                     glosario=glosario,
                     cliente_qdrant=cliente_qdrant,  # type: ignore[arg-type]
                     coleccion_rag=coleccion_rag,
                     funcion_embedding=funcion_embedding,
                 )
-                opciones_aprobadas = [o for o in resultado.opciones if o.aprobada_guardia]
-                hallazgo_id: str | None = None
-                # El Hallazgo persistido es traza/auditoría (bitácora de lo
-                # que se le ofreció al usuario) -- la pantalla de resultados
-                # (Bloque 2) consume principalmente el propio evento SSE en
-                # vivo, pero manda `hallazgo_id` en la decisión del usuario
-                # (POST /hallazgos/{id}/decision) para que quede en bitácora
-                # qué opción se eligió por párrafo. `correccion_sugerida`
-                # guarda las opciones como JSON (no un solo texto): Hallazgo
-                # no tiene hoy un campo estructurado para "hasta 2 opciones
-                # por párrafo".
-                if opciones_aprobadas:
-                    fila = Hallazgo(
-                        analisis_id=analisis_id_uuid,
-                        version_documento_id=version_original_id,
-                        severidad="baja",
-                        ubicacion=resultado.ubicacion,
-                        descripcion=f"{_PREFIJO_DESCRIPCION_MEJORA_FASE2}{accion}).",
-                        correccion_sugerida=json.dumps(
+
+                # Bloque 3 (rendimiento): se genera y publica cada opción
+                # apenas está lista -- "Formal" no espera a "Breve" -- en
+                # vez de pedirle ambas al LLM en una sola llamada (medido
+                # contra gpt-oss:20b real: 94-208s la llamada combinada,
+                # 10-26s una sola opción en texto plano con think="low").
+                opciones_aprobadas: list[OpcionMejora] = []
+                opciones_descartadas: list[OpcionMejora] = []
+                fila_hallazgo: Hallazgo | None = None
+                for estilo in ESTILOS:
+                    opcion = generar_opcion(
+                        preparado.parrafo_base,
+                        accion=accion,
+                        estilo=estilo,
+                        funcion_llm=funcion_llm,
+                        cita_estilo=preparado.cita_estilo,
+                    )
+                    if opcion is None:
+                        continue  # el LLM no propuso ningún cambio para este estilo
+
+                    if opcion.aprobada_guardia:
+                        opciones_aprobadas.append(opcion)
+                        cuerpo_json = json.dumps(
                             {
-                                "parrafo_base": resultado.parrafo_base,
+                                "parrafo_base": preparado.parrafo_base,
                                 "opciones": [
-                                    {
-                                        "estilo": o.estilo,
-                                        "texto": o.texto,
-                                        "motivos": o.motivos,
-                                    }
+                                    {"estilo": o.estilo, "texto": o.texto, "motivos": o.motivos}
                                     for o in opciones_aprobadas
                                 ],
                             },
                             ensure_ascii=False,
-                        ),
-                        texto_original=resultado.parrafo_original[:500],
-                        estado="pendiente",
-                        fuente_citada=resultado.fuente_citada,
-                    )
-                    sesion_fase2.add(fila)
-                    sesion_fase2.flush()  # para tener fila.id disponible ya
-                    hallazgo_id = str(fila.id)
-                    hubo_hallazgos_nuevos = True
-                elif resultado.opciones:
-                    # Hubo opciones, pero la guardia descartó todas.
+                        )
+                        if fila_hallazgo is None:
+                            fila_hallazgo = Hallazgo(
+                                analisis_id=analisis_id_uuid,
+                                version_documento_id=version_original_id,
+                                severidad="baja",
+                                ubicacion=parrafo.ubicacion,
+                                descripcion=f"{_PREFIJO_DESCRIPCION_MEJORA_FASE2}{accion}).",
+                                correccion_sugerida=cuerpo_json,
+                                texto_original=preparado.parrafo_base[:500],
+                                estado="pendiente",
+                                fuente_citada=preparado.fuente_citada,
+                            )
+                            sesion_fase2.add(fila_hallazgo)
+                        else:
+                            fila_hallazgo.correccion_sugerida = cuerpo_json
+                        sesion_fase2.flush()  # para tener el id disponible ya
+                        hubo_hallazgos_nuevos = True
+                    else:
+                        opciones_descartadas.append(opcion)
+
+                    hallazgo_id = str(fila_hallazgo.id) if fila_hallazgo is not None else None
+                    datos_opcion = {
+                        "indice": indice,
+                        "ubicacion": parrafo.ubicacion,
+                        "hallazgo_id": hallazgo_id,
+                        "estilo": opcion.estilo,
+                        "texto": opcion.texto,
+                        "motivos": opcion.motivos,
+                        "aprobada_guardia": opcion.aprobada_guardia,
+                        "razon_descarte": opcion.razon_descarte,
+                    }
+                    yield f"event: opcion\ndata: {json.dumps(datos_opcion, ensure_ascii=False)}\n\n"
+
+                if not opciones_aprobadas and opciones_descartadas:
                     razones = "; ".join(
-                        f"{o.estilo}: {o.razon_descarte}" for o in resultado.opciones
+                        f"{o.estilo}: {o.razon_descarte}" for o in opciones_descartadas
                     )
-                    fila = Hallazgo(
+                    fila_hallazgo = Hallazgo(
                         analisis_id=analisis_id_uuid,
                         version_documento_id=version_original_id,
                         severidad="baja",
-                        ubicacion=resultado.ubicacion,
+                        ubicacion=parrafo.ubicacion,
                         descripcion=(
                             f"{_PREFIJO_DESCRIPCION_DESCARTE_FASE2} (RNF-03): {razones}. "
                             "Se conserva el párrafo con el formato corregido."
                         ),
-                        texto_original=resultado.parrafo_original[:500],
-                        correccion_sugerida=resultado.parrafo_base,
+                        texto_original=preparado.parrafo_base[:500],
+                        correccion_sugerida=preparado.parrafo_base,
                         estado=_ESTADO_SIN_CAMBIO_POR_GUARDIA,
-                        fuente_citada=resultado.fuente_citada,
+                        fuente_citada=preparado.fuente_citada,
                     )
-                    sesion_fase2.add(fila)
+                    sesion_fase2.add(fila_hallazgo)
                     sesion_fase2.flush()
-                    hallazgo_id = str(fila.id)
                     hubo_hallazgos_nuevos = True
 
-                datos_evento = {
+                datos_parrafo_fin = {
                     "indice": indice,
-                    "ubicacion": resultado.ubicacion,
-                    "hallazgo_id": hallazgo_id,
-                    "parrafo_original": resultado.parrafo_original,
-                    "parrafo_base": resultado.parrafo_base,
-                    "opciones": [
-                        {
-                            "estilo": o.estilo,
-                            "texto": o.texto,
-                            "motivos": o.motivos,
-                            "aprobada_guardia": o.aprobada_guardia,
-                            "razon_descarte": o.razon_descarte,
-                        }
-                        for o in resultado.opciones
-                    ],
-                    "tiene_opciones_aprobadas": resultado.tiene_opciones_aprobadas,
-                    "fuente_citada": resultado.fuente_citada,
+                    "ubicacion": parrafo.ubicacion,
+                    "hallazgo_id": str(fila_hallazgo.id) if fila_hallazgo is not None else None,
+                    "parrafo_original": parrafo.texto,
+                    "parrafo_base": preparado.parrafo_base,
+                    "fuente_citada": preparado.fuente_citada,
+                    "omitido": False,
+                    "tiene_opciones_aprobadas": bool(opciones_aprobadas),
                 }
-                yield f"event: parrafo\ndata: {json.dumps(datos_evento, ensure_ascii=False)}\n\n"
+                yield (
+                    "event: parrafo_fin\n"
+                    f"data: {json.dumps(datos_parrafo_fin, ensure_ascii=False)}\n\n"
+                )
 
             sesion_fase2.commit()
             if hubo_hallazgos_nuevos:

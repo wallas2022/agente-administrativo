@@ -61,3 +61,51 @@ def test_reescritura_sin_cifras_fechas_ni_nombres_siempre_se_aprueba() -> None:
     resultado = verificar_integridad(original, sugerido)
 
     assert resultado.aprobado is True
+
+
+# --- Bloque 5 (CU-02, rendimiento): guardia ampliada a siglas y códigos ----
+# Casos reales encontrados probando con LanguageTool + LLM reales: "DAF"
+# (sigla) y "se aprobo" (palabra con error, no cifra/fecha/sigla/código).
+
+
+def test_rechaza_si_la_sigla_cambio() -> None:
+    original = "El pago fue revisado por la DAF."
+    sugerido = "El pago fue revisado por la DA."  # le falta una letra a la sigla
+
+    resultado = verificar_integridad(original, sugerido)
+
+    assert resultado.aprobado is False
+    assert "sigla" in resultado.razon.lower()
+
+
+def test_aprueba_si_la_sigla_se_conserva_aunque_cambie_el_resto() -> None:
+    original = "el dia de hoy se aprobo el pago por la DAF."
+    sugerido = "El pago fue aprobado por la DAF, según lo revisado."
+
+    resultado = verificar_integridad(original, sugerido)
+
+    assert resultado.aprobado is True
+
+
+def test_rechaza_si_el_codigo_cambio() -> None:
+    """Un código con varios segmentos ("6112.03.00") puede además calzar
+    parcialmente con el patrón de fecha (su propio tramo final "03.00"
+    parece un día/mes) -- la guardia igual rechaza el cambio, solo que el
+    motivo reportado puede decir "fechas" en vez de "códigos" en ese caso.
+    Lo que importa (RNF-03) es que nunca se apruebe, no cuál mensaje
+    exacto se muestre."""
+    original = "La cuenta 6112.03.00 registra el gasto."
+    sugerido = "La cuenta 6112.03.01 registra el gasto."
+
+    resultado = verificar_integridad(original, sugerido)
+
+    assert resultado.aprobado is False
+
+
+def test_aprueba_si_el_codigo_se_conserva() -> None:
+    original = "La cuenta 6112.03.00 registra el gasto operativo."
+    sugerido = "El gasto operativo se registra en la cuenta 6112.03.00."
+
+    resultado = verificar_integridad(original, sugerido)
+
+    assert resultado.aprobado is True

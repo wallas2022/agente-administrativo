@@ -1,163 +1,191 @@
-import json
-
 import pytest
 
-from validadores.redaccion.mejora import mejorar_parrafo
+from ortografia.cliente_languagetool import CoincidenciaLT
+from validadores.redaccion.mejora import (
+    calcular_motivos,
+    generar_opcion,
+    mejorar_parrafo,
+    preparar_parrafo,
+    puede_omitir_llm,
+)
 
 
 def _sin_coincidencias_lt(_texto: str) -> list:
     return []
 
 
-def _llm_con_opciones(formal: str, breve: str):
-    def _funcion(_prompt: str) -> str:
-        return json.dumps(
-            {
-                "opciones": [
-                    {"estilo": "Formal", "texto": formal, "motivos": ["más institucional"]},
-                    {"estilo": "Breve", "texto": breve, "motivos": ["más corto"]},
-                ]
-            }
+# --- preparar_parrafo -------------------------------------------------------
+
+
+def test_preparar_parrafo_aplica_formato_sin_llm() -> None:
+    preparado = preparar_parrafo(
+        "el pago fue por Q1250 el 5/10/2026",
+        funcion_revisar_lt=_sin_coincidencias_lt,
+        glosario=set(),
+    )
+
+    assert preparado.parrafo_base == "el pago fue por Q 1,250.00 el 5 de octubre de 2026"
+    assert preparado.fuente_citada is None
+
+
+# --- puede_omitir_llm (Bloque 4) --------------------------------------------
+
+
+def test_omite_llm_en_parrafo_corto_sin_hallazgos() -> None:
+    parrafo = "Todo quedó en orden y sin pendientes."
+    assert (
+        puede_omitir_llm(parrafo, coincidencias_lt=[], tipo_documento="Correo") is True
+    )
+
+
+def test_no_omite_llm_si_el_parrafo_es_largo() -> None:
+    parrafo = " ".join(["palabra"] * 30)
+    assert puede_omitir_llm(parrafo, coincidencias_lt=[], tipo_documento="Correo") is False
+
+
+def test_no_omite_llm_si_hay_coincidencias_de_languagetool() -> None:
+    coincidencia = CoincidenciaLT(
+        texto="dia", offset=0, longitud=3, mensaje="x", sugerencias=["día"],
+        regla_id="ES_SIMPLE_REPLACE_SIMPLE_DIA", categoria="TYPOS",
+    )
+    resultado = puede_omitir_llm(
+        "Todo salio bien hoy.", coincidencias_lt=[coincidencia], tipo_documento="Correo"
+    )
+    assert resultado is False
+
+
+def test_no_omite_llm_si_hay_hallazgos_est001() -> None:
+    parrafo = "El monto fue Q1250."  # formato de monto incorrecto -> RD-02
+    assert puede_omitir_llm(parrafo, coincidencias_lt=[], tipo_documento="Correo") is False
+
+
+# --- calcular_motivos --------------------------------------------------------
+
+
+def test_calcular_motivos_detecta_correccion_de_acentos() -> None:
+    motivos = calcular_motivos("el dia de hoy", "el día de hoy")
+    assert "acentos" in " ".join(motivos).lower()
+
+
+def test_calcular_motivos_detecta_texto_mas_corto() -> None:
+    motivos = calcular_motivos(
+        "El pago fue aprobado por el cual se procedió a realizar el registro contable",
+        "El pago fue aprobado",
+    )
+    assert any("acortó" in m for m in motivos)
+
+
+def test_calcular_motivos_detecta_oracion_dividida() -> None:
+    motivos = calcular_motivos(
+        "El pago fue aprobado y revisado por el área correspondiente",
+        "El pago fue aprobado. Fue revisado por el área correspondiente.",
+    )
+    assert any("dividió" in m for m in motivos)
+
+
+def test_calcular_motivos_nunca_devuelve_lista_vacia() -> None:
+    motivos = calcular_motivos("Texto corto.", "Texto breve.")
+    assert len(motivos) >= 1
+
+
+# --- generar_opcion ----------------------------------------------------------
+
+
+def test_generar_opcion_exitosa() -> None:
+    opcion = generar_opcion(
+        "hola, este es un parrafo de prueba.",
+        accion="corregir",
+        estilo="Formal",
+        funcion_llm=lambda _p: "Hola, este es un párrafo de prueba corregido.",
+    )
+
+    assert opcion is not None
+    assert opcion.estilo == "Formal"
+    assert opcion.aprobada_guardia is True
+    assert opcion.razon_descarte is None
+    assert len(opcion.motivos) >= 1
+
+
+def test_generar_opcion_ninguna_si_el_llm_devuelve_el_mismo_parrafo() -> None:
+    base = "texto original sin cambios."
+    opcion = generar_opcion(
+        base, accion="corregir", estilo="Formal", funcion_llm=lambda _p: base
+    )
+
+    assert opcion is None
+
+
+def test_generar_opcion_descartada_por_la_guardia() -> None:
+    opcion = generar_opcion(
+        "el gasto fue de Q 1,250.00.",
+        accion="corregir",
+        estilo="Breve",
+        funcion_llm=lambda _p: "El gasto fue de Q 1,500.00.",
+    )
+
+    assert opcion is not None
+    assert opcion.aprobada_guardia is False
+    assert opcion.razon_descarte is not None
+    assert opcion.motivos == []
+
+
+def test_generar_opcion_limpia_comillas_envolventes() -> None:
+    opcion = generar_opcion(
+        "texto original.",
+        accion="corregir",
+        estilo="Formal",
+        funcion_llm=lambda _p: '"Texto reescrito."',
+    )
+
+    assert opcion is not None
+    assert opcion.texto == "Texto reescrito."
+
+
+def test_generar_opcion_accion_invalida_lanza_key_error() -> None:
+    """`generar_opcion` es la pieza de bajo nivel que usa la ruta SSE
+    directamente (Bloque 3, streaming escalonado) -- no vuelve a validar
+    `accion` porque quien la llama (api/main.py) ya lo valida una sola vez,
+    al completar la carga (ver SolicitudCompletarCarga). Acá no es
+    `ValueError` como en `mejorar_parrafo`, es el `KeyError` del diccionario
+    de instrucciones -- documentado, no un contrato nuevo a mantener."""
+    with pytest.raises(KeyError):
+        generar_opcion(
+            "texto", accion="inventada", estilo="Formal", funcion_llm=lambda _p: "x"
         )
 
-    return _funcion
+
+# --- mejorar_parrafo (envoltorio de conveniencia) ---------------------------
 
 
-def test_mejora_exitosa_sin_fuente_de_estilo_aprueba_ambas_opciones() -> None:
+def test_mejorar_parrafo_arma_las_dos_opciones() -> None:
+    respuestas = iter(
+        [
+            "Hola, este es un párrafo de prueba corregido, versión formal.",
+            "Párrafo de prueba corregido.",
+        ]
+    )
+
     resultado = mejorar_parrafo(
         "hola, este es un parrafo de prueba.",
         ubicacion="Párrafo 1",
         accion="corregir",
-        funcion_llm=_llm_con_opciones(
-            "Hola, este es un párrafo de prueba corregido.",
-            "Párrafo de prueba corregido.",
-        ),
+        funcion_llm=lambda _p: next(respuestas),
         funcion_revisar_lt=_sin_coincidencias_lt,
         glosario=set(),
     )
 
-    assert resultado.parrafo_base == "hola, este es un parrafo de prueba."
     assert len(resultado.opciones) == 2
     assert {o.estilo for o in resultado.opciones} == {"Formal", "Breve"}
-    assert all(o.aprobada_guardia for o in resultado.opciones)
-    assert resultado.tiene_opciones_aprobadas is True
-    assert resultado.fuente_citada is None
-
-
-def test_el_parrafo_base_ya_tiene_el_formato_corregido_antes_del_llm() -> None:
-    resultado = mejorar_parrafo(
-        "el pago fue por Q1250 el 5/10/2026",
-        ubicacion="Párrafo 1",
-        accion="corregir",
-        funcion_llm=_llm_con_opciones(
-            "El pago fue por Q 1,250.00 el 5 de octubre de 2026, según lo acordado.",
-            "Pago: Q 1,250.00, 5 de octubre de 2026.",
-        ),
-        funcion_revisar_lt=_sin_coincidencias_lt,
-        glosario=set(),
-    )
-
-    assert resultado.parrafo_base == "el pago fue por Q 1,250.00 el 5 de octubre de 2026"
-
-
-def test_la_guardia_descarta_solo_la_opcion_que_altera_un_monto() -> None:
-    resultado = mejorar_parrafo(
-        "el gasto fue de Q 1,250.00 segun lo revisado.",
-        ubicacion="Párrafo 1",
-        accion="corregir",
-        funcion_llm=_llm_con_opciones(
-            formal="El gasto fue de Q 1,250.00, según lo revisado.",  # cifra intacta
-            breve="El gasto fue de Q 1,500.00.",  # cifra alterada
-        ),
-        funcion_revisar_lt=_sin_coincidencias_lt,
-        glosario=set(),
-    )
-
-    assert len(resultado.opciones) == 2
-    formal = next(o for o in resultado.opciones if o.estilo == "Formal")
-    breve = next(o for o in resultado.opciones if o.estilo == "Breve")
-    assert formal.aprobada_guardia is True
-    assert breve.aprobada_guardia is False
-    assert breve.razon_descarte is not None
     assert resultado.tiene_opciones_aprobadas is True
 
 
-def test_ninguna_opcion_aprobada_cuando_ambas_alteran_cifras() -> None:
-    resultado = mejorar_parrafo(
-        "el gasto fue de Q 1,250.00.",
-        ubicacion="Párrafo 1",
-        accion="corregir",
-        funcion_llm=_llm_con_opciones(
-            formal="El gasto fue de Q 1,000.00.",
-            breve="El gasto fue de Q 2,000.00.",
-        ),
-        funcion_revisar_lt=_sin_coincidencias_lt,
-        glosario=set(),
-    )
-
-    assert resultado.tiene_opciones_aprobadas is False
-    assert all(not o.aprobada_guardia for o in resultado.opciones)
-
-
-def test_sin_opciones_si_el_llm_no_devuelve_json_valido() -> None:
-    resultado = mejorar_parrafo(
-        "hola, este es un parrafo corto.",
-        ubicacion="Párrafo 1",
-        accion="corregir",
-        funcion_llm=lambda _prompt: "esto no es json",
-        funcion_revisar_lt=_sin_coincidencias_lt,
-        glosario=set(),
-    )
-
-    assert resultado.opciones == []
-    assert resultado.tiene_opciones_aprobadas is False
-
-
-def test_tolera_json_envuelto_en_bloque_de_codigo() -> None:
-    cuerpo = json.dumps(
-        {"opciones": [{"estilo": "Formal", "texto": "Texto formal.", "motivos": []}]}
-    )
-
-    def _funcion_llm(_prompt: str) -> str:
-        return f"```json\n{cuerpo}\n```"
-
-    resultado = mejorar_parrafo(
-        "texto original.",
-        ubicacion="Párrafo 1",
-        accion="corregir",
-        funcion_llm=_funcion_llm,
-        funcion_revisar_lt=_sin_coincidencias_lt,
-        glosario=set(),
-    )
-
-    assert len(resultado.opciones) == 1
-    assert resultado.opciones[0].texto == "Texto formal."
-
-
-def test_descarta_una_opcion_identica_al_parrafo_base() -> None:
-    resultado = mejorar_parrafo(
-        "texto original sin cambios.",
-        ubicacion="Párrafo 1",
-        accion="corregir",
-        funcion_llm=_llm_con_opciones(
-            formal="texto original sin cambios.",  # igual al base: no es una opción real
-            breve="Texto breve distinto.",
-        ),
-        funcion_revisar_lt=_sin_coincidencias_lt,
-        glosario=set(),
-    )
-
-    assert len(resultado.opciones) == 1
-    assert resultado.opciones[0].estilo == "Breve"
-
-
-def test_accion_invalida_lanza_value_error() -> None:
+def test_mejorar_parrafo_accion_invalida_lanza_value_error() -> None:
     with pytest.raises(ValueError, match="acción inválida"):
         mejorar_parrafo(
             "texto",
             ubicacion="Párrafo 1",
             accion="inventada",
-            funcion_llm=lambda _p: "{}",
+            funcion_llm=lambda _p: "x",
             funcion_revisar_lt=_sin_coincidencias_lt,
             glosario=set(),
         )

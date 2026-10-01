@@ -20,6 +20,14 @@ dataset, el mismo prompt y el mismo modelo: `validar_candidatos_con_llm`
 responda el LLM, y ese muestreo era aleatorio por defecto en Ollama. Se fija
 también para la redacción de hallazgos contables (RF-12): el determinismo
 importa igual para la trazabilidad/auditoría (RNF-06), no solo para pruebas.
+
+CU-02 (optimización de tiempo, 2026-10-01): se cambió de `/api/generate` a
+`/api/chat` -- medido contra gpt-oss:20b real: con `/api/generate`,
+`think="low"` no bajaba el tiempo de forma confiable (una corrida dio 185s,
+con una respuesta JSON deformada); con `/api/chat`, la misma opción sí
+recorta el razonamiento de verdad (de ~1716 a ~585 caracteres de
+"thinking") y además cachea el prompt mucho mejor (prompt_eval_duration de
+~38s a ~1-2s). Ver docs/04-pruebas/resultados/local-cu02-rendimiento.md.
 """
 
 import os
@@ -39,30 +47,43 @@ def generar_texto(
     *,
     modelo: str | None = None,
     timeout: float = 300.0,
-    formato: str | None = None,
+    formato: str | dict | None = None,
+    pensamiento: str | None = None,
+    num_ctx: int | None = None,
+    num_predict: int | None = None,
 ) -> str:
-    """`formato="json"` activa el modo de salida estructurada de Ollama
-    (soportado por `/api/generate`, no solo por `/api/chat`) -- el modelo
-    todavía puede devolver JSON inválido en casos raros, así que quien llama
-    sigue necesitando parsear con tolerancia (ver
-    validadores.redaccion.mejora._parsear_respuesta), pero reduce mucho la
-    chance de que agregue texto antes/después del objeto (CU-02, fase 2 con
-    2 opciones de estilo)."""
+    """`formato="json"` (o un esquema JSON como dict, soportado por Ollama
+    para salida estructurada) reduce la chance de que el modelo agregue
+    texto antes/después del objeto esperado -- quien llama sigue
+    necesitando parsear con tolerancia (nunca hay garantía absoluta).
+    `pensamiento` ("low"/"medium"/"high") controla el esfuerzo de
+    razonamiento de modelos que lo soportan (gpt-oss) -- `None` deja el
+    comportamiento por defecto del modelo. `num_ctx`/`num_predict` acotan
+    el contexto y la longitud de salida (CU-02: evita respuestas más
+    largas de lo necesario en hardware sin GPU)."""
     base_url = os.environ.get("LLM_BASE_URL", "http://ollama:11434")
     modelo_principal = modelo or os.environ.get("LLM_MODEL_PRINCIPAL", "")
     keep_alive = os.environ.get("OLLAMA_KEEP_ALIVE", "24h")
+    opciones: dict[str, object] = {
+        "temperature": TEMPERATURA_POR_DEFECTO,
+        "seed": SEMILLA_POR_DEFECTO,
+    }
+    if num_ctx is not None:
+        opciones["num_ctx"] = num_ctx
+    if num_predict is not None:
+        opciones["num_predict"] = num_predict
+
     cuerpo: dict[str, object] = {
         "model": modelo_principal,
-        "prompt": prompt,
+        "messages": [{"role": "user", "content": prompt}],
         "stream": False,
         "keep_alive": keep_alive,
-        "options": {
-            "temperature": TEMPERATURA_POR_DEFECTO,
-            "seed": SEMILLA_POR_DEFECTO,
-        },
+        "options": opciones,
     }
     if formato is not None:
         cuerpo["format"] = formato
-    respuesta = httpx.post(f"{base_url}/api/generate", json=cuerpo, timeout=timeout)
+    if pensamiento is not None:
+        cuerpo["think"] = pensamiento
+    respuesta = httpx.post(f"{base_url}/api/chat", json=cuerpo, timeout=timeout)
     respuesta.raise_for_status()
-    return respuesta.json()["response"]
+    return respuesta.json()["message"]["content"]

@@ -21,12 +21,16 @@ class _RespuestaFalsa:
         return self._cuerpo
 
 
+def _respuesta_de_chat(contenido: str = "ok") -> _RespuestaFalsa:
+    return _RespuestaFalsa({"message": {"content": contenido}})
+
+
 def test_generar_texto_envia_keep_alive_24h_por_defecto(monkeypatch) -> None:
     llamada: dict = {}
 
     def _post_falso(url: str, *, json: dict, timeout: float):
         llamada["json"] = json
-        return _RespuestaFalsa({"response": "ok"})
+        return _respuesta_de_chat()
 
     monkeypatch.delenv("OLLAMA_KEEP_ALIVE", raising=False)
     monkeypatch.setattr(httpx, "post", _post_falso)
@@ -42,7 +46,7 @@ def test_generar_texto_respeta_ollama_keep_alive_del_entorno(monkeypatch) -> Non
 
     def _post_falso(url: str, *, json: dict, timeout: float):
         llamada["json"] = json
-        return _RespuestaFalsa({"response": "ok"})
+        return _respuesta_de_chat()
 
     monkeypatch.setenv("OLLAMA_KEEP_ALIVE", "10m")
     monkeypatch.setattr(httpx, "post", _post_falso)
@@ -64,7 +68,7 @@ def test_generar_texto_envia_temperature_0_y_seed_fija_por_defecto(monkeypatch) 
 
     def _post_falso(url: str, *, json: dict, timeout: float):
         llamada["json"] = json
-        return _RespuestaFalsa({"response": "ok"})
+        return _respuesta_de_chat()
 
     monkeypatch.setattr(httpx, "post", _post_falso)
 
@@ -74,12 +78,31 @@ def test_generar_texto_envia_temperature_0_y_seed_fija_por_defecto(monkeypatch) 
     assert llamada["json"]["options"]["seed"] == cliente_llm.SEMILLA_POR_DEFECTO
 
 
+def test_generar_texto_manda_el_prompt_como_mensaje_de_usuario(monkeypatch) -> None:
+    """CU-02 (optimización de rendimiento): se usa /api/chat, no
+    /api/generate -- medido contra gpt-oss:20b real, `think` funciona de
+    forma confiable solo por /api/chat (ver cliente_llm.py)."""
+    llamada: dict = {}
+
+    def _post_falso(url: str, *, json: dict, timeout: float):
+        llamada["url"] = url
+        llamada["json"] = json
+        return _respuesta_de_chat()
+
+    monkeypatch.setattr(httpx, "post", _post_falso)
+
+    cliente_llm.generar_texto("hola", modelo="modelo-x")
+
+    assert llamada["url"].endswith("/api/chat")
+    assert llamada["json"]["messages"] == [{"role": "user", "content": "hola"}]
+
+
 def test_generar_texto_sin_formato_no_manda_el_campo_format(monkeypatch) -> None:
     llamada: dict = {}
 
     def _post_falso(url: str, *, json: dict, timeout: float):
         llamada["json"] = json
-        return _RespuestaFalsa({"response": "ok"})
+        return _respuesta_de_chat()
 
     monkeypatch.setattr(httpx, "post", _post_falso)
 
@@ -89,17 +112,90 @@ def test_generar_texto_sin_formato_no_manda_el_campo_format(monkeypatch) -> None
 
 
 def test_generar_texto_formato_json_activa_salida_estructurada_de_ollama(monkeypatch) -> None:
-    """CU-02 (fase 2, 2 opciones de estilo): `format="json"` es el mismo
-    parámetro que ya soporta `/api/generate` de Ollama (no solo `/api/chat`),
-    reduce la chance de que el modelo agregue texto fuera del objeto JSON."""
     llamada: dict = {}
 
     def _post_falso(url: str, *, json: dict, timeout: float):
         llamada["json"] = json
-        return _RespuestaFalsa({"response": "ok"})
+        return _respuesta_de_chat()
 
     monkeypatch.setattr(httpx, "post", _post_falso)
 
     cliente_llm.generar_texto("hola", modelo="modelo-x", formato="json")
 
     assert llamada["json"]["format"] == "json"
+
+
+def test_generar_texto_acepta_un_esquema_json_como_formato(monkeypatch) -> None:
+    """Medido contra gpt-oss:20b real: format="json" a secas deja que el
+    modelo deforme la estructura esperada (p. ej. mete una opción dentro de
+    otra); un esquema JSON explícito sí produce la forma correcta."""
+    llamada: dict = {}
+    esquema = {"type": "object", "properties": {"x": {"type": "string"}}}
+
+    def _post_falso(url: str, *, json: dict, timeout: float):
+        llamada["json"] = json
+        return _respuesta_de_chat()
+
+    monkeypatch.setattr(httpx, "post", _post_falso)
+
+    cliente_llm.generar_texto("hola", modelo="modelo-x", formato=esquema)
+
+    assert llamada["json"]["format"] == esquema
+
+
+def test_generar_texto_sin_pensamiento_no_manda_el_campo_think(monkeypatch) -> None:
+    llamada: dict = {}
+
+    def _post_falso(url: str, *, json: dict, timeout: float):
+        llamada["json"] = json
+        return _respuesta_de_chat()
+
+    monkeypatch.setattr(httpx, "post", _post_falso)
+
+    cliente_llm.generar_texto("hola", modelo="modelo-x")
+
+    assert "think" not in llamada["json"]
+
+
+def test_generar_texto_pensamiento_low_reduce_el_esfuerzo_de_razonamiento(monkeypatch) -> None:
+    """CU-02 (RF-07, rendimiento): medido contra gpt-oss:20b real,
+    think="low" bajó el campo "thinking" de la respuesta de ~1716 a ~585
+    caracteres en el mismo párrafo -- ver
+    docs/04-pruebas/resultados/local-cu02-rendimiento.md."""
+    llamada: dict = {}
+
+    def _post_falso(url: str, *, json: dict, timeout: float):
+        llamada["json"] = json
+        return _respuesta_de_chat()
+
+    monkeypatch.setattr(httpx, "post", _post_falso)
+
+    cliente_llm.generar_texto("hola", modelo="modelo-x", pensamiento="low")
+
+    assert llamada["json"]["think"] == "low"
+
+
+def test_generar_texto_num_ctx_y_num_predict_van_dentro_de_options(monkeypatch) -> None:
+    llamada: dict = {}
+
+    def _post_falso(url: str, *, json: dict, timeout: float):
+        llamada["json"] = json
+        return _respuesta_de_chat()
+
+    monkeypatch.setattr(httpx, "post", _post_falso)
+
+    cliente_llm.generar_texto("hola", modelo="modelo-x", num_ctx=2048, num_predict=400)
+
+    assert llamada["json"]["options"]["num_ctx"] == 2048
+    assert llamada["json"]["options"]["num_predict"] == 400
+
+
+def test_generar_texto_devuelve_el_contenido_del_mensaje(monkeypatch) -> None:
+    def _post_falso(url: str, *, json: dict, timeout: float):
+        return _respuesta_de_chat("el párrafo mejorado")
+
+    monkeypatch.setattr(httpx, "post", _post_falso)
+
+    resultado = cliente_llm.generar_texto("hola", modelo="modelo-x")
+
+    assert resultado == "el párrafo mejorado"
