@@ -19,16 +19,14 @@ ver `ortografia.generar_corregido`, que la API invoca bajo demanda
 
 from __future__ import annotations
 
-import csv
 import io
 import re
 from collections.abc import Callable
-from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from comun.glosario import cargar_glosario
 from comun.modelos import Analisis, Hallazgo, VersionDocumento
-from orquestador.rutas_kb import encontrar_raiz_con_kb
 from ortografia.cliente_languagetool import CoincidenciaLT
 from ortografia.revision import CandidatoDudoso, clasificar_segmentos, validar_candidatos_con_llm
 from parsers.docx import leer_texto_docx
@@ -45,17 +43,7 @@ FORMATOS_SOPORTADOS = frozenset({"docx", "pptx", "xlsx", "pdf", "txt"})
 
 _PATRON_DESCRIPCION = re.compile(r"^«.+?»:\s*([\s\S]*)$", re.DOTALL)
 
-
-def _ruta_glosario_por_defecto() -> Path:
-    return encontrar_raiz_con_kb() / "kb" / "glosario" / "glosario.csv"
-
-
-def cargar_glosario(ruta: Path | None = None) -> set[str]:
-    ruta_efectiva = ruta or _ruta_glosario_por_defecto()
-    with ruta_efectiva.open(encoding="utf-8") as archivo:
-        return {
-            fila["termino"].strip() for fila in csv.DictReader(archivo) if fila.get("termino")
-        }
+__all__ = ["cargar_glosario"]
 
 
 def extraer_segmentos(tipo_archivo: str, contenido: bytes) -> list[SegmentoTexto]:

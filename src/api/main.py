@@ -65,6 +65,7 @@ from comun import almacenamiento
 from comun.cola import encolar_analisis
 from comun.db import obtener_fabrica_sesion, obtener_sesion
 from comun.estados import EstadoAnalisis, EstadoDocumento, RolUsuario
+from comun.glosario import cargar_glosario
 from comun.modelos import (
     Analisis,
     Area,
@@ -93,6 +94,7 @@ from curaduria.indexacion import (
     indexar_fuente,
 )
 from curaduria.plantilla import ResultadoImportacion, cargar_plantilla, leer_plantilla
+from ortografia.cliente_languagetool import CoincidenciaLT, revisar_texto
 from ortografia.generar_corregido import generar_documento_corregido
 from rag.cliente_embeddings import DIMENSION_BGE_M3, obtener_embedding
 from rag.cliente_llm import generar_texto
@@ -176,7 +178,19 @@ def obtener_coleccion_kb() -> str:
 
 
 def obtener_funcion_llm() -> Callable[[str], str]:  # pragma: no cover - override en pruebas
-    return generar_texto
+    """CU-02 (fase 2): `format="json"` reduce la chance de que el modelo
+    agregue texto fuera del objeto JSON de las 2 opciones de estilo."""
+    return lambda prompt: generar_texto(prompt, formato="json")
+
+
+def obtener_funcion_revisar_lt() -> Callable[[str], list[CoincidenciaLT]]:  # pragma: no cover
+    return revisar_texto
+
+
+def obtener_glosario_redaccion() -> set[str]:  # pragma: no cover - override en pruebas
+    """CU-02 (fase 2) reutiliza el mismo glosario interno de CU-05 -- ver
+    comun.glosario."""
+    return cargar_glosario()
 
 
 def obtener_fabrica_sesion_stream() -> Callable[[], Session]:  # pragma: no cover - override
@@ -568,6 +582,10 @@ def mejorar_redaccion_stream(
         Callable[[str], list[float]], Depends(obtener_funcion_embedding)
     ],
     funcion_llm: Annotated[Callable[[str], str], Depends(obtener_funcion_llm)],
+    funcion_revisar_lt: Annotated[
+        Callable[[str], list[CoincidenciaLT]], Depends(obtener_funcion_revisar_lt)
+    ],
+    glosario: Annotated[set[str], Depends(obtener_glosario_redaccion)],
     fabrica_sesion: Annotated[Callable[[], Session], Depends(obtener_fabrica_sesion_stream)],
 ) -> StreamingResponse:
     """Fase 2 de CU-02 (RF-07, RF-12): LLM por párrafo con streaming SSE, uno
@@ -653,11 +671,22 @@ def mejorar_redaccion_stream(
                     ubicacion=parrafo.ubicacion,
                     accion=accion,
                     funcion_llm=funcion_llm,
+                    funcion_revisar_lt=funcion_revisar_lt,
+                    glosario=glosario,
                     cliente_qdrant=cliente_qdrant,  # type: ignore[arg-type]
                     coleccion_rag=coleccion_rag,
                     funcion_embedding=funcion_embedding,
                 )
-                if resultado.tiene_sugerencia:
+                opciones_aprobadas = [o for o in resultado.opciones if o.aprobada_guardia]
+                # El Hallazgo persistido es traza/auditoría (bitácora de lo
+                # que se le ofreció al usuario) -- la pantalla de resultados
+                # (Bloque 2) consume principalmente el propio evento SSE en
+                # vivo. `correccion_sugerida` guarda las opciones como JSON
+                # (no un solo texto): Hallazgo no tiene hoy un campo
+                # estructurado para "hasta 2 opciones por párrafo", y crear
+                # uno es una decisión de modelo de datos que le corresponde
+                # al Bloque 2, cuando se sepa qué necesita la UI de verdad.
+                if opciones_aprobadas:
                     sesion_fase2.add(
                         Hallazgo(
                             analisis_id=analisis_id_uuid,
@@ -665,14 +694,31 @@ def mejorar_redaccion_stream(
                             severidad="baja",
                             ubicacion=resultado.ubicacion,
                             descripcion=f"{_PREFIJO_DESCRIPCION_MEJORA_FASE2}{accion}).",
-                            correccion_sugerida=resultado.parrafo_sugerido,
+                            correccion_sugerida=json.dumps(
+                                {
+                                    "parrafo_base": resultado.parrafo_base,
+                                    "opciones": [
+                                        {
+                                            "estilo": o.estilo,
+                                            "texto": o.texto,
+                                            "motivos": o.motivos,
+                                        }
+                                        for o in opciones_aprobadas
+                                    ],
+                                },
+                                ensure_ascii=False,
+                            ),
                             texto_original=resultado.parrafo_original[:500],
                             estado="pendiente",
                             fuente_citada=resultado.fuente_citada,
                         )
                     )
                     hubo_hallazgos_nuevos = True
-                elif resultado.descartado_por_guardia:
+                elif resultado.opciones:
+                    # Hubo opciones, pero la guardia descartó todas.
+                    razones = "; ".join(
+                        f"{o.estilo}: {o.razon_descarte}" for o in resultado.opciones
+                    )
                     sesion_fase2.add(
                         Hallazgo(
                             analisis_id=analisis_id_uuid,
@@ -680,11 +726,11 @@ def mejorar_redaccion_stream(
                             severidad="baja",
                             ubicacion=resultado.ubicacion,
                             descripcion=(
-                                f"{_PREFIJO_DESCRIPCION_DESCARTE_FASE2} "
-                                f"(RNF-03): {resultado.razon_descarte}. Se conserva el "
-                                "párrafo original."
+                                f"{_PREFIJO_DESCRIPCION_DESCARTE_FASE2} (RNF-03): {razones}. "
+                                "Se conserva el párrafo con el formato corregido."
                             ),
                             texto_original=resultado.parrafo_original[:500],
+                            correccion_sugerida=resultado.parrafo_base,
                             estado=_ESTADO_SIN_CAMBIO_POR_GUARDIA,
                             fuente_citada=resultado.fuente_citada,
                         )
@@ -695,10 +741,19 @@ def mejorar_redaccion_stream(
                     "indice": indice,
                     "ubicacion": resultado.ubicacion,
                     "parrafo_original": resultado.parrafo_original,
-                    "tiene_sugerencia": resultado.tiene_sugerencia,
-                    "parrafo_sugerido": resultado.parrafo_sugerido,
+                    "parrafo_base": resultado.parrafo_base,
+                    "opciones": [
+                        {
+                            "estilo": o.estilo,
+                            "texto": o.texto,
+                            "motivos": o.motivos,
+                            "aprobada_guardia": o.aprobada_guardia,
+                            "razon_descarte": o.razon_descarte,
+                        }
+                        for o in resultado.opciones
+                    ],
+                    "tiene_opciones_aprobadas": resultado.tiene_opciones_aprobadas,
                     "fuente_citada": resultado.fuente_citada,
-                    "descartado_por_guardia": resultado.descartado_por_guardia,
                 }
                 yield f"event: parrafo\ndata: {json.dumps(datos_evento, ensure_ascii=False)}\n\n"
 

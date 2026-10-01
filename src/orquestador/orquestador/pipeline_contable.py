@@ -27,7 +27,7 @@ from comun.modelos import (
     Hallazgo,
     VersionDocumento,
 )
-from orquestador.rutas_kb import encontrar_raiz_con_kb
+from comun.rutas_kb import encontrar_raiz_con_kb
 from parsers.excel import leer_libro_contable
 from rag.busqueda import buscar_fragmentos
 from validadores.contable.explicacion import (

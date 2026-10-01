@@ -185,3 +185,48 @@ def validar_redaccion(
         *_validar_fechas(segmentos),
         *_validar_siglas(segmentos),
     ]
+
+
+# --- Corrección determinista (fase 2, antes del LLM) ------------------------
+
+_PATRON_MONTO_A_FORMATEAR = re.compile(r"\b(Q|USD)\s?(\d[\d,]*(?:\.\d+)?)\b")
+_PATRON_FECHA_NUMERICA = re.compile(r"\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})\b")
+
+_MESES_ES = (
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+)
+
+
+def _normalizar_monto(coincidencia: re.Match[str]) -> str:
+    moneda = coincidencia.group(1)
+    numero = float(coincidencia.group(2).replace(",", ""))
+    return f"{moneda} {numero:,.2f}"
+
+
+def _formatear_fecha_numerica(coincidencia: re.Match[str], *, es_tabla: bool) -> str:
+    dia, mes = int(coincidencia.group(1)), int(coincidencia.group(2))
+    anio = coincidencia.group(3)
+    if not (1 <= dia <= 31 and 1 <= mes <= 12):
+        return coincidencia.group(0)  # no es una fecha real -- no se toca
+    if es_tabla:
+        return f"{dia:02d}/{mes:02d}/{anio}"
+    return f"{dia} de {_MESES_ES[mes - 1]} de {anio}"
+
+
+def aplicar_formatos_deterministas(texto: str, *, es_tabla: bool = False) -> str:
+    """Corrige en Python (RNF-03: nunca el LLM) el formato de montos y de
+    fechas numéricas antes de pasar el párrafo a la reescritura de estilo
+    (fase 2, ver validadores.redaccion.mejora) -- mismo principio que
+    `validadores.contable.reglas` con los cuadres: lo que se pueda corregir
+    determinísticamente, se corrige acá, no se delega.
+
+    Heurística limitada a fechas en forma numérica con año de 4 dígitos
+    ("5/10/2026", con cualquier separador) -- una fecha ISO (AAAA-MM-DD) o
+    ya en forma textual no se toca; `validar_redaccion` las sigue marcando
+    como hallazgo si están mal formateadas, solo no se autocorrigen en esta
+    primera iteración."""
+    texto = _PATRON_MONTO_A_FORMATEAR.sub(_normalizar_monto, texto)
+    return _PATRON_FECHA_NUMERICA.sub(
+        lambda m: _formatear_fecha_numerica(m, es_tabla=es_tabla), texto
+    )

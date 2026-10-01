@@ -72,3 +72,34 @@ def test_generar_texto_envia_temperature_0_y_seed_fija_por_defecto(monkeypatch) 
 
     assert llamada["json"]["options"]["temperature"] == 0
     assert llamada["json"]["options"]["seed"] == cliente_llm.SEMILLA_POR_DEFECTO
+
+
+def test_generar_texto_sin_formato_no_manda_el_campo_format(monkeypatch) -> None:
+    llamada: dict = {}
+
+    def _post_falso(url: str, *, json: dict, timeout: float):
+        llamada["json"] = json
+        return _RespuestaFalsa({"response": "ok"})
+
+    monkeypatch.setattr(httpx, "post", _post_falso)
+
+    cliente_llm.generar_texto("hola", modelo="modelo-x")
+
+    assert "format" not in llamada["json"]
+
+
+def test_generar_texto_formato_json_activa_salida_estructurada_de_ollama(monkeypatch) -> None:
+    """CU-02 (fase 2, 2 opciones de estilo): `format="json"` es el mismo
+    parámetro que ya soporta `/api/generate` de Ollama (no solo `/api/chat`),
+    reduce la chance de que el modelo agregue texto fuera del objeto JSON."""
+    llamada: dict = {}
+
+    def _post_falso(url: str, *, json: dict, timeout: float):
+        llamada["json"] = json
+        return _RespuestaFalsa({"response": "ok"})
+
+    monkeypatch.setattr(httpx, "post", _post_falso)
+
+    cliente_llm.generar_texto("hola", modelo="modelo-x", formato="json")
+
+    assert llamada["json"]["format"] == "json"

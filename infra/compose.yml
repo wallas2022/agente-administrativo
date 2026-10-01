@@ -41,6 +41,8 @@ services:
     build:
       context: ../src
       dockerfile: api/Dockerfile
+      additional_contexts:
+        kb: ../kb
     image: agente-admin/api:0.1.0   # validar
     networks:
       - red_interna

@@ -1,5 +1,5 @@
 from parsers.segmentos import SegmentoTexto
-from validadores.redaccion.reglas import validar_redaccion
+from validadores.redaccion.reglas import aplicar_formatos_deterministas, validar_redaccion
 
 
 def _segmento(texto: str, ubicacion: str = "Párrafo 1") -> SegmentoTexto:
@@ -128,3 +128,31 @@ def test_rd04_solo_marca_el_primer_uso_de_cada_sigla() -> None:
     rd04 = [h for h in hallazgos if h.regla_codigo == "RD-04"]
     assert len(rd04) == 1
     assert rd04[0].ubicacion == "Párrafo 1"
+
+
+# --- aplicar_formatos_deterministas (fase 2, corrección antes del LLM) ------
+
+
+def test_aplica_formatos_corrige_monto_sin_espacio_ni_decimales() -> None:
+    resultado = aplicar_formatos_deterministas("se pagó Q1250 por el servicio")
+    assert resultado == "se pagó Q 1,250.00 por el servicio"
+
+
+def test_aplica_formatos_no_altera_un_monto_ya_correcto() -> None:
+    resultado = aplicar_formatos_deterministas("el total es Q 3,400.50 y USD 500.00")
+    assert resultado == "el total es Q 3,400.50 y USD 500.00"
+
+
+def test_aplica_formatos_corrige_fecha_numerica_a_texto_corrido_por_defecto() -> None:
+    resultado = aplicar_formatos_deterministas("el 5/10/2026 se firmó el acta")
+    assert resultado == "el 5 de octubre de 2026 se firmó el acta"
+
+
+def test_aplica_formatos_corrige_fecha_numerica_a_formato_de_tabla() -> None:
+    resultado = aplicar_formatos_deterministas("5/10/2026", es_tabla=True)
+    assert resultado == "05/10/2026"
+
+
+def test_aplica_formatos_no_toca_un_numero_que_no_es_una_fecha_valida() -> None:
+    resultado = aplicar_formatos_deterministas("el código 45/67/2026 no es una fecha")
+    assert resultado == "el código 45/67/2026 no es una fecha"

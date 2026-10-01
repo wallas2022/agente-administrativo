@@ -128,6 +128,32 @@ describe("TarjetaHallazgo", () => {
     expect(screen.getByText("Referencia: EST-001, cap. §2")).toBeInTheDocument();
   });
 
+  it("muestra las opciones de redacción de CU-02 en vez del JSON crudo", () => {
+    const correccionSugerida = JSON.stringify({
+      parrafo_base: "El pago fue por Q 1,250.00.",
+      opciones: [
+        { estilo: "Formal", texto: "El pago fue efectuado por Q 1,250.00.", motivos: ["tono institucional"] },
+        { estilo: "Breve", texto: "Se pagó Q 1,250.00.", motivos: [] },
+      ],
+    });
+    render(
+      <TarjetaHallazgo
+        hallazgo={hallazgoContable({
+          descripcion: "Mejora de redacción sugerida (acción: corregir).",
+          correccion_sugerida: correccionSugerida,
+        })}
+        puedeDecidir={false}
+        alDecidir={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Opciones de redacción sugeridas")).toBeInTheDocument();
+    expect(screen.getByText(/El pago fue efectuado por Q 1,250.00\./)).toBeInTheDocument();
+    expect(screen.getByText(/Se pagó Q 1,250.00\./)).toBeInTheDocument();
+    expect(screen.getByText("tono institucional")).toBeInTheDocument();
+    expect(screen.queryByText(correccionSugerida)).not.toBeInTheDocument();
+  });
+
   it("sin fuente_citada no muestra 'Regla aplicada' aunque haya referencia", () => {
     render(
       <TarjetaHallazgo

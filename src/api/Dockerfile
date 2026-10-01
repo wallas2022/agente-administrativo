@@ -35,6 +35,10 @@ COPY curaduria ./curaduria
 # pasar por el paquete "orquestador" (ese registra tareas de Celery al
 # importarse).
 COPY validadores ./validadores
+# Esa misma fase 2 reutiliza el glosario interno de CU-05 (comun.glosario,
+# kb/glosario/glosario.csv) -- antes de este bloque la API no necesitaba
+# kb/ en absoluto (solo orquestador/worker la tenían, ver su Dockerfile).
+COPY --from=kb . ./kb
 
 EXPOSE 8000
 

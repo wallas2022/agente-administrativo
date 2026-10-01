@@ -65,6 +65,41 @@ npm run lint (oxlint): sin hallazgos nuevos (2 warnings preexistentes, no relaci
 
 ## Pendiente (antes de considerar el Bloque 1 completamente demostrable en vivo)
 
-- **Verificación end-to-end contra el stack local completo** (`docker compose up`, con Postgres/Qdrant/MinIO/Ollama reales): este bloque verificó los builds de imagen y las pruebas unitarias/contrato (`openapi.json`), pero no una corrida real subiendo un documento y viendo los hallazgos de redacción aparecer en pantalla.
 - **Curar una fuente EST-001 "vigente" real** (pantalla del curador, Bloque K5) para que las citas "Regla aplicada: EST-001 §N" aparezcan en la fase 2 — hoy solo existe el ejemplo en `kb/plantillas/ejemplos/EST-001_Guia_Estilo_EJEMPLO.docx`, usado en pruebas pero nunca indexado como vigente.
-- La pantalla de "Resultado" (Bloque 2) es la que realmente abre la conexión SSE desde el navegador — hasta que exista, el endpoint `/analisis/{id}/mejorar-stream` solo está verificado por pruebas de API, no manualmente desde la UI.
+- La pantalla de "Resultado" con tarjetas de comparación Original/Formal/Breve (Bloque 2) todavía no existe — ver la actualización de más abajo sobre qué hay mientras tanto.
+
+---
+
+# Actualización 2026-10-01 — Bloque 1 rediseñado: LanguageTool + 2 opciones de estilo
+
+El usuario pidió reemplazar el motor de una sola sugerencia por párrafo (descrito arriba) por un diseño más completo, antes de construir el Bloque 2. Cambios:
+
+| Ruta | Cambio | Prueba |
+| --- | --- | --- |
+| `src/comun/rutas_kb.py`, `src/comun/glosario.py` (nuevos) | `encontrar_raiz_con_kb`/`cargar_glosario` se movieron desde `orquestador/` -- la API necesitaba el glosario de CU-05 sin arrastrar el paquete `orquestador` (registra tareas de Celery al importarse, mismo motivo que `extraccion.py` del bloque original) | `test_pipeline_ortografia.py`, `test_pipeline_contable.py` (sin cambios, siguen pasando) |
+| `src/rag/cliente_llm.py` | `generar_texto(..., formato=None)`: si se pasa `formato="json"`, activa la salida estructurada de Ollama (`/api/generate` ya la soporta, no hace falta cambiar a `/api/chat`) | `test_cliente_llm.py` (2 casos nuevos) |
+| `src/validadores/redaccion/reglas.py` | `aplicar_formatos_deterministas()`: corrige en Python (nunca el LLM) montos ("Q1250" -> "Q 1,250.00") y fechas numéricas ("5/10/2026" -> "5 de octubre de 2026", o a tabla si aplica) -- antes `reglas.py` solo detectaba, nunca corregía | `test_redaccion_reglas.py` (5 casos nuevos) |
+| `src/validadores/redaccion/correccion_ortografica.py` (nuevo) | Reutiliza LanguageTool + glosario de CU-05 por párrafo (solo categoría "TYPOS" con sugerencia, para no autocorregir casos dudosos sin confirmación) | `test_redaccion_correccion_ortografica.py` (4 casos, nuevo) |
+| `src/validadores/redaccion/mejora.py` | Reescrito: pipeline LT+glosario -> formato EST-001 -> LLM (`format=json`) con hasta 2 opciones {estilo, texto, motivos} -> guardia de integridad **por opción** (antes era una sola sugerencia con una sola guardia) | `test_redaccion_mejora.py` (8 casos, reescrito) |
+| `src/api/main.py` | Endpoint reescrito: nuevas dependencias `obtener_funcion_revisar_lt`/`obtener_glosario_redaccion`; evento SSE trae `parrafo_base` + `opciones[]` (antes `parrafo_sugerido` único); `Hallazgo.correccion_sugerida` guarda las opciones aprobadas como JSON | `test_api_mejorar_redaccion_stream.py` (4 casos, reescrito) |
+| `src/api/Dockerfile`, `infra/compose.yml` | La API ahora también copia `kb/` (`additional_contexts`) -- antes solo orquestador/worker la tenían; sin esto, `cargar_glosario()` fallaba dentro del contenedor de la API | build Docker real + `docker run ... cargar_glosario()` -> 8 términos leídos |
+| `src/ui/src/componentes/TarjetaHallazgo.tsx` | Mientras no exista el Bloque 2: si `correccion_sugerida` es el JSON nuevo, se muestra como lista "Estilo: texto + motivos" en vez del JSON crudo (parche mínimo, no la tarjeta de comparación final) | `TarjetaHallazgo.test.tsx` (1 caso nuevo) |
+
+```
+tests/unit (suite completa): 303 passed in 65.21s
+ruff check src tests: sin hallazgos
+mypy src: sin hallazgos (67 archivos)
+npx vitest run (frontend): 43 passed
+npx tsc --noEmit / oxlint: sin errores nuevos
+```
+
+Verificación de imágenes Docker reconstruidas (api, orquestador, worker) contra el stack local real: las tres arrancan sanas (`docker ps` healthy), Postgres conserva los datos (mismo volumen nombrado, conteos de `analisis`/`documento`/`hallazgo` iguales antes y después del rebuild), y `cargar_glosario()` lee los 8 términos reales dentro del contenedor de la API.
+
+**Nota sobre el hallazgo "sin corregir no funcionaba" reportado por el usuario entre bloques**: antes de este rediseño se encontró y corrigió por separado un bug real -- la pantalla de resultados nunca abría la conexión SSE automáticamente, así que la fase 2 jamás corría (commit `826c3a7`). Ese fix (disparo automático + idempotencia del lado del servidor) sigue vigente con el nuevo diseño de 2 opciones, sin cambios adicionales.
+
+## Pendiente (tras el rediseño)
+
+- Pantalla de "Resultado" real (Bloque 2): tarjetas Original/Formal/Breve, selector global, "Ver cambios", bitácora de la opción elegida -- hoy la UI solo muestra una lista simple de las opciones aprobadas (parche del `TarjetaHallazgo` citado arriba).
+- Conversor de salida .txt/.docx/.xlsx con anexo de opciones por párrafo (Bloque 3).
+- Dataset `tests/dataset/cu-02/` con hoja de respuestas y pruebas de tiempos (Bloque 4).
+- Curar EST-001 como fuente vigente (pendiente heredado del bloque original).

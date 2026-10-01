@@ -34,23 +34,35 @@ TEMPERATURA_POR_DEFECTO = 0
 SEMILLA_POR_DEFECTO = 42
 
 
-def generar_texto(prompt: str, *, modelo: str | None = None, timeout: float = 300.0) -> str:
+def generar_texto(
+    prompt: str,
+    *,
+    modelo: str | None = None,
+    timeout: float = 300.0,
+    formato: str | None = None,
+) -> str:
+    """`formato="json"` activa el modo de salida estructurada de Ollama
+    (soportado por `/api/generate`, no solo por `/api/chat`) -- el modelo
+    todavía puede devolver JSON inválido en casos raros, así que quien llama
+    sigue necesitando parsear con tolerancia (ver
+    validadores.redaccion.mejora._parsear_respuesta), pero reduce mucho la
+    chance de que agregue texto antes/después del objeto (CU-02, fase 2 con
+    2 opciones de estilo)."""
     base_url = os.environ.get("LLM_BASE_URL", "http://ollama:11434")
     modelo_principal = modelo or os.environ.get("LLM_MODEL_PRINCIPAL", "")
     keep_alive = os.environ.get("OLLAMA_KEEP_ALIVE", "24h")
-    respuesta = httpx.post(
-        f"{base_url}/api/generate",
-        json={
-            "model": modelo_principal,
-            "prompt": prompt,
-            "stream": False,
-            "keep_alive": keep_alive,
-            "options": {
-                "temperature": TEMPERATURA_POR_DEFECTO,
-                "seed": SEMILLA_POR_DEFECTO,
-            },
+    cuerpo: dict[str, object] = {
+        "model": modelo_principal,
+        "prompt": prompt,
+        "stream": False,
+        "keep_alive": keep_alive,
+        "options": {
+            "temperature": TEMPERATURA_POR_DEFECTO,
+            "seed": SEMILLA_POR_DEFECTO,
         },
-        timeout=timeout,
-    )
+    }
+    if formato is not None:
+        cuerpo["format"] = formato
+    respuesta = httpx.post(f"{base_url}/api/generate", json=cuerpo, timeout=timeout)
     respuesta.raise_for_status()
     return respuesta.json()["response"]

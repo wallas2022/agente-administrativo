@@ -44,6 +44,32 @@ function interpretarErrorOrtografico(
   return { error: coincidencia[1], explicacion: coincidencia[2] };
 }
 
+interface OpcionRedaccion {
+  estilo: string;
+  texto: string;
+  motivos: string[];
+}
+
+// CU-02 (fase 2, Bloque 1 del motor con 2 opciones): correccion_sugerida
+// guarda las opciones como JSON (ver api/main.py) -- la pantalla de
+// comparación con tarjetas "Original/Formal/Breve" es el Bloque 2, todavía
+// no implementado; mientras tanto se muestra una lista simple en vez del
+// JSON crudo.
+function interpretarOpcionesRedaccion(correccionSugerida: string): OpcionRedaccion[] | null {
+  try {
+    const datos: unknown = JSON.parse(correccionSugerida);
+    if (!datos || typeof datos !== "object" || !("opciones" in datos)) return null;
+    const opciones = (datos as { opciones: unknown }).opciones;
+    if (!Array.isArray(opciones)) return null;
+    return opciones.filter(
+      (o): o is OpcionRedaccion =>
+        !!o && typeof o.estilo === "string" && typeof o.texto === "string",
+    );
+  } catch {
+    return null;
+  }
+}
+
 export function TarjetaHallazgo({
   hallazgo,
   puedeDecidir,
@@ -56,6 +82,9 @@ export function TarjetaHallazgo({
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const infoOrtografica = interpretarErrorOrtografico(hallazgo.descripcion);
+  const opcionesRedaccion = hallazgo.correccion_sugerida
+    ? interpretarOpcionesRedaccion(hallazgo.correccion_sugerida)
+    : null;
 
   async function decidir(resultado: "aceptado" | "rechazado" | "deshecho") {
     setEnviando(true);
@@ -118,11 +147,31 @@ export function TarjetaHallazgo({
             </p>
           )}
 
-          {hallazgo.correccion_sugerida && (
+          {opcionesRedaccion ? (
             <div className="tarjeta-hallazgo__explicacion">
-              <h3>Explicación y corrección sugerida</h3>
-              <p>{hallazgo.correccion_sugerida}</p>
+              <h3>Opciones de redacción sugeridas</h3>
+              {opcionesRedaccion.map((opcion) => (
+                <div key={opcion.estilo}>
+                  <p>
+                    <strong>{opcion.estilo}:</strong> {opcion.texto}
+                  </p>
+                  {opcion.motivos.length > 0 && (
+                    <ul>
+                      {opcion.motivos.map((motivo) => (
+                        <li key={motivo}>{motivo}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
             </div>
+          ) : (
+            hallazgo.correccion_sugerida && (
+              <div className="tarjeta-hallazgo__explicacion">
+                <h3>Explicación y corrección sugerida</h3>
+                <p>{hallazgo.correccion_sugerida}</p>
+              </div>
+            )
           )}
         </>
       )}

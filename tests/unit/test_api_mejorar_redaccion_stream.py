@@ -34,14 +34,35 @@ def _embedding_falso(_texto: str) -> list[float]:
     return [0.1] * 8
 
 
+def _sin_coincidencias_lt(_texto: str) -> list:
+    return []
+
+
+def _opciones(formal: str, breve: str) -> str:
+    return json.dumps(
+        {
+            "opciones": [
+                {"estilo": "Formal", "texto": formal, "motivos": ["más institucional"]},
+                {"estilo": "Breve", "texto": breve, "motivos": ["más corto"]},
+            ]
+        }
+    )
+
+
 def _llm_que_reescribe(_prompt: str) -> str:
-    return json.dumps({"parrafo_sugerido": "Hola, este es un párrafo de prueba corregido."})
+    return _opciones(
+        "Hola, este es un párrafo de prueba corregido, versión formal.",
+        "Párrafo de prueba corregido.",
+    )
 
 
 def _llm_que_ignora_el_monto(_prompt: str) -> str:
-    # Devuelve una reescritura que ya no trae "Q 100.00" -- debe activar la
-    # guardia (RNF-03) y descartarse, conservando el párrafo original.
-    return json.dumps({"parrafo_sugerido": "El ajuste fue aprobado según lo revisado."})
+    # Ambas opciones pierden "Q 100.00" -- deben activar la guardia (RNF-03)
+    # y descartarse las dos, conservando el párrafo base.
+    return _opciones(
+        "El ajuste fue aprobado según lo revisado, de forma institucional.",
+        "El ajuste fue aprobado.",
+    )
 
 
 @pytest.fixture()
@@ -77,6 +98,8 @@ def cliente(fabrica, cliente_s3_bucket, request):
     main.app.dependency_overrides[main.obtener_funcion_embedding] = lambda: _embedding_falso
     main.app.dependency_overrides[main.obtener_coleccion_kb] = lambda: COLECCION_PRUEBA
     main.app.dependency_overrides[main.obtener_funcion_llm] = lambda: funcion_llm
+    main.app.dependency_overrides[main.obtener_funcion_revisar_lt] = lambda: _sin_coincidencias_lt
+    main.app.dependency_overrides[main.obtener_glosario_redaccion] = lambda: set()
 
     with TestClient(main.app) as test_client:
         yield test_client
@@ -166,15 +189,16 @@ def test_stream_persiste_mejora_sugerida_y_marca_documento_con_hallazgos(
 
     eventos = _parsear_eventos_parrafo(respuesta.text)
     assert len(eventos) == 1
-    assert eventos[0]["tiene_sugerencia"] is True
-    assert eventos[0]["descartado_por_guardia"] is False
-    assert eventos[0]["parrafo_sugerido"] == "Hola, este es un párrafo de prueba corregido."
+    assert eventos[0]["tiene_opciones_aprobadas"] is True
+    assert {o["estilo"] for o in eventos[0]["opciones"]} == {"Formal", "Breve"}
+    assert all(o["aprobada_guardia"] for o in eventos[0]["opciones"])
 
     sesion = fabrica()
     hallazgos = sesion.query(Hallazgo).all()
     assert len(hallazgos) == 1
     assert hallazgos[0].estado == "pendiente"
-    assert hallazgos[0].correccion_sugerida == "Hola, este es un párrafo de prueba corregido."
+    cuerpo_guardado = json.loads(hallazgos[0].correccion_sugerida)
+    assert {o["estilo"] for o in cuerpo_guardado["opciones"]} == {"Formal", "Breve"}
 
     documento = sesion.query(Documento).one()
     assert documento.estado == EstadoDocumento.CON_HALLAZGOS.value
@@ -194,7 +218,7 @@ def test_stream_persiste_mejora_sugerida_y_marca_documento_con_hallazgos(
 
 
 @pytest.mark.parametrize("cliente", [_llm_que_ignora_el_monto], indirect=True)
-def test_stream_la_guardia_descarta_sugerencia_que_altera_un_monto(
+def test_stream_la_guardia_descarta_ambas_opciones_que_alteran_un_monto(
     cliente: TestClient, fabrica
 ) -> None:
     encabezados = {"Authorization": f"Bearer {_token(cliente, 'analista@local')}"}
@@ -205,14 +229,16 @@ def test_stream_la_guardia_descarta_sugerencia_que_altera_un_monto(
 
     eventos = _parsear_eventos_parrafo(respuesta.text)
     assert len(eventos) == 1
-    assert eventos[0]["tiene_sugerencia"] is False
-    assert eventos[0]["descartado_por_guardia"] is True
+    assert eventos[0]["tiene_opciones_aprobadas"] is False
+    assert len(eventos[0]["opciones"]) == 2
+    assert all(not o["aprobada_guardia"] for o in eventos[0]["opciones"])
 
     sesion = fabrica()
     hallazgos = sesion.query(Hallazgo).all()
     assert len(hallazgos) == 1
     assert hallazgos[0].estado == "sin_cambio"
     assert "guardia" in hallazgos[0].descripcion.lower()
+    assert hallazgos[0].correccion_sugerida == "el ajuste fue por Q 100.00 segun lo revisado."
     sesion.close()
 
 
