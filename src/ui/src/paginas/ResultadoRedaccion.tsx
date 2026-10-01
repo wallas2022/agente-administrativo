@@ -28,18 +28,16 @@ interface OpcionEvento {
   razon_descarte: string | null;
 }
 
-interface EventoParrafo {
+interface ParrafoEstado {
   indice: number;
   ubicacion: string;
-  hallazgo_id: string | null;
-  parrafo_original: string;
-  parrafo_base: string;
-  opciones: OpcionEvento[];
-  tiene_opciones_aprobadas: boolean;
-  fuente_citada: string | null;
-}
-
-interface ParrafoEstado extends EventoParrafo {
+  listo: boolean; // true cuando llegó el evento "parrafo_fin"
+  omitido: boolean;
+  hallazgoId: string | null;
+  parrafoOriginal: string;
+  parrafoBase: string;
+  fuenteCitada: string | null;
+  opciones: OpcionEvento[]; // se van agregando conforme llegan eventos "opcion"
   eleccion: string; // estilo de una opción aprobada, OPCION_BASE u OPCION_EDITADO
   textoEditado: string;
   guardando: boolean;
@@ -55,22 +53,25 @@ interface Analisis {
 
 function textoFinalDe(p: ParrafoEstado): string {
   if (p.eleccion === OPCION_EDITADO) return p.textoEditado;
-  if (p.eleccion === OPCION_BASE) return p.parrafo_base;
+  if (p.eleccion === OPCION_BASE) return p.parrafoBase;
   const opcion = p.opciones.find((o) => o.estilo === p.eleccion && o.aprobada_guardia);
-  return opcion ? opcion.texto : p.parrafo_base;
+  return opcion ? opcion.texto : p.parrafoBase;
 }
 
-function eleccionPorDefecto(evento: EventoParrafo): string {
-  const primeraAprobada = evento.opciones.find((o) => o.aprobada_guardia);
+function eleccionPorDefecto(opciones: OpcionEvento[]): string {
+  const primeraAprobada = opciones.find((o) => o.aprobada_guardia);
   return primeraAprobada ? primeraAprobada.estilo : OPCION_BASE;
 }
 
-/** CU-02 (RF-12): consume la ruta SSE de la fase 2 (mejora por párrafo, 2
- * opciones de estilo). No usa `EventSource` nativo porque necesita mandar
- * el header `Authorization` (ver docstring de la ruta en api/main.py). */
+type ManejadorEvento = (nombreEvento: string, datos: Record<string, unknown>) => void;
+
+/** CU-02 (RF-12): consume la ruta SSE de la fase 2 (mejora por párrafo,
+ * generada de a una opción por vez -- Bloque 3, rendimiento). No usa
+ * `EventSource` nativo porque necesita mandar el header `Authorization`
+ * (ver docstring de la ruta en api/main.py). */
 async function consumirMejoraRedaccionStream(
   analisisId: string,
-  onEvento: (evento: EventoParrafo) => void,
+  onEvento: ManejadorEvento,
 ): Promise<void> {
   const token = obtenerTokenActual();
   const respuesta = await fetch(`${URL_BASE_API}/analisis/${analisisId}/mejorar-stream`, {
@@ -92,14 +93,14 @@ async function consumirMejoraRedaccionStream(
     while (indiceSeparador !== -1) {
       const bloque = buffer.slice(0, indiceSeparador);
       buffer = buffer.slice(indiceSeparador + 2);
-      if (bloque.startsWith("event: parrafo")) {
-        const lineaDatos = bloque.split("\n").find((linea) => linea.startsWith("data: "));
-        if (lineaDatos) {
-          try {
-            onEvento(JSON.parse(lineaDatos.slice("data: ".length)) as EventoParrafo);
-          } catch {
-            // Evento mal formado: se ignora, no detiene el resto del stream.
-          }
+      const lineaEvento = bloque.split("\n").find((linea) => linea.startsWith("event: "));
+      const lineaDatos = bloque.split("\n").find((linea) => linea.startsWith("data: "));
+      if (lineaEvento && lineaDatos) {
+        try {
+          const datos = JSON.parse(lineaDatos.slice("data: ".length)) as Record<string, unknown>;
+          onEvento(lineaEvento.slice("event: ".length), datos);
+        } catch {
+          // Evento mal formado: se ignora, no detiene el resto del stream.
         }
       }
       indiceSeparador = buffer.indexOf("\n\n");
@@ -112,14 +113,105 @@ export function ResultadoRedaccion({ analisisId }: { analisisId: string }) {
   const [parrafos, setParrafos] = useState<ParrafoEstado[]>([]);
   const [hallazgosEstilo, setHallazgosEstilo] = useState<Hallazgo[]>([]);
   const [mejorando, setMejorando] = useState(true);
+  const [totalParrafos, setTotalParrafos] = useState<number | null>(null);
+  const [parrafoEnCurso, setParrafoEnCurso] = useState<number | null>(null);
+  const [segundosTranscurridos, setSegundosTranscurridos] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [verCambios, setVerCambios] = useState(false);
   const [copiado, setCopiado] = useState(false);
   const disparadoRef = useRef(false);
+  const inicioParrafoActualRef = useRef<number | null>(null);
+
+  // Bloque 6 (UX): "Párrafo n de N · generando… (Ns)" en vez de un mensaje
+  // fijo -- el segundero solo corre mientras hay un párrafo en curso.
+  useEffect(() => {
+    if (!mejorando || parrafoEnCurso === null) return;
+    const intervalo = setInterval(() => {
+      if (inicioParrafoActualRef.current !== null) {
+        setSegundosTranscurridos(Math.round((Date.now() - inicioParrafoActualRef.current) / 1000));
+      }
+    }, 1000);
+    return () => clearInterval(intervalo);
+  }, [mejorando, parrafoEnCurso]);
 
   useEffect(() => {
     let cancelado = false;
     let temporizador: ReturnType<typeof setTimeout> | undefined;
+
+    function manejarEvento(nombreEvento: string, datos: Record<string, unknown>) {
+      if (cancelado) return;
+      if (nombreEvento === "inicio") {
+        setTotalParrafos(datos.total_parrafos as number);
+        return;
+      }
+      if (nombreEvento === "parrafo_inicio") {
+        const indice = datos.indice as number;
+        setParrafoEnCurso(indice);
+        inicioParrafoActualRef.current = Date.now();
+        setSegundosTranscurridos(0);
+        setParrafos((actual) => [
+          ...actual,
+          {
+            indice,
+            ubicacion: datos.ubicacion as string,
+            listo: false,
+            omitido: false,
+            hallazgoId: null,
+            parrafoOriginal: "",
+            parrafoBase: "",
+            fuenteCitada: null,
+            opciones: [],
+            eleccion: OPCION_BASE,
+            textoEditado: "",
+            guardando: false,
+            errorGuardado: null,
+          },
+        ]);
+        return;
+      }
+      if (nombreEvento === "opcion") {
+        const indice = datos.indice as number;
+        const opcion: OpcionEvento = {
+          estilo: datos.estilo as string,
+          texto: datos.texto as string,
+          motivos: datos.motivos as string[],
+          aprobada_guardia: datos.aprobada_guardia as boolean,
+          razon_descarte: (datos.razon_descarte as string | null) ?? null,
+        };
+        setParrafos((actual) =>
+          actual.map((p) => {
+            if (p.indice !== indice) return p;
+            const opcionesActualizadas = [...p.opciones, opcion];
+            return {
+              ...p,
+              hallazgoId: (datos.hallazgo_id as string | null) ?? p.hallazgoId,
+              opciones: opcionesActualizadas,
+              eleccion: eleccionPorDefecto(opcionesActualizadas),
+            };
+          }),
+        );
+        return;
+      }
+      if (nombreEvento === "parrafo_fin") {
+        const indice = datos.indice as number;
+        setParrafos((actual) =>
+          actual.map((p) => {
+            if (p.indice !== indice) return p;
+            const parrafoBase = datos.parrafo_base as string;
+            return {
+              ...p,
+              listo: true,
+              omitido: datos.omitido as boolean,
+              hallazgoId: (datos.hallazgo_id as string | null) ?? p.hallazgoId,
+              parrafoOriginal: datos.parrafo_original as string,
+              parrafoBase,
+              fuenteCitada: (datos.fuente_citada as string | null) ?? null,
+              textoEditado: parrafoBase,
+            };
+          }),
+        );
+      }
+    }
 
     async function verificarEIniciar() {
       const { data, error: errorAnalisis } = await clienteApi.GET("/analisis/{analisis_id}", {
@@ -143,22 +235,7 @@ export function ResultadoRedaccion({ analisisId }: { analisisId: string }) {
       disparadoRef.current = true;
 
       try {
-        await consumirMejoraRedaccionStream(analisisId, (evento) => {
-          if (cancelado) return;
-          setParrafos((actual) => {
-            const sinEste = actual.filter((p) => p.indice !== evento.indice);
-            return [
-              ...sinEste,
-              {
-                ...evento,
-                eleccion: eleccionPorDefecto(evento),
-                textoEditado: evento.parrafo_base,
-                guardando: false,
-                errorGuardado: null,
-              },
-            ].sort((a, b) => a.indice - b.indice);
-          });
-        });
+        await consumirMejoraRedaccionStream(analisisId, manejarEvento);
       } catch {
         if (!cancelado) setError("No se pudo mejorar la redacción");
       }
@@ -167,6 +244,7 @@ export function ResultadoRedaccion({ analisisId }: { analisisId: string }) {
       // que con un `return` adentro puede tapar la excepción del `catch`).
       if (cancelado) return;
       setMejorando(false);
+      setParrafoEnCurso(null);
       const [respuestaHallazgos, respuestaAnalisis] = await Promise.all([
         clienteApi.GET("/analisis/{analisis_id}/hallazgos", {
           params: { path: { analisis_id: analisisId } },
@@ -208,13 +286,13 @@ export function ResultadoRedaccion({ analisisId }: { analisisId: string }) {
     // que decidir -- el párrafo ya quedó fijo en su formato corregido. Sin
     // permiso para decidir (Analista, no Revisor/Administrador), tampoco se
     // intenta: el backend lo rechazaría con 403 de todas formas.
-    if (!parrafo.hallazgo_id || !analisis?.puede_decidir) {
+    if (!parrafo.hallazgoId || !analisis?.puede_decidir) {
       setParrafos((actual) => actual.map((p) => (p.indice === indice ? { ...p, guardando: false } : p)));
       return;
     }
 
     const { error: errorDecision } = await clienteApi.POST("/hallazgos/{hallazgo_id}/decision", {
-      params: { path: { hallazgo_id: parrafo.hallazgo_id } },
+      params: { path: { hallazgo_id: parrafo.hallazgoId } },
       body: { resultado: "aceptado", comentario },
     });
 
@@ -256,7 +334,7 @@ export function ResultadoRedaccion({ analisisId }: { analisisId: string }) {
   }
 
   async function copiarTextoFinal() {
-    const textoFinal = parrafos.map(textoFinalDe).join("\n\n");
+    const textoFinal = parrafos.filter((p) => p.listo).map(textoFinalDe).join("\n\n");
     try {
       await navigator.clipboard.writeText(textoFinal);
       setCopiado(true);
@@ -284,8 +362,11 @@ export function ResultadoRedaccion({ analisisId }: { analisisId: string }) {
     );
   }
 
-  const estilosDisponibles = [...new Set(parrafos.flatMap((p) => p.opciones.map((o) => o.estilo)))];
-  const textoFinal = parrafos.map(textoFinalDe).join("\n\n");
+  const parrafosListos = parrafos.filter((p) => p.listo);
+  const estilosDisponibles = [
+    ...new Set(parrafosListos.flatMap((p) => p.opciones.map((o) => o.estilo))),
+  ];
+  const textoFinal = parrafosListos.map(textoFinalDe).join("\n\n");
 
   return (
     <div className="resultado-redaccion">
@@ -296,8 +377,9 @@ export function ResultadoRedaccion({ analisisId }: { analisisId: string }) {
 
       {mejorando && (
         <p className="resultado-redaccion__mensaje" role="status">
-          Mejorando redacción… ({parrafos.length} párrafo{parrafos.length === 1 ? "" : "s"} listo
-          {parrafos.length === 1 ? "" : "s"})
+          {parrafoEnCurso !== null
+            ? `Párrafo ${parrafoEnCurso + 1} de ${totalParrafos ?? "…"} · generando… (${segundosTranscurridos}s)`
+            : "Mejorando redacción…"}
         </p>
       )}
 
@@ -314,19 +396,48 @@ export function ResultadoRedaccion({ analisisId }: { analisisId: string }) {
 
       <div className="resultado-redaccion__lista">
         {parrafos.map((parrafo) => {
+          if (!parrafo.listo) {
+            return (
+              <article key={parrafo.indice} className="resultado-redaccion__parrafo">
+                <header>
+                  <span className="resultado-redaccion__ubicacion">{parrafo.ubicacion}</span>
+                </header>
+                <p className="resultado-redaccion__nota">Generando…</p>
+                {parrafo.opciones.map((opcion) => (
+                  <p key={opcion.estilo}>
+                    <strong>{opcion.estilo}:</strong> {opcion.texto}
+                  </p>
+                ))}
+              </article>
+            );
+          }
+
+          if (parrafo.omitido) {
+            return (
+              <article key={parrafo.indice} className="resultado-redaccion__parrafo">
+                <header>
+                  <span className="resultado-redaccion__ubicacion">{parrafo.ubicacion}</span>
+                </header>
+                <p className="resultado-redaccion__nota">
+                  Sin cambios (párrafo corto, sin hallazgos): {parrafo.parrafoBase}
+                </p>
+              </article>
+            );
+          }
+
           const textoElegido = textoFinalDe(parrafo);
           return (
             <article key={parrafo.indice} className="resultado-redaccion__parrafo">
               <header>
                 <span className="resultado-redaccion__ubicacion">{parrafo.ubicacion}</span>
-                {parrafo.fuente_citada && (
-                  <span className="resultado-redaccion__cita">{parrafo.fuente_citada}</span>
+                {parrafo.fuenteCitada && (
+                  <span className="resultado-redaccion__cita">{parrafo.fuenteCitada}</span>
                 )}
               </header>
 
               <div className="resultado-redaccion__original">
                 <h3>Original</h3>
-                <p>{parrafo.parrafo_original}</p>
+                <p>{parrafo.parrafoOriginal}</p>
               </div>
 
               <div className="resultado-redaccion__opciones">
@@ -342,7 +453,7 @@ export function ResultadoRedaccion({ analisisId }: { analisisId: string }) {
                     checked={parrafo.eleccion === OPCION_BASE}
                     onChange={() => usarOriginalConFormato(parrafo.indice)}
                   />
-                  <strong>Sin cambio</strong> (formato corregido): {parrafo.parrafo_base}
+                  <strong>Sin cambio</strong> (formato corregido): {parrafo.parrafoBase}
                 </label>
 
                 {parrafo.opciones.map((opcion) => (
@@ -411,7 +522,7 @@ export function ResultadoRedaccion({ analisisId }: { analisisId: string }) {
                 <div className="resultado-redaccion__cambios">
                   <h3>Cambios respecto al original</h3>
                   <p>
-                    {resaltarDiferencias(parrafo.parrafo_original, textoElegido).map((segmento, i) =>
+                    {resaltarDiferencias(parrafo.parrafoOriginal, textoElegido).map((segmento, i) =>
                       segmento.cambiado ? (
                         <mark key={i}>{segmento.texto}</mark>
                       ) : (
@@ -433,7 +544,7 @@ export function ResultadoRedaccion({ analisisId }: { analisisId: string }) {
         })}
       </div>
 
-      {parrafos.length > 0 && (
+      {parrafosListos.length > 0 && (
         <section className="resultado-redaccion__texto-final">
           <header>
             <h2>Texto final</h2>
