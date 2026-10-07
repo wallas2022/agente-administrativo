@@ -30,7 +30,11 @@ services:
   api:
     env_file: ../.env.local
     ports:
-      - "127.0.0.1:8000:8000"   # acceso directo sin pasar por el proxy, para depuración
+      # Puerto de host 8001 (no 8000): en esta máquina de desarrollo el 8000
+      # ya lo ocupa un proceso Python 3.11 ajeno al proyecto (ni es este
+      # venv ni un contenedor nuestro) -- el contenedor sigue escuchando en
+      # el 8000 interno, solo cambia a qué puerto del host se publica.
+      - "127.0.0.1:8001:8000"   # acceso directo sin pasar por el proxy, para depuración
     deploy:
       resources:
         limits:
@@ -41,9 +45,9 @@ services:
     build:
       # VITE_API_BASE_URL debe apuntar a una URL alcanzable desde el NAVEGADOR
       # (que corre en el host, no dentro de la red de Docker), no al nombre
-      # de servicio "api" — por eso usa el mismo puerto directo 8000 de arriba.
+      # de servicio "api" — por eso usa el mismo puerto de host 8001 de arriba.
       args:
-        VITE_API_BASE_URL: http://127.0.0.1:8000
+        VITE_API_BASE_URL: http://127.0.0.1:8001
     ports:
       - "127.0.0.1:5173:5173"
     deploy:
