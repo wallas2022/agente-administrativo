@@ -16,6 +16,7 @@ from comun.modelos import (
     Base,
     Bitacora,
     Documento,
+    Hallazgo,
     Rol,
     TipoRevision,
     Usuario,
@@ -198,3 +199,104 @@ def test_ejecutar_analisis_ocr_publica_version_con_el_texto_reconocido() -> None
 
         objeto = cliente_s3.get_object(Bucket=BUCKET, Key=versiones[1].ruta_almacenamiento)
         assert objeto["Body"].read() == b"Texto reconocido"
+
+
+def test_ejecutar_analisis_ocr_pagina_ilegible_marca_con_hallazgos() -> None:
+    """Bloque 2 (RN-06): una página ilegible no falla el análisis -- lo
+    completa con un aviso (Hallazgo), nunca texto inventado."""
+    contenido = _png_bytes()
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    sesion = Session(engine)
+
+    area = Area(nombre="Contabilidad")
+    rol = Rol(nombre="analista")
+    sesion.add_all([area, rol])
+    sesion.flush()
+
+    usuario = Usuario(nombre="Ana Lista", email="ana@ejemplo.gt", area_id=area.id, rol_id=rol.id)
+    sesion.add(usuario)
+    sesion.flush()
+
+    documento = Documento(
+        nombre_original="escaneo.png",
+        tipo_archivo="png",
+        tamano_bytes=len(contenido),
+        area_id=area.id,
+        usuario_carga_id=usuario.id,
+        fecha_carga=datetime.now(UTC),
+        fecha_expiracion=date.today() + timedelta(days=90),
+        estado=EstadoDocumento.CARGADO.value,
+    )
+    tipo_revision = TipoRevision(nombre="ocr")
+    sesion.add_all([documento, tipo_revision])
+    sesion.flush()
+
+    analisis = Analisis(
+        documento_id=documento.id,
+        tipo_revision_id=tipo_revision.id,
+        usuario_id=usuario.id,
+        fecha_inicio=datetime.now(UTC),
+        estado=EstadoAnalisis.PROCESANDO.value,
+    )
+    sesion.add(analisis)
+    sesion.flush()
+
+    llave = f"{area.id}/{documento.id}/escaneo.png"
+    version = VersionDocumento(
+        documento_id=documento.id,
+        numero_version=1,
+        ruta_almacenamiento=llave,
+        es_corregida=False,
+        fecha_creacion=datetime.now(UTC),
+    )
+    sesion.add(version)
+    sesion.commit()
+
+    with mock_aws():
+        cliente_s3 = boto3.client("s3", region_name="us-east-1")
+        cliente_s3.create_bucket(Bucket=BUCKET)
+        cliente_s3.put_object(Bucket=BUCKET, Key=llave, Body=contenido)
+
+        def _datos_pagina_ilegible(_img: Any) -> dict[str, list[Any]]:
+            return {
+                "block_num": [1],
+                "par_num": [1],
+                "line_num": [1],
+                "left": [5],
+                "top": [5],
+                "width": [30],
+                "height": [10],
+                "conf": [20.0],  # < OCR_PAGINA_ILEGIBLE (50 por defecto)
+                "text": ["##!!garabato"],
+            }
+
+        resultado = ejecutar_analisis(
+            sesion,
+            documento.id,
+            analisis.id,
+            cliente_s3=cliente_s3,
+            bucket=BUCKET,
+            funcion_ocr=_datos_pagina_ilegible,
+            funcion_osd=lambda _img: 0,
+        )
+
+        assert resultado == EstadoDocumento.CON_HALLAZGOS.value
+
+        hallazgos = sesion.query(Hallazgo).filter_by(analisis_id=analisis.id).all()
+        assert len(hallazgos) == 1
+        assert hallazgos[0].ubicacion == "Documento completo"
+        assert "ilegible" in hallazgos[0].descripcion
+
+        versiones = (
+            sesion.query(VersionDocumento)
+            .filter_by(documento_id=documento.id)
+            .order_by(VersionDocumento.numero_version)
+            .all()
+        )
+        texto_publicado = cliente_s3.get_object(
+            Bucket=BUCKET, Key=versiones[1].ruta_almacenamiento
+        )["Body"].read()
+        assert b"ilegible" in texto_publicado
+        assert b"garabato" not in texto_publicado

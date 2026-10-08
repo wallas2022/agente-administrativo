@@ -5,11 +5,12 @@ Sprint 1 (CU-01) agrega el adaptador de `tipo_revision == "contable"`, que
 delega en `pipeline_contable.procesar_documento_contable` (parser → reglas →
 RAG → explicación → salida). CU-05 (Bloque O4) agrega el de `"ortografia"`,
 que delega en `pipeline_ortografia.procesar_documento_ortografia` (extracción
-→ LanguageTool + glosario + LLM → persistencia). CU-06 (Bloque 1) agrega el
-de `"ocr"`, que delega en `pipeline_ocr.procesar_documento_ocr` (imagen/PDF
-→ Tesseract → nueva versión con el texto reconocido). Otros tipos de
-revisión siguen el flujo genérico sin validadores hasta que se implementen
-sus propios adaptadores.
+→ LanguageTool + glosario + LLM → persistencia). CU-06 agrega el de `"ocr"`,
+que delega en `pipeline_ocr.procesar_documento_ocr` (imagen/PDF → Tesseract
+→ nueva versión con el texto reconocido; Bloque 2: páginas ilegibles sin
+texto inventado, palabras dudosas como `Hallazgo` con sugerencia opcional de
+LanguageTool). Otros tipos de revisión siguen el flujo genérico sin
+validadores hasta que se implementen sus propios adaptadores.
 """
 
 import logging
@@ -101,6 +102,7 @@ def ejecutar_analisis(
     funcion_encolar_validacion_dudosos: FuncionEncolarValidacionDudosos | None = None,
     funcion_ocr: FuncionOcr | None = None,
     funcion_osd: FuncionOsd | None = None,
+    glosario_ocr: set[str] | None = None,
 ) -> str:
     """Lógica pura (sin Celery) para poder probarla con una sesión en memoria.
 
@@ -248,9 +250,10 @@ def ejecutar_analisis(
         and cliente_s3 is not None
         and bucket is not None
     ):
-        # Fase 1 (MVP, Bloque 1): sin clasificación de confianza ni
-        # hallazgos de "palabra dudosa" todavía (RN-06/Bloque 2) -- solo
-        # corre el motor y publica el texto reconocido como nueva versión.
+        # Bloque 1: motor OCR -> nueva versión con el texto reconocido.
+        # Bloque 2 (RN-06): páginas ilegibles publican cero texto (aviso, no
+        # texto inventado, PP-06); palabras dudosas quedan como Hallazgo con
+        # sugerencia opcional de LanguageTool (nunca autocorrige).
         contenido_original = almacenamiento.descargar_objeto(
             cliente_s3, bucket, version_original.ruta_almacenamiento
         )
@@ -259,7 +262,7 @@ def ejecutar_analisis(
             almacenamiento.subir_objeto(cliente_s3, bucket, llave, contenido)
 
         try:
-            procesar_documento_ocr(
+            hallazgos, _paginas_ocr = procesar_documento_ocr(
                 sesion,
                 analisis=analisis,
                 version_original=version_original,
@@ -268,6 +271,8 @@ def ejecutar_analisis(
                 subir_version_texto=_subir_version_texto,
                 funcion_ocr=funcion_ocr,
                 funcion_osd=funcion_osd,
+                funcion_revisar_lt=funcion_revisar_lt,
+                glosario=glosario_ocr,
             )
         except Exception as error:  # ver _marcar_fallido
             return _marcar_fallido(
@@ -299,6 +304,7 @@ def ejecutar_analisis(
 @app.task(name="orquestador.tareas.analizar_documento")
 def analizar_documento(documento_id: str, analisis_id: str) -> str:
     from comun.cola import encolar_validacion_dudosos_ortografia
+    from comun.glosario import cargar_glosario
     from ocr.motor import ocr_imagen_tesseract
     from ocr.orientacion import detectar_rotacion_tesseract
     from ortografia.cliente_languagetool import revisar_texto
@@ -328,6 +334,7 @@ def analizar_documento(documento_id: str, analisis_id: str) -> str:
             funcion_encolar_validacion_dudosos=encolar_validacion_dudosos_ortografia,
             funcion_ocr=ocr_imagen_tesseract,
             funcion_osd=detectar_rotacion_tesseract,
+            glosario_ocr=cargar_glosario(),
         )
     finally:
         sesion.close()
