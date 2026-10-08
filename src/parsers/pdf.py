@@ -13,7 +13,9 @@ from parsers.segmentos import SegmentoTexto
 
 class PdfSinTextoError(Exception):
     """El PDF no tiene capa de texto extraíble (parece escaneado). CU-05 no
-    inventa contenido a partir de la imagen -- eso es CU-06 (OCR, iteración 2)."""
+    inventa contenido a partir de la imagen -- CU-06 (OCR) sí puede
+    procesarlo, como un análisis aparte que el usuario elige explícitamente
+    (no se encadena en automático, ver docs/05-prompts/P-11-cu06-ocr-mvp.md)."""
 
 
 def leer_texto_pdf(archivo: io.BytesIO | str) -> list[SegmentoTexto]:
@@ -42,6 +44,7 @@ def leer_texto_pdf(archivo: io.BytesIO | str) -> list[SegmentoTexto]:
 
     if not segmentos:
         raise PdfSinTextoError(
-            "El PDF no tiene texto extraíble (parece escaneado); requiere OCR (iteración 2)"
+            "El PDF no tiene texto extraíble (parece escaneado); puede procesarse con "
+            "\"Imagen a texto\" (OCR, CU-06) desde Nuevo análisis"
         )
     return segmentos

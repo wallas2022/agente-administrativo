@@ -5,9 +5,11 @@ Sprint 1 (CU-01) agrega el adaptador de `tipo_revision == "contable"`, que
 delega en `pipeline_contable.procesar_documento_contable` (parser → reglas →
 RAG → explicación → salida). CU-05 (Bloque O4) agrega el de `"ortografia"`,
 que delega en `pipeline_ortografia.procesar_documento_ortografia` (extracción
-→ LanguageTool + glosario + LLM → persistencia). Otros tipos de revisión
-siguen el flujo genérico sin validadores hasta que se implementen sus
-propios adaptadores.
+→ LanguageTool + glosario + LLM → persistencia). CU-06 (Bloque 1) agrega el
+de `"ocr"`, que delega en `pipeline_ocr.procesar_documento_ocr` (imagen/PDF
+→ Tesseract → nueva versión con el texto reconocido). Otros tipos de
+revisión siguen el flujo genérico sin validadores hasta que se implementen
+sus propios adaptadores.
 """
 
 import logging
@@ -24,6 +26,7 @@ from comun.db import obtener_fabrica_sesion
 from comun.estados import EstadoAnalisis, EstadoDocumento
 from comun.modelos import Analisis, Bitacora, Documento, Hallazgo, TipoRevision, VersionDocumento
 from orquestador.pipeline_contable import FuncionEmbedding, FuncionLLM, procesar_documento_contable
+from orquestador.pipeline_ocr import FuncionOcr, FuncionOsd, procesar_documento_ocr
 from orquestador.pipeline_ortografia import (
     FuncionRevisarLT,
     extraer_segmentos,
@@ -96,6 +99,8 @@ def ejecutar_analisis(
     coleccion_rag: str | None = None,
     funcion_revisar_lt: FuncionRevisarLT | None = None,
     funcion_encolar_validacion_dudosos: FuncionEncolarValidacionDudosos | None = None,
+    funcion_ocr: FuncionOcr | None = None,
+    funcion_osd: FuncionOsd | None = None,
 ) -> str:
     """Lógica pura (sin Celery) para poder probarla con una sesión en memoria.
 
@@ -236,6 +241,38 @@ def ejecutar_analisis(
             return _marcar_fallido(
                 sesion, documento=documento, analisis=analisis, detalle=str(error)
             )
+    elif (
+        tipo_revision is not None
+        and tipo_revision.nombre == "ocr"
+        and version_original is not None
+        and cliente_s3 is not None
+        and bucket is not None
+    ):
+        # Fase 1 (MVP, Bloque 1): sin clasificación de confianza ni
+        # hallazgos de "palabra dudosa" todavía (RN-06/Bloque 2) -- solo
+        # corre el motor y publica el texto reconocido como nueva versión.
+        contenido_original = almacenamiento.descargar_objeto(
+            cliente_s3, bucket, version_original.ruta_almacenamiento
+        )
+
+        def _subir_version_texto(llave: str, contenido: bytes) -> None:
+            almacenamiento.subir_objeto(cliente_s3, bucket, llave, contenido)
+
+        try:
+            procesar_documento_ocr(
+                sesion,
+                analisis=analisis,
+                version_original=version_original,
+                contenido_original=contenido_original,
+                tipo_archivo=documento.tipo_archivo,
+                subir_version_texto=_subir_version_texto,
+                funcion_ocr=funcion_ocr,
+                funcion_osd=funcion_osd,
+            )
+        except Exception as error:  # ver _marcar_fallido
+            return _marcar_fallido(
+                sesion, documento=documento, analisis=analisis, detalle=str(error)
+            )
 
     documento.estado = (
         EstadoDocumento.CON_HALLAZGOS.value if hallazgos else EstadoDocumento.EN_REVISION.value
@@ -262,6 +299,8 @@ def ejecutar_analisis(
 @app.task(name="orquestador.tareas.analizar_documento")
 def analizar_documento(documento_id: str, analisis_id: str) -> str:
     from comun.cola import encolar_validacion_dudosos_ortografia
+    from ocr.motor import ocr_imagen_tesseract
+    from ocr.orientacion import detectar_rotacion_tesseract
     from ortografia.cliente_languagetool import revisar_texto
     from rag.cliente_embeddings import obtener_embedding
     from rag.cliente_llm import generar_texto
@@ -287,6 +326,8 @@ def analizar_documento(documento_id: str, analisis_id: str) -> str:
             coleccion_rag=os.environ.get("QDRANT_COLECCION"),
             funcion_revisar_lt=revisar_texto,
             funcion_encolar_validacion_dudosos=encolar_validacion_dudosos_ortografia,
+            funcion_ocr=ocr_imagen_tesseract,
+            funcion_osd=detectar_rotacion_tesseract,
         )
     finally:
         sesion.close()
