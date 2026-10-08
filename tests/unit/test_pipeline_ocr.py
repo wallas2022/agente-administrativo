@@ -20,7 +20,9 @@ from comun.modelos import (
     Usuario,
     VersionDocumento,
 )
-from orquestador.pipeline_ocr import procesar_documento_ocr
+from ocr.calidad import Umbrales
+from ocr.modelos import Linea, Palabra, ResultadoPagina
+from orquestador.pipeline_ocr import procesar_documento_ocr, resumen_paginas
 
 
 def _sesion_con_documento_y_analisis(
@@ -241,3 +243,40 @@ def test_palabra_dudosa_se_persiste_como_hallazgo_individual() -> None:
 
     persistidos = sesion.query(Hallazgo).filter_by(analisis_id=analisis.id).all()
     assert len(persistidos) == 1
+
+
+# --- Bloque 3: resumen_paginas (bitácora) -----------------------------------
+
+UMBRALES = Umbrales(conf_dudosa=60, conf_revisar=80, pagina_ilegible=50)
+
+
+def _pagina_ocr(confianza_media: float, *, numero: int = 1) -> ResultadoPagina:
+    palabra = Palabra(texto="x", izquierda=0, arriba=0, ancho=1, alto=1, confianza=confianza_media)
+    return ResultadoPagina(
+        numero=numero,
+        ancho_px=10,
+        alto_px=10,
+        lineas=(Linea(texto="x", palabras=(palabra,)),),
+        palabras=(palabra,),
+        confianza_media=confianza_media,
+    )
+
+
+def test_resumen_paginas_cuenta_total_confianza_media_e_ilegibles() -> None:
+    paginas = [_pagina_ocr(90.0, numero=1), _pagina_ocr(30.0, numero=2)]
+    resumen = resumen_paginas(paginas, UMBRALES)
+    assert resumen == "2 página(s), confianza media 60%, 1 ilegible(s)"
+
+
+def test_resumen_paginas_sin_paginas_de_ocr() -> None:
+    nativa = ResultadoPagina(
+        numero=1,
+        ancho_px=10,
+        alto_px=10,
+        lineas=(),
+        palabras=(),
+        confianza_media=100.0,
+        texto_nativo=True,
+    )
+    resumen = resumen_paginas([nativa], UMBRALES)
+    assert resumen == "1 página(s), sin páginas de OCR (todo texto nativo del PDF), 0 ilegible(s)"

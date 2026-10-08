@@ -27,7 +27,12 @@ from comun.db import obtener_fabrica_sesion
 from comun.estados import EstadoAnalisis, EstadoDocumento
 from comun.modelos import Analisis, Bitacora, Documento, Hallazgo, TipoRevision, VersionDocumento
 from orquestador.pipeline_contable import FuncionEmbedding, FuncionLLM, procesar_documento_contable
-from orquestador.pipeline_ocr import FuncionOcr, FuncionOsd, procesar_documento_ocr
+from orquestador.pipeline_ocr import (
+    FuncionOcr,
+    FuncionOsd,
+    procesar_documento_ocr,
+    resumen_paginas,
+)
 from orquestador.pipeline_ortografia import (
     FuncionRevisarLT,
     extraer_segmentos,
@@ -262,7 +267,7 @@ def ejecutar_analisis(
             almacenamiento.subir_objeto(cliente_s3, bucket, llave, contenido)
 
         try:
-            hallazgos, _paginas_ocr = procesar_documento_ocr(
+            hallazgos, paginas_ocr = procesar_documento_ocr(
                 sesion,
                 analisis=analisis,
                 version_original=version_original,
@@ -278,6 +283,16 @@ def ejecutar_analisis(
             return _marcar_fallido(
                 sesion, documento=documento, analisis=analisis, detalle=str(error)
             )
+        # Bloque 3 (bitácora: "archivo, páginas, confianza media, páginas
+        # ilegibles"): el nombre del archivo ya queda en Documento.nombre_
+        # original, consultable aparte -- acá solo el resumen del motor.
+        _registrar_bitacora(
+            sesion,
+            usuario_id=analisis.usuario_id,
+            accion="ocr_completado",
+            entidad_id=analisis.id,
+            detalle=resumen_paginas(paginas_ocr),
+        )
 
     documento.estado = (
         EstadoDocumento.CON_HALLAZGOS.value if hallazgos else EstadoDocumento.EN_REVISION.value

@@ -200,6 +200,13 @@ def test_ejecutar_analisis_ocr_publica_version_con_el_texto_reconocido() -> None
         objeto = cliente_s3.get_object(Bucket=BUCKET, Key=versiones[1].ruta_almacenamiento)
         assert objeto["Body"].read() == b"Texto reconocido"
 
+        # Bloque 3 (bitácora: "...páginas, confianza media, páginas ilegibles").
+        acciones = [b.accion for b in sesion.query(Bitacora).order_by(Bitacora.fecha_hora).all()]
+        assert "ocr_completado" in acciones
+        entrada = next(b for b in sesion.query(Bitacora).all() if b.accion == "ocr_completado")
+        assert "página(s)" in entrada.detalle
+        assert "confianza media" in entrada.detalle
+
 
 def test_ejecutar_analisis_ocr_pagina_ilegible_marca_con_hallazgos() -> None:
     """Bloque 2 (RN-06): una página ilegible no falla el análisis -- lo

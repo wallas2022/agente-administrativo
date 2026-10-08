@@ -10,7 +10,7 @@ const TIPOS_REVISION = [
   { valor: "contable", etiqueta: "Excel contable", habilitado: true },
   { valor: "ortografia", etiqueta: "Revisión ortográfica", habilitado: true },
   { valor: "redaccion", etiqueta: "Mejorar redacción", habilitado: true },
-  { valor: "ocr", etiqueta: "OCR", habilitado: false },
+  { valor: "ocr", etiqueta: "Imagen a texto", habilitado: true },
 ] as const;
 
 const EXTENSIONES_ACEPTADAS: Record<string, string[]> = {
@@ -19,7 +19,16 @@ const EXTENSIONES_ACEPTADAS: Record<string, string[]> = {
   // CU-02 (RF-07): solo PDF/Word/texto -- a diferencia de CU-05, sin Excel
   // ni PowerPoint (ver validadores/redaccion/extraccion.py).
   redaccion: ["docx", "pdf"],
+  // CU-06 (RF-11): mismos formatos que soporta el motor (ver
+  // src/ocr/documentos.py, EXTENSIONES_IMAGEN + PDF).
+  ocr: ["png", "jpg", "jpeg", "tiff", "bmp", "pdf"],
 };
+
+// CU-06 (Bloque 3): "uno o varios archivos" -- a diferencia de los demás
+// tipos, 1:1 archivo:análisis (sin soporte de "un análisis con N documentos"
+// en el modelo de datos), así que varios archivos crean varios análisis
+// independientes (ver manejarEnvio).
+const TIPOS_CON_VARIOS_ARCHIVOS = new Set(["ocr"]);
 
 // Tipos de revisión que, además de subir un archivo, aceptan pegar el texto
 // directamente (CU-05 y CU-02 comparten el mismo "documento virtual" --
@@ -69,6 +78,11 @@ export function NuevoAnalisis() {
   const [tipoRevision, setTipoRevision] = useState<string>("contable");
   const [periodoCierre, setPeriodoCierre] = useState("");
   const [archivo, setArchivo] = useState<File | null>(null);
+  const [archivosVarios, setArchivosVarios] = useState<File[]>([]);
+  const [progresoLote, setProgresoLote] = useState<{ actual: number; total: number } | null>(
+    null,
+  );
+  const [mensajeLote, setMensajeLote] = useState<string | null>(null);
   const [modoOrtografia, setModoOrtografia] = useState<"archivo" | "texto">("archivo");
   const [textoPegado, setTextoPegado] = useState("");
   const [tipoDocumentoRedaccion, setTipoDocumentoRedaccion] = useState<string>(
@@ -103,7 +117,9 @@ export function NuevoAnalisis() {
   async function manejarEnvio(evento: FormEvent) {
     evento.preventDefault();
     setError(null);
+    setMensajeLote(null);
 
+    const esLote = TIPOS_CON_VARIOS_ARCHIVOS.has(tipoRevision) && archivosVarios.length > 1;
     const usaTextoPegado = TIPOS_CON_TEXTO_PEGADO.has(tipoRevision) && modoOrtografia === "texto";
     let archivoAEnviar: File | null = archivo;
 
@@ -113,6 +129,8 @@ export function NuevoAnalisis() {
         return;
       }
       archivoAEnviar = new File([textoPegado], NOMBRE_TEXTO_PEGADO, { type: "text/plain" });
+    } else if (esLote) {
+      // validado más abajo, junto con las extensiones del lote completo.
     } else if (!archivo) {
       setError("Selecciona un archivo");
       return;
@@ -128,9 +146,13 @@ export function NuevoAnalisis() {
         return;
       }
     }
-    if (!usaTextoPegado && archivoAEnviar) {
+    if (!usaTextoPegado) {
       const extensionesValidas = EXTENSIONES_ACEPTADAS[tipoRevision] ?? [];
-      if (!extensionesValidas.includes(extensionDe(archivoAEnviar.name))) {
+      const archivosAValidar = esLote ? archivosVarios : archivoAEnviar ? [archivoAEnviar] : [];
+      const archivoInvalido = archivosAValidar.find(
+        (a) => !extensionesValidas.includes(extensionDe(a.name)),
+      );
+      if (archivoInvalido) {
         setError(`El archivo debe ser: ${extensionesValidas.map((e) => `.${e}`).join(", ")}`);
         return;
       }
@@ -139,23 +161,42 @@ export function NuevoAnalisis() {
     setSubiendo(true);
     setProgreso(null);
     try {
-      const resultado = await subirDocumento(
-        archivoAEnviar as File,
-        {
-          tipoRevision,
-          periodoCierre: requierePeriodoCierre(tipoRevision) ? periodoCierre : undefined,
-          tipoDocumento: tipoRevision === "redaccion" ? tipoDocumentoRedaccion : undefined,
-          accion: tipoRevision === "redaccion" ? accionRedaccion : undefined,
-          onProgreso: setProgreso,
-        },
-        dependenciasReales,
-      );
-      setActualizarPanelEn((n) => n + 1);
-      navegar(`/analisis/${resultado.analisisId}`);
+      if (esLote) {
+        const idsCreados: string[] = [];
+        for (let i = 0; i < archivosVarios.length; i++) {
+          setProgresoLote({ actual: i + 1, total: archivosVarios.length });
+          const resultado = await subirDocumento(
+            archivosVarios[i],
+            { tipoRevision, onProgreso: setProgreso },
+            dependenciasReales,
+          );
+          idsCreados.push(resultado.analisisId);
+        }
+        setActualizarPanelEn((n) => n + 1);
+        setArchivosVarios([]);
+        setMensajeLote(
+          `Se crearon ${idsCreados.length} análisis -- revisa el panel de análisis recientes.`,
+        );
+      } else {
+        const resultado = await subirDocumento(
+          archivoAEnviar as File,
+          {
+            tipoRevision,
+            periodoCierre: requierePeriodoCierre(tipoRevision) ? periodoCierre : undefined,
+            tipoDocumento: tipoRevision === "redaccion" ? tipoDocumentoRedaccion : undefined,
+            accion: tipoRevision === "redaccion" ? accionRedaccion : undefined,
+            onProgreso: setProgreso,
+          },
+          dependenciasReales,
+        );
+        setActualizarPanelEn((n) => n + 1);
+        navegar(`/analisis/${resultado.analisisId}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo iniciar el análisis");
     } finally {
       setSubiendo(false);
+      setProgresoLote(null);
     }
   }
 
@@ -275,14 +316,24 @@ export function NuevoAnalisis() {
             </label>
           ) : (
             <label className="nuevo-analisis__campo">
-              Documento
+              {TIPOS_CON_VARIOS_ARCHIVOS.has(tipoRevision) ? "Documento(s)" : "Documento"}
               <input
                 type="file"
+                multiple={TIPOS_CON_VARIOS_ARCHIVOS.has(tipoRevision)}
                 accept={(EXTENSIONES_ACEPTADAS[tipoRevision] ?? [])
                   .map((ext) => `.${ext}`)
                   .join(",")}
-                onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
+                onChange={(e) => {
+                  const archivos = Array.from(e.target.files ?? []);
+                  setArchivo(archivos[0] ?? null);
+                  setArchivosVarios(archivos);
+                }}
               />
+              {archivosVarios.length > 1 && (
+                <span className="nuevo-analisis__nota">
+                  {archivosVarios.length} archivos seleccionados -- se crea un análisis por archivo.
+                </span>
+              )}
             </label>
           )}
 
@@ -302,6 +353,12 @@ export function NuevoAnalisis() {
             </fieldset>
           )}
 
+          {subiendo && progresoLote && (
+            <p className="nuevo-analisis__progreso-lote" role="status">
+              Archivo {progresoLote.actual} de {progresoLote.total}…
+            </p>
+          )}
+
           {subiendo && progreso && (
             <div className="nuevo-analisis__progreso">
               <progress value={progreso.bytesSubidos} max={progreso.bytesTotales} />
@@ -310,6 +367,8 @@ export function NuevoAnalisis() {
               </span>
             </div>
           )}
+
+          {mensajeLote && <p className="nuevo-analisis__mensaje-lote">{mensajeLote}</p>}
 
           {error && (
             <p className="nuevo-analisis__error" role="alert">

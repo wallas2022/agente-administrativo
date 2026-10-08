@@ -39,6 +39,11 @@ COPY validadores ./validadores
 # kb/glosario/glosario.csv) -- antes de este bloque la API no necesitaba
 # kb/ en absoluto (solo orquestador/worker la tenían, ver su Dockerfile).
 COPY --from=kb . ./kb
+# CU-06 (Bloque 3): GET /documentos/{id}/ocr-docx genera el .docx resaltado
+# de forma síncrona con `ocr.exportar_docx` (solo usa python-docx, ya
+# instalado vía parsers/requirements.txt) -- la API NO necesita el resto de
+# `ocr` (OpenCV/Tesseract viven solo en el worker, ver su Dockerfile).
+COPY ocr ./ocr
 
 EXPOSE 8000
 

@@ -9,6 +9,9 @@ import "./AgenteTrabajando.css";
 const ETIQUETAS_ACCION: Record<string, string> = {
   analisis_iniciado: "Análisis iniciado",
   analisis_completado: "Análisis completado",
+  // CU-06 (Bloque 3): resumen del motor de OCR (páginas, confianza media,
+  // páginas ilegibles) -- ver pipeline_ocr.resumen_paginas.
+  ocr_completado: "OCR completado",
 };
 
 /** Pantalla 2 (bloque U3): estado en vivo del análisis, con polling cada 3 s
@@ -62,6 +65,9 @@ export function AgenteTrabajando() {
                   {new Date(entrada.fecha_hora).toLocaleTimeString("es-GT")}
                 </span>
                 <span>{ETIQUETAS_ACCION[entrada.accion] ?? entrada.accion}</span>
+                {entrada.detalle && (
+                  <span className="agente-trabajando__detalle"> — {entrada.detalle}</span>
+                )}
               </li>
             ))}
           </ul>

@@ -37,6 +37,7 @@ __all__ = [
     "FuncionOsd",
     "FuncionRevisarLT",
     "procesar_documento_ocr",
+    "resumen_paginas",
     "texto_completo",
 ]
 
@@ -58,6 +59,22 @@ def texto_completo(paginas: list[ResultadoPagina], *, umbrales: Umbrales | None 
     aviso (RN-06, PP-06)."""
     umbrales_efectivos = umbrales or umbrales_desde_entorno()
     return "\n\n".join(_texto_pagina(pagina, umbrales_efectivos) for pagina in paginas)
+
+
+def resumen_paginas(paginas: list[ResultadoPagina], umbrales: Umbrales | None = None) -> str:
+    """Bloque 3 (bitácora: "...páginas, confianza media, páginas
+    ilegibles"): una línea legible para humanos, sin inventar ningún
+    cálculo nuevo -- reutiliza `es_pagina_ilegible`/`confianza_media` ya
+    calculados por el motor."""
+    umbrales_efectivos = umbrales or umbrales_desde_entorno()
+    paginas_ocr = [p for p in paginas if not p.texto_nativo]
+    ilegibles = sum(1 for p in paginas_ocr if es_pagina_ilegible(p, umbrales_efectivos))
+    if paginas_ocr:
+        confianza_media = sum(p.confianza_media for p in paginas_ocr) / len(paginas_ocr)
+        detalle_confianza = f"confianza media {confianza_media:.0f}%"
+    else:
+        detalle_confianza = "sin páginas de OCR (todo texto nativo del PDF)"
+    return f"{len(paginas)} página(s), {detalle_confianza}, {ilegibles} ilegible(s)"
 
 
 def _hallazgo_documento_ilegible(

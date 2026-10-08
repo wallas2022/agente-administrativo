@@ -56,6 +56,11 @@
   flex-shrink: 0;
 }
 
+.agente-trabajando__detalle {
+  color: var(--color-texto-tenue);
+  font-size: 0.85rem;
+}
+
 .agente-trabajando__error {
   color: var(--color-alto-texto);
   background: var(--color-alto-fondo);

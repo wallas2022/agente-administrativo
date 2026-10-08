@@ -49,6 +49,7 @@ from api.esquemas import (
     RespuestaAprobarFuente,
     RespuestaCompletarCarga,
     RespuestaDecision,
+    RespuestaEditarTextoOcr,
     RespuestaGenerarCorregido,
     RespuestaImportarPlantilla,
     RespuestaIniciarCarga,
@@ -57,6 +58,7 @@ from api.esquemas import (
     RespuestaVistaPrevia,
     SolicitudCompletarCarga,
     SolicitudDecision,
+    SolicitudEditarTextoOcr,
     SolicitudGlosario,
     SolicitudIniciarCarga,
     SolicitudLogin,
@@ -94,6 +96,7 @@ from curaduria.indexacion import (
     indexar_fuente,
 )
 from curaduria.plantilla import ResultadoImportacion, cargar_plantilla, leer_plantilla
+from ocr.exportar_docx import construir_docx_resaltado
 from ortografia.cliente_languagetool import CoincidenciaLT, revisar_texto
 from ortografia.generar_corregido import generar_documento_corregido
 from rag.cliente_embeddings import DIMENSION_BGE_M3, obtener_embedding
@@ -1147,9 +1150,203 @@ def descargar_version_corregida(
     # corregido puede diferir de la original (CU-05, PDF -> docx).
     nombre_descarga = version.ruta_almacenamiento.rsplit("/", 1)[-1]
     tipo_mime = mimetypes.guess_type(nombre_descarga)[0] or "application/octet-stream"
+
+    analisis_ocr = _ultimo_analisis_ocr_de(sesion, documento.id)
+    if analisis_ocr is not None:
+        # Bloque 3 (bitácora: "...descargas"): solo se anota para CU-06 --
+        # los demás tipos de revisión ya usaban este endpoint antes de que
+        # existiera este requisito y no se les pidió bitácora de descarga.
+        sesion.add(
+            Bitacora(
+                usuario_id=usuario.id,
+                accion="ocr_descarga_txt",
+                entidad_tipo="analisis",
+                entidad_id=analisis_ocr.id,
+                fecha_hora=datetime.now(UTC),
+            )
+        )
+        sesion.commit()
+
     return Response(
         content=contenido,
         media_type=tipo_mime,
+        headers={"Content-Disposition": f'attachment; filename="{nombre_descarga}"'},
+    )
+
+
+def _ultimo_analisis_ocr_de(sesion: Session, documento_id: uuid.UUID) -> Analisis | None:
+    analisis = (
+        sesion.query(Analisis)
+        .filter_by(documento_id=documento_id)
+        .order_by(Analisis.fecha_inicio.desc())
+        .first()
+    )
+    if analisis is None:
+        return None
+    tipo_revision = sesion.get(TipoRevision, analisis.tipo_revision_id)
+    return analisis if tipo_revision is not None and tipo_revision.nombre == "ocr" else None
+
+
+@app.get("/documentos/{documento_id}/version-original")
+def descargar_version_original(
+    documento_id: str,
+    usuario: Annotated[Usuario, Depends(usuario_actual)],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+    cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
+) -> Response:
+    """CU-06 (Bloque 3): sirve el archivo original (imagen o PDF) para la
+    vista lado a lado -- no existía ningún endpoint para ver (no descargar)
+    la versión original antes de este bloque, solo `version-corregida`."""
+    documento = sesion.get(Documento, uuid.UUID(documento_id))
+    if documento is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento no encontrado")
+    if _nombre_rol(usuario) not in (RolUsuario.ADMINISTRADOR.value, RolUsuario.AUDITOR.value):
+        if documento.area_id != usuario.area_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No puede consultar documentos de otra área",
+            )
+
+    version = (
+        sesion.query(VersionDocumento)
+        .filter_by(documento_id=documento.id, es_corregida=False)
+        .order_by(VersionDocumento.numero_version.asc())
+        .first()
+    )
+    if version is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Documento sin versión original"
+        )
+
+    contenido = almacenamiento.descargar_objeto(
+        cliente_s3, BUCKET_DOCUMENTOS, version.ruta_almacenamiento
+    )
+    tipo_mime = mimetypes.guess_type(documento.nombre_original)[0] or "application/octet-stream"
+    return Response(content=contenido, media_type=tipo_mime)
+
+
+@app.put("/documentos/{documento_id}/texto-ocr", response_model=RespuestaEditarTextoOcr)
+def editar_texto_ocr(
+    documento_id: str,
+    datos: SolicitudEditarTextoOcr,
+    usuario: Annotated[Usuario, Depends(usuario_actual)],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+    cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
+) -> RespuestaEditarTextoOcr:
+    """CU-06 (Bloque 3): edición manual del texto reconocido -- sobrescribe
+    el mismo objeto en S3 (misma `ruta_almacenamiento`), no crea una versión
+    nueva. El motor de OCR nunca autocorrige (RN-06); esto es una corrección
+    humana explícita, distinta."""
+    documento = sesion.get(Documento, uuid.UUID(documento_id))
+    if documento is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento no encontrado")
+    if _nombre_rol(usuario) not in (RolUsuario.ADMINISTRADOR.value, RolUsuario.AUDITOR.value):
+        if documento.area_id != usuario.area_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No puede editar documentos de otra área",
+            )
+
+    analisis_ocr = _ultimo_analisis_ocr_de(sesion, documento.id)
+    if analisis_ocr is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Este documento no tiene un análisis de OCR",
+        )
+    version = (
+        sesion.query(VersionDocumento)
+        .filter_by(documento_id=documento.id, es_corregida=True)
+        .order_by(VersionDocumento.numero_version.desc())
+        .first()
+    )
+    if version is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Este documento no tiene texto de OCR todavía",
+        )
+
+    almacenamiento.subir_objeto(
+        cliente_s3, BUCKET_DOCUMENTOS, version.ruta_almacenamiento, datos.texto.encode("utf-8")
+    )
+    sesion.add(
+        Bitacora(
+            usuario_id=usuario.id,
+            accion="ocr_edicion_manual",
+            entidad_tipo="analisis",
+            entidad_id=analisis_ocr.id,
+            fecha_hora=datetime.now(UTC),
+            detalle=f"Texto editado manualmente ({len(datos.texto)} caracteres)",
+        )
+    )
+    sesion.commit()
+    return RespuestaEditarTextoOcr(guardado=True)
+
+
+@app.get("/documentos/{documento_id}/ocr-docx")
+def descargar_ocr_docx(
+    documento_id: str,
+    usuario: Annotated[Usuario, Depends(usuario_actual)],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+    cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
+) -> Response:
+    """CU-06 (Bloque 3): descarga .docx del texto de OCR con las palabras
+    dudosas resaltadas en rojo/amarillo (RN-06) -- genera el documento al
+    vuelo a partir del texto actual (incluye ediciones manuales) y los
+    `Hallazgo` de palabra dudosa ya persistidos (Bloque 2)."""
+    documento = sesion.get(Documento, uuid.UUID(documento_id))
+    if documento is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento no encontrado")
+    if _nombre_rol(usuario) not in (RolUsuario.ADMINISTRADOR.value, RolUsuario.AUDITOR.value):
+        if documento.area_id != usuario.area_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No puede descargar documentos de otra área",
+            )
+
+    analisis_ocr = _ultimo_analisis_ocr_de(sesion, documento.id)
+    if analisis_ocr is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Este documento no tiene un análisis de OCR",
+        )
+    version = (
+        sesion.query(VersionDocumento)
+        .filter_by(documento_id=documento.id, es_corregida=True)
+        .order_by(VersionDocumento.numero_version.desc())
+        .first()
+    )
+    if version is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Este documento no tiene texto de OCR todavía",
+        )
+
+    texto = almacenamiento.descargar_objeto(
+        cliente_s3, BUCKET_DOCUMENTOS, version.ruta_almacenamiento
+    ).decode("utf-8")
+    hallazgos = sesion.query(Hallazgo).filter_by(analisis_id=analisis_ocr.id).all()
+    nivel_por_palabra = {
+        h.texto_original: ("dudosa" if h.severidad == "alta" else "revisar")
+        for h in hallazgos
+        if h.texto_original
+    }
+    contenido_docx = construir_docx_resaltado(texto, nivel_por_palabra=nivel_por_palabra)
+
+    sesion.add(
+        Bitacora(
+            usuario_id=usuario.id,
+            accion="ocr_descarga_docx",
+            entidad_tipo="analisis",
+            entidad_id=analisis_ocr.id,
+            fecha_hora=datetime.now(UTC),
+        )
+    )
+    sesion.commit()
+
+    nombre_descarga = (documento.nombre_original.rsplit(".", 1)[0] or "ocr") + ".docx"
+    return Response(
+        content=contenido_docx,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{nombre_descarga}"'},
     )
 

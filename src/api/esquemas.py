@@ -92,6 +92,16 @@ class SolicitudDecision(BaseModel):
     comentario: str | None = None
 
 
+class SolicitudEditarTextoOcr(BaseModel):
+    """CU-06 (Bloque 3): edición manual del texto reconocido por OCR."""
+
+    texto: str
+
+
+class RespuestaEditarTextoOcr(BaseModel):
+    guardado: bool
+
+
 class RespuestaDecision(BaseModel):
     id: str
     hallazgo_id: str

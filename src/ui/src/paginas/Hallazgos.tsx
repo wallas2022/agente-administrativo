@@ -4,6 +4,7 @@ import { descargarArchivo } from "../api/descargas";
 import { clienteApi } from "../api/cliente";
 import { EstadoBadge } from "../componentes/EstadoBadge";
 import { TarjetaHallazgo, type Hallazgo } from "../componentes/TarjetaHallazgo";
+import { ResultadoOcr } from "./ResultadoOcr";
 import { ResultadoRedaccion } from "./ResultadoRedaccion";
 import "./Hallazgos.css";
 
@@ -171,6 +172,9 @@ export function Hallazgos() {
 
   if (analisis.tipo_revision === "redaccion") {
     return <ResultadoRedaccion analisisId={analisis.id} />;
+  }
+  if (analisis.tipo_revision === "ocr") {
+    return <ResultadoOcr analisisId={analisis.id} />;
   }
 
   const diferencia = (analisis.total_debe ?? 0) - (analisis.total_haber ?? 0);

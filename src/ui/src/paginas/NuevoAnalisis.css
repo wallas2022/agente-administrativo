@@ -88,6 +88,28 @@
   font-size: 0.85rem;
 }
 
+.nuevo-analisis__nota {
+  display: block;
+  color: var(--color-texto-tenue);
+  font-size: 0.8rem;
+  margin-top: 4px;
+}
+
+.nuevo-analisis__progreso-lote {
+  color: var(--color-texto-tenue);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.nuevo-analisis__mensaje-lote {
+  color: var(--color-acento);
+  background: var(--color-acento-texto);
+  border-radius: var(--radio);
+  padding: 8px 10px;
+  font-size: 0.85rem;
+  margin: 0;
+}
+
 .nuevo-analisis__boton {
   align-self: flex-start;
   background: var(--color-acento);
