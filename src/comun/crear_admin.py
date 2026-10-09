@@ -20,17 +20,7 @@ from comun.db import obtener_fabrica_sesion
 from comun.estados import RolUsuario
 from comun.modelos import Area, Rol, Usuario
 from comun.permisos import sembrar_permisos_por_defecto
-from comun.seguridad import hash_password
-
-LONGITUD_MINIMA_PASSWORD = 10
-
-
-def _password_valida(password: str) -> bool:
-    return (
-        len(password) >= LONGITUD_MINIMA_PASSWORD
-        and any(c.isalpha() for c in password)
-        and any(c.isdigit() for c in password)
-    )
+from comun.seguridad import LONGITUD_MINIMA_PASSWORD, hash_password, password_valida
 
 
 def crear_o_actualizar_administrador(
@@ -84,7 +74,7 @@ def main() -> None:  # pragma: no cover - interactivo (getpass), probado vía la
     confirmacion = getpass.getpass("Confirmar contraseña: ")
     if password != confirmacion:
         raise SystemExit("Las contraseñas no coinciden.")
-    if not _password_valida(password):
+    if not password_valida(password):
         raise SystemExit(
             f"La contraseña debe tener al menos {LONGITUD_MINIMA_PASSWORD} "
             "caracteres, con letras y números."

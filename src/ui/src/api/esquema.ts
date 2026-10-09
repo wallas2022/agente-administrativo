@@ -300,6 +300,150 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/usuarios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Listar Usuarios */
+        get: operations["listar_usuarios_usuarios_get"];
+        put?: never;
+        /**
+         * Crear Usuario
+         * @description HU-22: genera una contraseña temporal que solo se muestra en esta
+         *     respuesta -- debe_cambiar_password=True obliga a cambiarla en el primer
+         *     ingreso (HU-25).
+         */
+        post: operations["crear_usuario_usuarios_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/usuarios/{usuario_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Editar Usuario
+         * @description HU-22: nunca borra (no existe DELETE /usuarios), no permite
+         *     autodesactivarse, y rechaza dejar sin ningún Administrador activo.
+         */
+        patch: operations["editar_usuario_usuarios__usuario_id__patch"];
+        trace?: never;
+    };
+    "/usuarios/{usuario_id}/restablecer-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restablecer Password */
+        post: operations["restablecer_password_usuarios__usuario_id__restablecer_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/permisos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Listar Permisos */
+        get: operations["listar_permisos_permisos_get"];
+        /**
+         * Actualizar Permiso
+         * @description HU-23: marca/desmarca una casilla de la matriz -- las filas
+         *     protegidas (PERMISOS_PROTEGIDOS) no se pueden tocar en ningún sentido.
+         */
+        put: operations["actualizar_permiso_permisos_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/permisos/restaurar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restaurar Permisos
+         * @description HU-23 "Restaurar matriz por defecto": vuelve exactamente a la matriz
+         *     v0.3 (comun/permisos.py), sin tocar usuarios ni áreas.
+         */
+        post: operations["restaurar_permisos_permisos_restaurar_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/areas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Listar Areas */
+        get: operations["listar_areas_areas_get"];
+        put?: never;
+        /** Crear Area */
+        post: operations["crear_area_areas_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/areas/{area_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Eliminar Area
+         * @description HU-24: un área con usuarios o documentos asociados no se puede
+         *     eliminar.
+         */
+        delete: operations["eliminar_area_areas__area_id__delete"];
+        options?: never;
+        head?: never;
+        /** Renombrar Area */
+        patch: operations["renombrar_area_areas__area_id__patch"];
+        trace?: never;
+    };
     "/hallazgos/{hallazgo_id}/decision": {
         parameters: {
             query?: never;
@@ -698,6 +842,13 @@ export interface components {
             /** Comentario */
             comentario?: string | null;
         };
+        /** AreaEsquema */
+        AreaEsquema: {
+            /** Id */
+            id: string;
+            /** Nombre */
+            nombre: string;
+        };
         /** BitacoraEsquema */
         BitacoraEsquema: {
             /** Id */
@@ -944,6 +1095,22 @@ export interface components {
             /** Etag */
             etag: string;
         };
+        /**
+         * PermisoMatrizEsquema
+         * @description Una celda de la matriz de Configuración → Roles y permisos (HU-23).
+         */
+        PermisoMatrizEsquema: {
+            /** Rol */
+            rol: string;
+            /** Recurso */
+            recurso: string;
+            /** Accion */
+            accion: string;
+            /** Otorgado */
+            otorgado: boolean;
+            /** Protegido */
+            protegido: boolean;
+        };
         /** RespuestaAnalisis */
         RespuestaAnalisis: {
             /** Id */
@@ -1008,6 +1175,12 @@ export interface components {
             analisis_id: string;
             /** Estado */
             estado: string;
+        };
+        /** RespuestaCrearUsuario */
+        RespuestaCrearUsuario: {
+            usuario: components["schemas"]["UsuarioAdminEsquema"];
+            /** Password Temporal */
+            password_temporal: string;
         };
         /** RespuestaDecision */
         RespuestaDecision: {
@@ -1085,6 +1258,11 @@ export interface components {
             /** Debe Cambiar Password */
             debe_cambiar_password: boolean;
         };
+        /** RespuestaPasswordTemporal */
+        RespuestaPasswordTemporal: {
+            /** Password Temporal */
+            password_temporal: string;
+        };
         /** RespuestaToken */
         RespuestaToken: {
             /** Access Token */
@@ -1113,6 +1291,22 @@ export interface components {
             /** Fragmentos */
             fragmentos: components["schemas"]["FragmentoVistaPreviaEsquema"][];
         };
+        /** SolicitudActualizarPermiso */
+        SolicitudActualizarPermiso: {
+            /** Rol */
+            rol: string;
+            /** Recurso */
+            recurso: string;
+            /** Accion */
+            accion: string;
+            /** Otorgado */
+            otorgado: boolean;
+        };
+        /** SolicitudArea */
+        SolicitudArea: {
+            /** Nombre */
+            nombre: string;
+        };
         /** SolicitudCambiarPassword */
         SolicitudCambiarPassword: {
             /** Password Actual */
@@ -1133,6 +1327,17 @@ export interface components {
             /** Accion */
             accion?: string | null;
         };
+        /** SolicitudCrearUsuario */
+        SolicitudCrearUsuario: {
+            /** Nombre */
+            nombre: string;
+            /** Email */
+            email: string;
+            /** Area Id */
+            area_id: string;
+            /** Rol */
+            rol: string;
+        };
         /** SolicitudDecision */
         SolicitudDecision: {
             /** Resultado */
@@ -1147,6 +1352,17 @@ export interface components {
         SolicitudEditarTextoOcr: {
             /** Texto */
             texto: string;
+        };
+        /** SolicitudEditarUsuario */
+        SolicitudEditarUsuario: {
+            /** Nombre */
+            nombre?: string | null;
+            /** Area Id */
+            area_id?: string | null;
+            /** Rol */
+            rol?: string | null;
+            /** Activo */
+            activo?: boolean | null;
         };
         /** SolicitudGlosario */
         SolicitudGlosario: {
@@ -1170,6 +1386,33 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /**
+         * UsuarioAdminEsquema
+         * @description P-12 (Bloque 4, HU-22): fila de Configuración → Usuarios -- nunca
+         *     incluye password_hash ni la contraseña.
+         */
+        UsuarioAdminEsquema: {
+            /** Id */
+            id: string;
+            /** Nombre */
+            nombre: string;
+            /** Email */
+            email: string;
+            /** Rol */
+            rol: string;
+            /** Area Id */
+            area_id: string;
+            /** Area */
+            area: string;
+            /** Activo */
+            activo: boolean;
+            /** Debe Cambiar Password */
+            debe_cambiar_password: boolean;
+            /** Ultimo Acceso */
+            ultimo_acceso?: string | null;
+            /** Bloqueado Hasta */
+            bloqueado_hasta?: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -1655,6 +1898,315 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BitacoraGlobalEsquema"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listar_usuarios_usuarios_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsuarioAdminEsquema"][];
+                };
+            };
+        };
+    };
+    crear_usuario_usuarios_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SolicitudCrearUsuario"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaCrearUsuario"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    editar_usuario_usuarios__usuario_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                usuario_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SolicitudEditarUsuario"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsuarioAdminEsquema"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restablecer_password_usuarios__usuario_id__restablecer_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                usuario_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaPasswordTemporal"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listar_permisos_permisos_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PermisoMatrizEsquema"][];
+                };
+            };
+        };
+    };
+    actualizar_permiso_permisos_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SolicitudActualizarPermiso"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PermisoMatrizEsquema"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restaurar_permisos_permisos_restaurar_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PermisoMatrizEsquema"][];
+                };
+            };
+        };
+    };
+    listar_areas_areas_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AreaEsquema"][];
+                };
+            };
+        };
+    };
+    crear_area_areas_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SolicitudArea"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AreaEsquema"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    eliminar_area_areas__area_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                area_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    renombrar_area_areas__area_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                area_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SolicitudArea"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AreaEsquema"];
                 };
             };
             /** @description Validation Error */

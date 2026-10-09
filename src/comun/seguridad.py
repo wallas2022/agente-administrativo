@@ -8,6 +8,8 @@ No implementa AD/LDAP real (queda [POR CONFIRMAR] para stage, ver
 """
 
 import os
+import secrets
+import string
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -19,6 +21,32 @@ from comun.modelos import Usuario
 
 LIMITE_INTENTOS_FALLIDOS = 5
 MINUTOS_BLOQUEO = 15
+LONGITUD_MINIMA_PASSWORD = 10
+
+
+def password_valida(password: str) -> bool:
+    """Regla única de fortaleza (HU-25): al menos LONGITUD_MINIMA_PASSWORD
+    caracteres, con letras y números -- usada tanto al cambiar la propia
+    contraseña (api/main.py) como al crear/rescatar un Administrador
+    (comun/crear_admin.py), para no duplicar la regla en varios lugares."""
+    return (
+        len(password) >= LONGITUD_MINIMA_PASSWORD
+        and any(c.isalpha() for c in password)
+        and any(c.isdigit() for c in password)
+    )
+
+
+def generar_password_temporal(longitud: int = 12) -> str:
+    """P-12 (Bloque 4, HU-22): contraseña temporal para un usuario nuevo o
+    restablecido -- se muestra una sola vez en la respuesta, nunca se
+    guarda en texto plano. Siempre cumple password_valida()."""
+    letras = string.ascii_letters
+    digitos = string.digits
+    resto = letras + digitos
+    caracteres = [secrets.choice(letras), secrets.choice(digitos)]
+    caracteres += [secrets.choice(resto) for _ in range(longitud - 2)]
+    secrets.SystemRandom().shuffle(caracteres)
+    return "".join(caracteres)
 
 
 class CredencialesInvalidasError(Exception):

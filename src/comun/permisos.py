@@ -62,6 +62,12 @@ MATRIZ_PERMISOS_DEFECTO: dict[RolUsuario, frozenset[tuple[str, str]]] = {
     ),
 }
 
+# Universo de pares (recurso, accion) de la matriz v0.3 -- HU-23 solo deja
+# marcar/desmarcar casillas de esta matriz, no inventar recursos nuevos.
+TODOS_LOS_RECURSOS_ACCIONES: frozenset[tuple[str, str]] = frozenset(
+    par for permisos in MATRIZ_PERMISOS_DEFECTO.values() for par in permisos
+)
+
 # Protegidos (HU-23): ni editables ni borrables desde Configuración, bajo
 # ningún rol -- ver roles-permisos.md v0.3.
 PERMISOS_PROTEGIDOS: frozenset[tuple[RolUsuario, str, str]] = frozenset(

@@ -39,6 +39,7 @@ from sqlalchemy.orm import Session
 
 from api.esquemas import (
     AjusteAutoaprobadoEsquema,
+    AreaEsquema,
     BitacoraEsquema,
     BitacoraGlobalEsquema,
     ErrorImportacionEsquema,
@@ -49,10 +50,12 @@ from api.esquemas import (
     HallazgoEsquema,
     HistorialItemEsquema,
     ParteSubidaEsquema,
+    PermisoMatrizEsquema,
     RespuestaAnalisis,
     RespuestaAprobarFuente,
     RespuestaCambiarPassword,
     RespuestaCompletarCarga,
+    RespuestaCrearUsuario,
     RespuestaDecision,
     RespuestaEditarTextoOcr,
     RespuestaGenerarCorregido,
@@ -60,16 +63,22 @@ from api.esquemas import (
     RespuestaImportarPlantilla,
     RespuestaIniciarCarga,
     RespuestaMe,
+    RespuestaPasswordTemporal,
     RespuestaToken,
     RespuestaValidarPlantilla,
     RespuestaVistaPrevia,
+    SolicitudActualizarPermiso,
+    SolicitudArea,
     SolicitudCambiarPassword,
     SolicitudCompletarCarga,
+    SolicitudCrearUsuario,
     SolicitudDecision,
     SolicitudEditarTextoOcr,
+    SolicitudEditarUsuario,
     SolicitudGlosario,
     SolicitudIniciarCarga,
     SolicitudLogin,
+    UsuarioAdminEsquema,
 )
 from comun import almacenamiento
 from comun.cola import encolar_analisis
@@ -86,9 +95,15 @@ from comun.modelos import (
     Glosario,
     Hallazgo,
     Permiso,
+    Rol,
     TipoRevision,
     Usuario,
     VersionDocumento,
+)
+from comun.permisos import (
+    TODOS_LOS_RECURSOS_ACCIONES,
+    es_permiso_protegido,
+    restaurar_matriz_por_defecto,
 )
 from comun.seguridad import (
     CredencialesInvalidasError,
@@ -96,7 +111,9 @@ from comun.seguridad import (
     autenticar_usuario,
     crear_token_acceso,
     decodificar_token_acceso,
+    generar_password_temporal,
     hash_password,
+    password_valida,
     verificar_password,
 )
 from comun.semillas import sembrar_datos_de_prueba
@@ -351,10 +368,7 @@ def cambiar_password(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Contraseña actual incorrecta"
         )
-    if len(datos.password_nueva) < 10 or not (
-        any(c.isalpha() for c in datos.password_nueva)
-        and any(c.isdigit() for c in datos.password_nueva)
-    ):
+    if not password_valida(datos.password_nueva):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="La contraseña debe tener al menos 10 caracteres, con letras y números",
@@ -1128,6 +1142,441 @@ def listar_bitacora(
         )
         for bitacora, usuario_fila in filas
     ]
+
+
+# --- Configuración del Administrador (P-12, Bloque 4: HU-22, HU-23, HU-24) --
+
+
+def _a_usuario_admin_esquema(sesion: Session, objetivo: Usuario) -> UsuarioAdminEsquema:
+    area = sesion.get(Area, objetivo.area_id)
+    return UsuarioAdminEsquema(
+        id=str(objetivo.id),
+        nombre=objetivo.nombre,
+        email=objetivo.email,
+        rol=_nombre_rol(objetivo),
+        area_id=str(objetivo.area_id),
+        area=area.nombre if area else "",
+        activo=objetivo.activo,
+        debe_cambiar_password=objetivo.debe_cambiar_password,
+        ultimo_acceso=objetivo.ultimo_acceso,
+        bloqueado_hasta=objetivo.bloqueado_hasta,
+    )
+
+
+def _bitacora_configuracion(
+    sesion: Session,
+    *,
+    usuario: Usuario,
+    accion: str,
+    entidad_tipo: str,
+    entidad_id: uuid.UUID,
+    detalle: str | None = None,
+) -> None:
+    """Regla de protección 6 (roles-permisos.md v0.3): todo cambio de
+    Configuración queda en bitácora -- nunca contraseñas ni hashes
+    (`detalle` solo describe QUÉ cambió, jamás el valor de una contraseña)."""
+    sesion.add(
+        Bitacora(
+            usuario_id=usuario.id,
+            accion=accion,
+            entidad_tipo=entidad_tipo,
+            entidad_id=entidad_id,
+            fecha_hora=datetime.now(UTC),
+            detalle=detalle,
+        )
+    )
+
+
+def _administradores_activos_restantes(sesion: Session, *, excluir_usuario_id: uuid.UUID) -> int:
+    rol_admin = sesion.query(Rol).filter_by(nombre=RolUsuario.ADMINISTRADOR.value).one_or_none()
+    if rol_admin is None:
+        return 0
+    return (
+        sesion.query(Usuario)
+        .filter(
+            Usuario.rol_id == rol_admin.id,
+            Usuario.activo.is_(True),
+            Usuario.id != excluir_usuario_id,
+        )
+        .count()
+    )
+
+
+def _rol_o_422(sesion: Session, rol: str) -> Rol:
+    if rol not in {r.value for r in RolUsuario}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"rol debe ser uno de {sorted(r.value for r in RolUsuario)}",
+        )
+    rol_fila = sesion.query(Rol).filter_by(nombre=rol).one_or_none()
+    if rol_fila is None:
+        rol_fila = Rol(nombre=rol)
+        sesion.add(rol_fila)
+        sesion.flush()
+    return rol_fila
+
+
+@app.get("/usuarios", response_model=list[UsuarioAdminEsquema])
+def listar_usuarios(
+    usuario: Annotated[Usuario, Depends(requiere_permiso("usuarios:administrar"))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> list[UsuarioAdminEsquema]:
+    usuarios = sesion.query(Usuario).order_by(Usuario.nombre).all()
+    return [_a_usuario_admin_esquema(sesion, u) for u in usuarios]
+
+
+@app.post("/usuarios", response_model=RespuestaCrearUsuario, status_code=status.HTTP_201_CREATED)
+def crear_usuario(
+    datos: SolicitudCrearUsuario,
+    usuario: Annotated[Usuario, Depends(requiere_permiso("usuarios:administrar"))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> RespuestaCrearUsuario:
+    """HU-22: genera una contraseña temporal que solo se muestra en esta
+    respuesta -- debe_cambiar_password=True obliga a cambiarla en el primer
+    ingreso (HU-25)."""
+    area = sesion.get(Area, uuid.UUID(datos.area_id))
+    if area is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="area_id no existe"
+        )
+    if sesion.query(Usuario).filter_by(email=datos.email).first() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Ya existe un usuario con ese correo",
+        )
+    rol_fila = _rol_o_422(sesion, datos.rol)
+
+    password_temporal = generar_password_temporal()
+    nuevo = Usuario(
+        nombre=datos.nombre,
+        email=datos.email,
+        area_id=area.id,
+        rol_id=rol_fila.id,
+        origen_autenticacion="local",
+        activo=True,
+        password_hash=hash_password(password_temporal),
+        debe_cambiar_password=True,
+    )
+    sesion.add(nuevo)
+    sesion.flush()
+    _bitacora_configuracion(
+        sesion,
+        usuario=usuario,
+        accion="usuario_creado",
+        entidad_tipo="usuario",
+        entidad_id=nuevo.id,
+        detalle=f"rol={datos.rol}, area={area.nombre}",
+    )
+    sesion.commit()
+    return RespuestaCrearUsuario(
+        usuario=_a_usuario_admin_esquema(sesion, nuevo), password_temporal=password_temporal
+    )
+
+
+@app.patch("/usuarios/{usuario_id}", response_model=UsuarioAdminEsquema)
+def editar_usuario(
+    usuario_id: str,
+    datos: SolicitudEditarUsuario,
+    usuario: Annotated[Usuario, Depends(requiere_permiso("usuarios:administrar"))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> UsuarioAdminEsquema:
+    """HU-22: nunca borra (no existe DELETE /usuarios), no permite
+    autodesactivarse, y rechaza dejar sin ningún Administrador activo."""
+    objetivo = sesion.get(Usuario, uuid.UUID(usuario_id))
+    if objetivo is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+
+    if datos.activo is False and objetivo.id == usuario.id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No puede desactivar su propia cuenta",
+        )
+
+    rol_actual = _nombre_rol(objetivo)
+    dejaria_rol_admin = datos.rol is not None and datos.rol != rol_actual
+    se_desactivaria = datos.activo is False
+    if (
+        rol_actual == RolUsuario.ADMINISTRADOR.value
+        and objetivo.activo
+        and (dejaria_rol_admin or se_desactivaria)
+        and _administradores_activos_restantes(sesion, excluir_usuario_id=objetivo.id) == 0
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Debe quedar al menos un Administrador activo",
+        )
+
+    cambios: list[str] = []
+    if datos.nombre is not None and datos.nombre != objetivo.nombre:
+        cambios.append(f"nombre: '{objetivo.nombre}' -> '{datos.nombre}'")
+        objetivo.nombre = datos.nombre
+    if datos.area_id is not None:
+        area = sesion.get(Area, uuid.UUID(datos.area_id))
+        if area is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="area_id no existe"
+            )
+        if area.id != objetivo.area_id:
+            cambios.append(f"área: {objetivo.area_id} -> {area.id}")
+            objetivo.area_id = area.id
+    if datos.rol is not None and datos.rol != rol_actual:
+        rol_fila = _rol_o_422(sesion, datos.rol)
+        cambios.append(f"rol: {rol_actual} -> {datos.rol}")
+        objetivo.rol_id = rol_fila.id
+    if datos.activo is not None and datos.activo != objetivo.activo:
+        cambios.append(f"activo: {objetivo.activo} -> {datos.activo}")
+        objetivo.activo = datos.activo
+
+    if cambios:
+        _bitacora_configuracion(
+            sesion,
+            usuario=usuario,
+            accion="usuario_editado",
+            entidad_tipo="usuario",
+            entidad_id=objetivo.id,
+            detalle="; ".join(cambios),
+        )
+    sesion.commit()
+    return _a_usuario_admin_esquema(sesion, objetivo)
+
+
+@app.post("/usuarios/{usuario_id}/restablecer-password", response_model=RespuestaPasswordTemporal)
+def restablecer_password(
+    usuario_id: str,
+    usuario: Annotated[Usuario, Depends(requiere_permiso("usuarios:administrar"))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> RespuestaPasswordTemporal:
+    objetivo = sesion.get(Usuario, uuid.UUID(usuario_id))
+    if objetivo is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+
+    password_temporal = generar_password_temporal()
+    objetivo.password_hash = hash_password(password_temporal)
+    objetivo.debe_cambiar_password = True
+    objetivo.intentos_fallidos = 0
+    objetivo.bloqueado_hasta = None
+    _bitacora_configuracion(
+        sesion,
+        usuario=usuario,
+        accion="usuario_password_restablecida",
+        entidad_tipo="usuario",
+        entidad_id=objetivo.id,
+    )
+    sesion.commit()
+    return RespuestaPasswordTemporal(password_temporal=password_temporal)
+
+
+def _matriz_permisos_actual(sesion: Session) -> list[PermisoMatrizEsquema]:
+    otorgados = {
+        (rol_nombre, permiso.recurso, permiso.accion)
+        for permiso, rol_nombre in sesion.query(Permiso, Rol.nombre)
+        .join(Rol, Permiso.rol_id == Rol.id)
+        .all()
+    }
+    return [
+        PermisoMatrizEsquema(
+            rol=rol_usuario.value,
+            recurso=recurso,
+            accion=accion,
+            otorgado=(rol_usuario.value, recurso, accion) in otorgados,
+            protegido=es_permiso_protegido(rol_usuario, recurso, accion),
+        )
+        for rol_usuario in RolUsuario
+        for recurso, accion in sorted(TODOS_LOS_RECURSOS_ACCIONES)
+    ]
+
+
+@app.get("/permisos", response_model=list[PermisoMatrizEsquema])
+def listar_permisos(
+    usuario: Annotated[Usuario, Depends(requiere_permiso("roles:administrar"))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> list[PermisoMatrizEsquema]:
+    return _matriz_permisos_actual(sesion)
+
+
+@app.put("/permisos", response_model=PermisoMatrizEsquema)
+def actualizar_permiso(
+    datos: SolicitudActualizarPermiso,
+    usuario: Annotated[Usuario, Depends(requiere_permiso("roles:administrar"))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> PermisoMatrizEsquema:
+    """HU-23: marca/desmarca una casilla de la matriz -- las filas
+    protegidas (PERMISOS_PROTEGIDOS) no se pueden tocar en ningún sentido."""
+    if (datos.recurso, datos.accion) not in TODOS_LOS_RECURSOS_ACCIONES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="recurso:accion no reconocido"
+        )
+    if datos.rol not in {r.value for r in RolUsuario}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"rol debe ser uno de {sorted(r.value for r in RolUsuario)}",
+        )
+    rol_usuario = RolUsuario(datos.rol)
+    if es_permiso_protegido(rol_usuario, datos.recurso, datos.accion):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Este permiso está protegido y no se puede editar",
+        )
+
+    rol_fila = _rol_o_422(sesion, datos.rol)
+    existente = (
+        sesion.query(Permiso)
+        .filter_by(rol_id=rol_fila.id, recurso=datos.recurso, accion=datos.accion)
+        .one_or_none()
+    )
+    etiqueta = f"{datos.rol}:{datos.recurso}:{datos.accion}"
+    if datos.otorgado and existente is None:
+        sesion.add(Permiso(rol_id=rol_fila.id, recurso=datos.recurso, accion=datos.accion))
+        _bitacora_configuracion(
+            sesion,
+            usuario=usuario,
+            accion="permiso_otorgado",
+            entidad_tipo="permiso",
+            entidad_id=rol_fila.id,
+            detalle=etiqueta,
+        )
+    elif not datos.otorgado and existente is not None:
+        sesion.delete(existente)
+        _bitacora_configuracion(
+            sesion,
+            usuario=usuario,
+            accion="permiso_revocado",
+            entidad_tipo="permiso",
+            entidad_id=rol_fila.id,
+            detalle=etiqueta,
+        )
+    sesion.commit()
+    return PermisoMatrizEsquema(
+        rol=datos.rol, recurso=datos.recurso, accion=datos.accion, otorgado=datos.otorgado,
+        protegido=False,
+    )
+
+
+@app.post("/permisos/restaurar", response_model=list[PermisoMatrizEsquema])
+def restaurar_permisos(
+    usuario: Annotated[Usuario, Depends(requiere_permiso("roles:administrar"))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> list[PermisoMatrizEsquema]:
+    """HU-23 "Restaurar matriz por defecto": vuelve exactamente a la matriz
+    v0.3 (comun/permisos.py), sin tocar usuarios ni áreas."""
+    restaurar_matriz_por_defecto(sesion)
+    _bitacora_configuracion(
+        sesion,
+        usuario=usuario,
+        accion="permisos_restaurados",
+        entidad_tipo="permiso",
+        entidad_id=usuario.id,
+    )
+    sesion.commit()
+    return _matriz_permisos_actual(sesion)
+
+
+@app.get("/areas", response_model=list[AreaEsquema])
+def listar_areas(
+    usuario: Annotated[Usuario, Depends(requiere_permiso("areas:administrar"))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> list[AreaEsquema]:
+    areas = sesion.query(Area).order_by(Area.nombre).all()
+    return [AreaEsquema(id=str(a.id), nombre=a.nombre) for a in areas]
+
+
+def _area_duplicada(sesion: Session, nombre: str, *, excluir_id: uuid.UUID | None = None) -> bool:
+    consulta = sesion.query(Area).filter(func.lower(Area.nombre) == nombre.lower())
+    if excluir_id is not None:
+        consulta = consulta.filter(Area.id != excluir_id)
+    return consulta.first() is not None
+
+
+@app.post("/areas", response_model=AreaEsquema, status_code=status.HTTP_201_CREATED)
+def crear_area(
+    datos: SolicitudArea,
+    usuario: Annotated[Usuario, Depends(requiere_permiso("areas:administrar"))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> AreaEsquema:
+    nombre = datos.nombre.strip()
+    if not nombre:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="El nombre del área no puede estar vacío",
+        )
+    if _area_duplicada(sesion, nombre):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Ya existe un área con ese nombre",
+        )
+    area = Area(nombre=nombre)
+    sesion.add(area)
+    sesion.flush()
+    _bitacora_configuracion(
+        sesion, usuario=usuario, accion="area_creada", entidad_tipo="area", entidad_id=area.id,
+        detalle=nombre,
+    )
+    sesion.commit()
+    return AreaEsquema(id=str(area.id), nombre=area.nombre)
+
+
+@app.patch("/areas/{area_id}", response_model=AreaEsquema)
+def renombrar_area(
+    area_id: str,
+    datos: SolicitudArea,
+    usuario: Annotated[Usuario, Depends(requiere_permiso("areas:administrar"))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> AreaEsquema:
+    area = sesion.get(Area, uuid.UUID(area_id))
+    if area is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Área no encontrada")
+    nombre = datos.nombre.strip()
+    if not nombre:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="El nombre del área no puede estar vacío",
+        )
+    if _area_duplicada(sesion, nombre, excluir_id=area.id):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Ya existe un área con ese nombre",
+        )
+    nombre_anterior = area.nombre
+    area.nombre = nombre
+    _bitacora_configuracion(
+        sesion,
+        usuario=usuario,
+        accion="area_renombrada",
+        entidad_tipo="area",
+        entidad_id=area.id,
+        detalle=f"'{nombre_anterior}' -> '{nombre}'",
+    )
+    sesion.commit()
+    return AreaEsquema(id=str(area.id), nombre=area.nombre)
+
+
+@app.delete("/areas/{area_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_area(
+    area_id: str,
+    usuario: Annotated[Usuario, Depends(requiere_permiso("areas:administrar"))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> None:
+    """HU-24: un área con usuarios o documentos asociados no se puede
+    eliminar."""
+    area = sesion.get(Area, uuid.UUID(area_id))
+    if area is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Área no encontrada")
+    en_uso = (
+        sesion.query(Usuario).filter_by(area_id=area.id).first() is not None
+        or sesion.query(Documento).filter_by(area_id=area.id).first() is not None
+    )
+    if en_uso:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El área tiene usuarios o documentos asociados",
+        )
+    nombre = area.nombre
+    sesion.delete(area)
+    _bitacora_configuracion(
+        sesion, usuario=usuario, accion="area_eliminada", entidad_tipo="area", entidad_id=area.id,
+        detalle=nombre,
+    )
+    sesion.commit()
 
 
 @app.post("/hallazgos/{hallazgo_id}/decision", response_model=RespuestaDecision)

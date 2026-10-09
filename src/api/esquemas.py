@@ -38,6 +38,73 @@ class RespuestaCambiarPassword(BaseModel):
     cambiada: bool
 
 
+class UsuarioAdminEsquema(BaseModel):
+    """P-12 (Bloque 4, HU-22): fila de Configuración → Usuarios -- nunca
+    incluye password_hash ni la contraseña."""
+
+    id: str
+    nombre: str
+    email: str
+    rol: str
+    area_id: str
+    area: str
+    activo: bool
+    debe_cambiar_password: bool
+    ultimo_acceso: datetime | None = None
+    bloqueado_hasta: datetime | None = None
+
+
+class SolicitudCrearUsuario(BaseModel):
+    nombre: str
+    email: str
+    area_id: str
+    rol: str
+
+
+class RespuestaCrearUsuario(BaseModel):
+    usuario: UsuarioAdminEsquema
+    # Mostrada una sola vez en esta respuesta (HU-22); nunca se vuelve a
+    # poder consultar -- solo "Restablecer contraseña" genera una nueva.
+    password_temporal: str
+
+
+class SolicitudEditarUsuario(BaseModel):
+    nombre: str | None = None
+    area_id: str | None = None
+    rol: str | None = None
+    activo: bool | None = None
+
+
+class RespuestaPasswordTemporal(BaseModel):
+    password_temporal: str
+
+
+class PermisoMatrizEsquema(BaseModel):
+    """Una celda de la matriz de Configuración → Roles y permisos (HU-23)."""
+
+    rol: str
+    recurso: str
+    accion: str
+    otorgado: bool
+    protegido: bool
+
+
+class SolicitudActualizarPermiso(BaseModel):
+    rol: str
+    recurso: str
+    accion: str
+    otorgado: bool
+
+
+class AreaEsquema(BaseModel):
+    id: str
+    nombre: str
+
+
+class SolicitudArea(BaseModel):
+    nombre: str
+
+
 class SolicitudIniciarCarga(BaseModel):
     nombre_original: str
     tipo_archivo: str

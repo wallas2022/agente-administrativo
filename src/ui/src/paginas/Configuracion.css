@@ -1,0 +1,112 @@
+.configuracion {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1200px;
+}
+
+.configuracion__pestanas {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--color-borde);
+}
+
+.configuracion__pestana {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  color: var(--color-texto-tenue);
+}
+
+.configuracion__pestana--activa {
+  border-bottom-color: var(--color-acento);
+  color: var(--color-texto);
+  font-weight: 500;
+}
+
+.configuracion__tab {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.configuracion__formulario {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  background: var(--color-superficie);
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio);
+  padding: 16px;
+}
+
+.configuracion__formulario label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--color-texto-tenue);
+}
+
+.configuracion__formulario input,
+.configuracion__formulario select {
+  padding: 6px 10px;
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio);
+  font-size: 0.9rem;
+}
+
+.configuracion__error {
+  margin: 0;
+  color: var(--color-alto-texto);
+  background: var(--color-alto-fondo);
+  border-radius: var(--radio);
+  padding: 8px 12px;
+  font-size: 0.9rem;
+}
+
+.configuracion__password-temporal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: var(--color-superficie);
+  border: 1px solid var(--color-acento);
+  border-radius: var(--radio);
+  padding: 10px 14px;
+  font-size: 0.9rem;
+}
+
+.configuracion__password-temporal code {
+  background: var(--color-fondo);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.configuracion__tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.configuracion__tabla th,
+.configuracion__tabla td {
+  text-align: left;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--color-borde);
+  vertical-align: middle;
+}
+
+.configuracion__restaurar {
+  align-self: flex-start;
+  background: var(--color-superficie);
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio);
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}

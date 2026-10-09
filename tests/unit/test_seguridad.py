@@ -14,7 +14,9 @@ from comun.seguridad import (
     autenticar_usuario,
     crear_token_acceso,
     decodificar_token_acceso,
+    generar_password_temporal,
     hash_password,
+    password_valida,
     verificar_password,
 )
 
@@ -148,3 +150,29 @@ def test_token_expirado_lanza_error(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(ExpiredSignatureError):
         decodificar_token_acceso(token)
+
+
+# --- password_valida / generar_password_temporal (P-12, Bloque 4) -------
+
+
+@pytest.mark.parametrize(
+    ("password", "esperado"),
+    [
+        ("cambiar123", True),
+        ("corta1", False),  # menos de 10 caracteres
+        ("sinningundigito", False),  # sin dígitos
+        ("1234567890", False),  # sin letras
+    ],
+)
+def test_password_valida(password: str, esperado: bool) -> None:
+    assert password_valida(password) is esperado
+
+
+def test_generar_password_temporal_siempre_es_valida() -> None:
+    for _ in range(50):
+        assert password_valida(generar_password_temporal())
+
+
+def test_generar_password_temporal_no_repite() -> None:
+    generadas = {generar_password_temporal() for _ in range(20)}
+    assert len(generadas) == 20

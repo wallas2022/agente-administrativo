@@ -5,11 +5,11 @@ import { AgenteTrabajando } from "./paginas/AgenteTrabajando";
 import { BaseConocimiento } from "./paginas/BaseConocimiento";
 import { Bitacora } from "./paginas/Bitacora";
 import { CambiarPassword } from "./paginas/CambiarPassword";
+import { Configuracion } from "./paginas/Configuracion";
 import { Hallazgos } from "./paginas/Hallazgos";
 import { Historial } from "./paginas/Historial";
 import { Login } from "./paginas/Login";
 import { NuevoAnalisis } from "./paginas/NuevoAnalisis";
-import { Proximamente } from "./paginas/Proximamente";
 import { ReporteAjustesAutoaprobados } from "./paginas/ReporteAjustesAutoaprobados";
 
 export function App() {
@@ -70,7 +70,7 @@ export function App() {
             <RutaProtegida
               permisoRequerido={["usuarios:administrar", "roles:administrar", "areas:administrar"]}
             >
-              <Proximamente titulo="Configuración" />
+              <Configuracion />
             </RutaProtegida>
           }
         />
