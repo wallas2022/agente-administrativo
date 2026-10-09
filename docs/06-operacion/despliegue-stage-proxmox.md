@@ -1,7 +1,7 @@
 # Guía de despliegue en stage: servidor físico → Proxmox VE → VM → Agente
 
-**Versión:** 1.2
-**Fecha:** 2026-09-24
+**Versión:** 1.3
+**Fecha:** 2026-10-09
 **Relacionado con:** RNF-01, RNF-02, RNF-07, RNF-08, RNF-14, R-10, [docs/03-diseno/despliegue/estrategia-ambientes.md](../03-diseno/despliegue/estrategia-ambientes.md)
 
 > Estado: **pendiente de acceso al stage (previsto 28-oct-2026)**. Esta guía se ejecuta cuando TI otorgue acceso. Valores sin confirmar = `[POR CONFIRMAR]`; cifras = aprox.
@@ -91,8 +91,28 @@ tar xzf agente-vX.Y.Z-modelos.tar.gz -C /srv/agente/ollama/
 - LDAP/AD: cuenta de servicio de solo lectura y mapeo de grupos a roles (Administrador, Curador, Revisor, Analista, Auditor). [POR CONFIRMAR]
 - Arranque: `docker compose --env-file .env.stage -f compose.yml -f compose.stage.yml up -d`.
 
+### Primer Administrador (P-12, RF-01/RF-02)
+
+En local, `comun.semillas.sembrar_datos_de_prueba` crea los 5 usuarios de prueba (`<rol>@local`, contraseña pública `cambiar123`) -- pero esa siembra **solo corre con `APP_ENV=local`** (ver `api/main.py`, ciclo de vida de la app) y nunca debe correr en stage. El primer Administrador en stage se crea a mano, desde la VM, antes de abrir el sistema a nadie más:
+
+```bash
+docker compose --env-file .env.stage -f compose.yml -f compose.stage.yml exec api \
+  python -m comun.crear_admin --email admin@sfc.gt --nombre "Nombre Apellido" --area "Contabilidad"
+```
+
+Pide la contraseña por consola (nunca como argumento, para que no quede en el historial de la shell) y la pide dos veces para confirmar -- rechaza una contraseña de menos de 10 caracteres o sin letras y números. Es idempotente y sirve de rescate: si el único Administrador quedó bloqueado (5 intentos fallidos, ver RF-01) o desactivado por error, correr el mismo comando lo reactiva, lo desbloquea y le pone una contraseña nueva, sin tocar su historial ni la bitácora de los demás usuarios. A partir de ahí, el resto de usuarios se crean desde Configuración → Usuarios (HU-22) con el propio Administrador ya autenticado -- no hace falta volver a usar este comando salvo para ese rescate.
+
+Antes de correr `crear_admin`, la migración de autenticación debe estar aplicada (`alembic upgrade head`) -- sin eso falla porque las columnas `password_hash`, etc. no existen todavía. **Alembic no está instalado en la imagen `api`** (está en `requirements-dev.txt`, no en `api/requirements.txt`: la imagen de producción no carga herramientas de desarrollo) -- `docker compose exec api alembic ...` no funciona, confirmado en local (ver docs/04-pruebas/resultados/local-P12-bloque1.md). La migración se corre desde un entorno con Alembic instalado (p. ej. el `.venv` de desarrollo) apuntando a la base de stage, igual que se hizo en local:
+```bash
+cd src/api && POSTGRES_HOST=<host-o-túnel-a-la-vm> POSTGRES_PORT=<puerto> \
+  POSTGRES_DB=<db> POSTGRES_USER=<usuario> POSTGRES_PASSWORD=<contraseña> \
+  python -m alembic upgrade head
+```
+[POR CONFIRMAR] el mecanismo exacto de acceso a la base de stage desde fuera de la VM (túnel SSH, VPN, o exponer temporalmente el puerto) -- depende de la red que defina TI.
+
 ## 7. Pruebas de humo (antes de abrir a usuarios)
 - [ ] Todos los contenedores `healthy`.
+- [ ] Primer Administrador creado con `comun.crear_admin` (ver §6) y puede iniciar sesión.
 - [ ] Login con usuario de AD de prueba y rol correcto.
 - [ ] Carga y análisis de 1 Excel, 1 Word, 1 PowerPoint, 1 PDF y 1 imagen del dataset.
 - [ ] Hallazgo con fuente citada; aprobación por un revisor distinto al que cargó.

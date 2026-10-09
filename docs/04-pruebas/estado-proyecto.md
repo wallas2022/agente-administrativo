@@ -18,8 +18,8 @@ Snapshot basado únicamente en evidencia verificable (documentos de resultados e
 | CU-06 | Convertir imagen a texto (OCR) | 2 | **MVP completo (Bloques 1-4 de P-11)**: motor (Tesseract+OpenCV+PyMuPDF), calidad sin inventar (RN-06), interfaz básica, dataset y PP-05/PP-06 medidos | [local-cu06-bloque1.md](resultados/local-cu06-bloque1.md), [-bloque2.md](resultados/local-cu06-bloque2.md), [-bloque3.md](resultados/local-cu06-bloque3.md), [local-CU06.md](resultados/local-CU06.md), ADR-007 |
 | CU-07 | Aprobar o rechazar hallazgos | 1 | Transversal, sin bloque dedicado -- `POST /hallazgos/{id}/decision` ya en uso desde CU-01/CU-02/CU-05 | [POR CONFIRMAR si cubre todos los casos de CU-07 del SRS] |
 | CU-08 | Gestionar base de conocimiento | 1 | En curso -- ingesta y aprobación de fuentes (Bloque K5) | [local-SKB.md](resultados/local-SKB.md) |
-| CU-09 | Administrar usuarios y roles | 1 | Soporte base (login, roles fijos de prueba) -- [POR CONFIRMAR] si existe pantalla de administración CRUD de usuarios | — |
-| CU-10 | Consultar auditoría | 1 | Soporte base (`GET /analisis/{id}/bitacora`, pantalla "Agente trabajando") -- [POR CONFIRMAR] si existe una pantalla de auditoría dedicada e independiente | — |
+| CU-09 | Administrar usuarios y roles | 1 | **Completo (P-12)**: login y permisos contra base de datos (bcrypt, bloqueo por intentos), menú y rutas por permisos, y Configuración → Usuarios/Roles y permisos/Áreas (alta, edición, contraseña temporal, matriz editable, reglas de protección) | [local-P12-bloque1.md](resultados/local-P12-bloque1.md)..[bloque4.md](resultados/local-P12-bloque4.md) |
+| CU-10 | Consultar auditoría | 1 | **Completo (P-12)**: `GET /historial` (alcance/filtros/paginación, HU-21) y pantalla "Bitácora" (auditoría global, Administrador/Auditor) -- además de `GET /analisis/{id}/bitacora`, que sigue siendo el detalle de pasos de un análisis puntual | [local-P12-bloque2.md](resultados/local-P12-bloque2.md), [local-P12-bloque3.md](resultados/local-P12-bloque3.md) |
 
 ## Infraestructura y decisiones (ADR)
 
@@ -38,4 +38,4 @@ Snapshot basado únicamente en evidencia verificable (documentos de resultados e
 
 ## Qué falta para considerar el piloto listo para escalar
 
-Ver criterio de salida en [plan-pruebas-prototipo.md §5](plan-pruebas-prototipo.md#5-criterio-de-salida-del-piloto): PP-02, PP-08, PP-09, PP-10, PP-11 y PP-14 al 100 % (bloqueantes) + 80 % del resto de la Entrega 1. Varias de esas pruebas (PP-09 a PP-11, PP-13, PP-15, PP-16, PP-19) no tienen todavía una fila en `plan-pruebas-prototipo.md §4` -- [POR CONFIRMAR] si ya se midieron en algún documento no enlazado aquí.
+Ver criterio de salida en [plan-pruebas-prototipo.md §5](plan-pruebas-prototipo.md#5-criterio-de-salida-del-piloto): PP-02, PP-08, PP-09, PP-10, PP-11 y PP-14 al 100 % (bloqueantes) + 80 % del resto de la Entrega 1. PP-10 (permisos por área) y PP-11 (bitácora completa) ya tienen fila en `plan-pruebas-prototipo.md §4`, medidas por la suite de P-12 (Bloques 0-5). PP-09 (segregación de funciones), PP-13, PP-15, PP-16 y PP-19 siguen sin una fila -- [POR CONFIRMAR] si ya se midieron en algún documento no enlazado aquí.

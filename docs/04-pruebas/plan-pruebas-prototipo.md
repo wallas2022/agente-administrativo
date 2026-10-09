@@ -1,7 +1,7 @@
 # Plan de pruebas del prototipo
 
-**Versión:** 0.4
-**Fecha:** 2026-09-30
+**Versión:** 0.5
+**Fecha:** 2026-10-09
 **Relacionado con:** docs/01-requerimientos/01-requerimiento-formal.md (v0.9), docs/01-requerimientos/03-historias-de-usuario.md
 
 Objetivo: validar con datos reales (anonimizados) del área de Contabilidad que el agente cumple los objetivos OE-01..OE-07 antes de escalar. Umbrales alineados con el requerimiento formal v0.9. Entrega 1 prioriza CU-01, CU-02 y CU-05.
@@ -49,6 +49,8 @@ Ejecutar PP-01, PP-03, PP-07 y PP-12 con 2–3 modelos candidatos (p. ej. gpt-os
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-10-09 | local | PP-05 | Tesseract 5.5.0 (tessdata_best) | CER 0.000 (4/4 páginas legibles) | Sí | Dataset sintético pequeño, ver [local-CU06.md](resultados/local-CU06.md) |
 | 2026-10-09 | local | PP-06 | Tesseract 5.5.0 (tessdata_best) | 2/2 (100 %) ilegibles correctamente informadas | Sí | ver [local-CU06.md](resultados/local-CU06.md) |
+| 2026-10-09 | local | PP-10 | P-12 (permisos en base de datos, RBAC) | 0 accesos a documentos/análisis de otra área (116 casos rol×endpoint del Bloque 0, en verde después de cada bloque siguiente) | Sí | ver [local-P12-bloque0.md](resultados/local-P12-bloque0.md)..[bloque4.md](resultados/local-P12-bloque4.md) |
+| 2026-10-09 | local | PP-11 | P-12 (bitácora, RF-19) | 0 contraseñas/hashes en respuestas ni en el campo `detalle` de bitácora, verificado tras crear usuario, editar usuario, restablecer y cambiar contraseña | Sí | ver [local-P12-bloque5.md](resultados/local-P12-bloque5.md) |
 
 ## 5. Criterio de salida del piloto
 Se recomienda escalar si PP-02, PP-08, PP-09, PP-10, PP-11 y PP-14 se cumplen al 100 % (bloqueantes) y al menos 80 % del resto de pruebas de la entrega 1 alcanza su umbral. Las metas de rendimiento (PP-12, PP-13, PP-17) solo se consideran válidas medidas en stage.
