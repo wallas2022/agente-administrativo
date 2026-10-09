@@ -16,6 +16,28 @@ class RespuestaToken(BaseModel):
     rol: str
 
 
+class RespuestaMe(BaseModel):
+    """P-12 (Bloque 1, HU-20): lo que la UI necesita para construir el menú
+    y las rutas -- nunca la contraseña ni su hash."""
+
+    id: str
+    nombre: str
+    email: str
+    rol: str
+    area: str
+    permisos: list[str]  # "recurso:accion", ver docs/03-diseno/seguridad/roles-permisos.md v0.3
+    debe_cambiar_password: bool
+
+
+class SolicitudCambiarPassword(BaseModel):
+    password_actual: str
+    password_nueva: str
+
+
+class RespuestaCambiarPassword(BaseModel):
+    cambiada: bool
+
+
 class SolicitudIniciarCarga(BaseModel):
     nombre_original: str
     tipo_archivo: str

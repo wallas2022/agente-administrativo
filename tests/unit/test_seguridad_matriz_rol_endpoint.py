@@ -209,12 +209,8 @@ def datos(sesion_bd) -> Fixture:
     return Fixture(sesion_bd, area=area, usuarios=usuarios, sufijo="propia")
 
 
-def _token(rol: RolUsuario) -> str:
-    return crear_token_acceso(email=f"{rol.value}@local", rol=rol)
-
-
-def _auth(rol: RolUsuario) -> dict[str, str]:
-    return {"Authorization": f"Bearer {_token(rol)}"}
+def _auth(usuario: Usuario) -> dict[str, str]:
+    return {"Authorization": f"Bearer {crear_token_acceso(usuario_id=usuario.id)}"}
 
 
 # --- Bloque 0: matriz rol x endpoint (solo-rol, sin componente de área) -----
@@ -399,7 +395,7 @@ def test_matriz_rol_endpoint(
     if kwargs["url"].startswith("__"):
         kwargs.update(_resolver_kwargs(kwargs["url"], datos))
 
-    respuesta = cliente.request(metodo, headers=_auth(rol), **kwargs)
+    respuesta = cliente.request(metodo, headers=_auth(datos.usuarios[rol]), **kwargs)
 
     if rol in roles_permitidos:
         assert respuesta.status_code != 403, (
@@ -453,11 +449,11 @@ def test_matriz_area_endpoint(
     caso: tuple[str, str, str], rol: RolUsuario, cliente: TestClient, datos_dos_areas
 ) -> None:
     _nombre, metodo, plantilla = caso
-    _propia, ajena = datos_dos_areas
+    propia, ajena = datos_dos_areas
     url = plantilla.format(documento_id=ajena.documento.id, analisis_id=ajena.analisis.id)
 
     # El usuario de `rol` vive en el área "propia"; el recurso es de "ajena".
-    respuesta = cliente.request(metodo, url, headers=_auth(rol))
+    respuesta = cliente.request(metodo, url, headers=_auth(propia.usuarios[rol]))
 
     if rol in (RolUsuario.ADMINISTRADOR, RolUsuario.AUDITOR):
         assert respuesta.status_code != 403, (
@@ -477,6 +473,7 @@ def test_fuentes_conocimiento_filtra_por_area_sin_excepcion_de_rol(
     `usuario.area_id`, incluso para ADMINISTRADOR/AUDITOR -- nunca da 403,
     da lista vacía. Se deja como prueba explícita para no perder este
     comportamiento de vista si alguien lo "corrige" sin darse cuenta."""
+    propia, _ajena = datos_dos_areas
     for rol in TODOS_LOS_ROLES:
-        respuesta = cliente.get("/fuentes-conocimiento", headers=_auth(rol))
+        respuesta = cliente.get("/fuentes-conocimiento", headers=_auth(propia.usuarios[rol]))
         assert respuesta.status_code == 200

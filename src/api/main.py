@@ -47,15 +47,18 @@ from api.esquemas import (
     ParteSubidaEsquema,
     RespuestaAnalisis,
     RespuestaAprobarFuente,
+    RespuestaCambiarPassword,
     RespuestaCompletarCarga,
     RespuestaDecision,
     RespuestaEditarTextoOcr,
     RespuestaGenerarCorregido,
     RespuestaImportarPlantilla,
     RespuestaIniciarCarga,
+    RespuestaMe,
     RespuestaToken,
     RespuestaValidarPlantilla,
     RespuestaVistaPrevia,
+    SolicitudCambiarPassword,
     SolicitudCompletarCarga,
     SolicitudDecision,
     SolicitudEditarTextoOcr,
@@ -77,15 +80,19 @@ from comun.modelos import (
     FuenteConocimiento,
     Glosario,
     Hallazgo,
+    Permiso,
     TipoRevision,
     Usuario,
     VersionDocumento,
 )
 from comun.seguridad import (
-    UsuarioLocal,
-    autenticar_usuario_local,
+    CredencialesInvalidasError,
+    UsuarioBloqueadoError,
+    autenticar_usuario,
     crear_token_acceso,
     decodificar_token_acceso,
+    hash_password,
+    verificar_password,
 )
 from comun.semillas import sembrar_datos_de_prueba
 from curaduria.extraccion import PdfSinTextoError, extraer_fragmentos
@@ -229,17 +236,32 @@ def usuario_actual(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido o expirado"
         ) from exc
 
-    usuario = sesion.query(Usuario).filter_by(email=datos["email"]).one_or_none()
-    if usuario is None:
+    try:
+        usuario_id = uuid.UUID(datos["sub"])
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido o expirado"
+        ) from exc
+
+    usuario = sesion.get(Usuario, usuario_id)
+    if usuario is None or not usuario.activo:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado"
         )
     return usuario
 
 
+def _nombre_rol(usuario: Usuario) -> str:
+    # P-12 (Bloque 1): el rol se lee de la base (Usuario.rol, relationship)
+    # -- ya no del diccionario fijo de comun.seguridad. Un cambio de rol
+    # desde Configuración (Bloque 4) surte efecto de inmediato, sin volver
+    # a iniciar sesión.
+    return usuario.rol.nombre
+
+
 def requiere_rol(*roles: RolUsuario) -> Callable[..., Usuario]:
     def dependencia(usuario: Annotated[Usuario, Depends(usuario_actual)]) -> Usuario:
-        if usuario.rol_id is None or RolUsuario(_nombre_rol(usuario)) not in roles:
+        if RolUsuario(_nombre_rol(usuario)) not in roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="El rol del usuario no tiene permiso para esta acción",
@@ -249,16 +271,36 @@ def requiere_rol(*roles: RolUsuario) -> Callable[..., Usuario]:
     return dependencia
 
 
-def _nombre_rol(usuario: Usuario) -> str:
-    # `Usuario.rol` no se carga automáticamente (sin relationship, ver modelos.py);
-    # se resuelve por email como fixture de prueba (RF-01: usuarios locales).
-    usuario_local: UsuarioLocal | None = None
-    from comun.seguridad import obtener_usuario_de_prueba
+def requiere_permiso(permiso: str) -> Callable[..., Usuario]:
+    """P-12 (Bloque 1, RF-02): `permiso` es "recurso:accion" (ver
+    docs/03-diseno/seguridad/roles-permisos.md v0.3). Reemplaza a
+    `requiere_rol` en los endpoints que ya tienen su fila en la matriz --
+    misma forma (401/403), para no cambiar ningún resultado del Bloque 0."""
+    recurso, _separador, accion = permiso.partition(":")
 
-    usuario_local = obtener_usuario_de_prueba(usuario.email)
-    if usuario_local is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Rol desconocido")
-    return usuario_local.rol.value
+    def dependencia(
+        usuario: Annotated[Usuario, Depends(usuario_actual)],
+        sesion: Annotated[Session, Depends(obtener_sesion)],
+    ) -> Usuario:
+        tiene_permiso = (
+            sesion.query(Permiso)
+            .filter_by(rol_id=usuario.rol_id, recurso=recurso, accion=accion)
+            .first()
+            is not None
+        )
+        if not tiene_permiso:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="El rol del usuario no tiene permiso para esta acción",
+            )
+        return usuario
+
+    return dependencia
+
+
+def _permisos_de(sesion: Session, usuario: Usuario) -> list[str]:
+    filas = sesion.query(Permiso).filter_by(rol_id=usuario.rol_id).all()
+    return sorted(f"{fila.recurso}:{fila.accion}" for fila in filas)
 
 
 # --- Endpoints ---
@@ -270,21 +312,85 @@ def health() -> dict:
 
 
 @app.post("/auth/login", response_model=RespuestaToken)
-def login(datos: SolicitudLogin) -> RespuestaToken:
-    usuario = autenticar_usuario_local(datos.email, datos.password)
-    if usuario is None:
+def login(
+    datos: SolicitudLogin, sesion: Annotated[Session, Depends(obtener_sesion)]
+) -> RespuestaToken:
+    try:
+        usuario = autenticar_usuario(sesion, datos.email, datos.password)
+    except UsuarioBloqueadoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Usuario bloqueado hasta {exc.bloqueado_hasta.isoformat()} "
+            "por demasiados intentos fallidos",
+        ) from exc
+    except CredencialesInvalidasError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas"
+        ) from exc
+
+    token = crear_token_acceso(usuario_id=usuario.id)
+    return RespuestaToken(access_token=token, rol=_nombre_rol(usuario))
+
+
+@app.post("/auth/cambiar-password", response_model=RespuestaCambiarPassword)
+def cambiar_password(
+    datos: SolicitudCambiarPassword,
+    usuario: Annotated[Usuario, Depends(usuario_actual)],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> RespuestaCambiarPassword:
+    """HU-25: también sirve para un cambio voluntario (no solo el
+    obligatorio del primer ingreso) -- siempre pide la contraseña actual."""
+    if usuario.password_hash is None or not verificar_password(
+        datos.password_actual, usuario.password_hash
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Contraseña actual incorrecta"
         )
-    token = crear_token_acceso(email=usuario.email, rol=usuario.rol)
-    return RespuestaToken(access_token=token, rol=usuario.rol.value)
+    if len(datos.password_nueva) < 10 or not (
+        any(c.isalpha() for c in datos.password_nueva)
+        and any(c.isdigit() for c in datos.password_nueva)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="La contraseña debe tener al menos 10 caracteres, con letras y números",
+        )
+
+    usuario.password_hash = hash_password(datos.password_nueva)
+    usuario.debe_cambiar_password = False
+    sesion.add(
+        Bitacora(
+            usuario_id=usuario.id,
+            accion="usuario_cambio_password",
+            entidad_tipo="usuario",
+            entidad_id=usuario.id,
+            fecha_hora=datetime.now(UTC),
+        )
+    )
+    sesion.commit()
+    return RespuestaCambiarPassword(cambiada=True)
+
+
+@app.get("/auth/me", response_model=RespuestaMe)
+def auth_me(
+    usuario: Annotated[Usuario, Depends(usuario_actual)],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> RespuestaMe:
+    return RespuestaMe(
+        id=str(usuario.id),
+        nombre=usuario.nombre,
+        email=usuario.email,
+        rol=_nombre_rol(usuario),
+        area=usuario.area.nombre,
+        permisos=_permisos_de(sesion, usuario),
+        debe_cambiar_password=usuario.debe_cambiar_password,
+    )
 
 
 @app.post("/documentos/iniciar", response_model=RespuestaIniciarCarga)
 def iniciar_carga(
     datos: SolicitudIniciarCarga,
     usuario: Annotated[
-        Usuario, Depends(requiere_rol(RolUsuario.ANALISTA, RolUsuario.ADMINISTRADOR))
+        Usuario, Depends(requiere_permiso("analisis:crear"))
     ],
     sesion: Annotated[Session, Depends(obtener_sesion)],
     cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
@@ -325,7 +431,7 @@ async def subir_parte_documento(
     llave_almacenamiento: str,
     request: Request,
     usuario: Annotated[
-        Usuario, Depends(requiere_rol(RolUsuario.ANALISTA, RolUsuario.ADMINISTRADOR))
+        Usuario, Depends(requiere_permiso("analisis:crear"))
     ],
     cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
 ) -> dict:
@@ -342,7 +448,7 @@ def listar_partes_subidas_documento(
     upload_id: str,
     llave_almacenamiento: str,
     usuario: Annotated[
-        Usuario, Depends(requiere_rol(RolUsuario.ANALISTA, RolUsuario.ADMINISTRADOR))
+        Usuario, Depends(requiere_permiso("analisis:crear"))
     ],
     cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
 ) -> list[ParteSubidaEsquema]:
@@ -363,7 +469,7 @@ def completar_carga(
     llave_almacenamiento: str,
     datos: SolicitudCompletarCarga,
     usuario: Annotated[
-        Usuario, Depends(requiere_rol(RolUsuario.ANALISTA, RolUsuario.ADMINISTRADOR))
+        Usuario, Depends(requiere_permiso("analisis:crear"))
     ],
     sesion: Annotated[Session, Depends(obtener_sesion)],
     cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
@@ -876,7 +982,7 @@ def decidir_hallazgo(
     hallazgo_id: str,
     datos: SolicitudDecision,
     usuario: Annotated[
-        Usuario, Depends(requiere_rol(RolUsuario.REVISOR, RolUsuario.ADMINISTRADOR))
+        Usuario, Depends(requiere_permiso("hallazgos:decidir"))
     ],
     sesion: Annotated[Session, Depends(obtener_sesion)],
 ) -> RespuestaDecision:
@@ -941,7 +1047,7 @@ def decidir_hallazgo(
 def generar_corregido(
     analisis_id: str,
     usuario: Annotated[
-        Usuario, Depends(requiere_rol(RolUsuario.REVISOR, RolUsuario.ADMINISTRADOR))
+        Usuario, Depends(requiere_permiso("hallazgos:decidir"))
     ],
     sesion: Annotated[Session, Depends(obtener_sesion)],
     cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
@@ -1026,7 +1132,7 @@ def generar_corregido(
 @app.get("/reportes/ajustes-autoaprobados", response_model=list[AjusteAutoaprobadoEsquema])
 def listar_ajustes_autoaprobados(
     usuario: Annotated[
-        Usuario, Depends(requiere_rol(RolUsuario.ADMINISTRADOR, RolUsuario.AUDITOR))
+        Usuario, Depends(requiere_permiso("reportes:autoaprobados"))
     ],
     sesion: Annotated[Session, Depends(obtener_sesion)],
     fecha_desde: date | None = None,
@@ -1415,10 +1521,7 @@ _ES_HOJA_EMBEBIDA = 'hoja "'
 @app.get("/curaduria/fuentes", response_model=list[FuenteCuraduriaEsquema])
 def listar_fuentes_curaduria(
     usuario: Annotated[
-        Usuario,
-        Depends(
-            requiere_rol(RolUsuario.CURADOR, RolUsuario.ADMINISTRADOR, RolUsuario.AUDITOR)
-        ),
+        Usuario, Depends(requiere_permiso("conocimiento:ver"))
     ],
     sesion: Annotated[Session, Depends(obtener_sesion)],
 ) -> list[FuenteCuraduriaEsquema]:
@@ -1435,7 +1538,7 @@ def listar_fuentes_curaduria(
 
 @app.post("/curaduria/fuentes", response_model=FuenteCuraduriaEsquema)
 async def crear_fuente(
-    usuario: Annotated[Usuario, Depends(requiere_rol(RolUsuario.CURADOR))],
+    usuario: Annotated[Usuario, Depends(requiere_permiso("conocimiento:gestionar"))],
     sesion: Annotated[Session, Depends(obtener_sesion)],
     cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
     fuente_id: Annotated[str, Form()],
@@ -1492,10 +1595,7 @@ async def crear_fuente(
 def vista_previa_fuente(
     fuente_id: str,
     usuario: Annotated[
-        Usuario,
-        Depends(
-            requiere_rol(RolUsuario.CURADOR, RolUsuario.ADMINISTRADOR, RolUsuario.AUDITOR)
-        ),
+        Usuario, Depends(requiere_permiso("conocimiento:ver"))
     ],
     sesion: Annotated[Session, Depends(obtener_sesion)],
     cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
@@ -1537,7 +1637,7 @@ def vista_previa_fuente(
 @app.post("/curaduria/fuentes/{fuente_id}/aprobar", response_model=RespuestaAprobarFuente)
 def aprobar_fuente_endpoint(
     fuente_id: str,
-    usuario: Annotated[Usuario, Depends(requiere_rol(RolUsuario.CURADOR))],
+    usuario: Annotated[Usuario, Depends(requiere_permiso("conocimiento:aprobar"))],
     sesion: Annotated[Session, Depends(obtener_sesion)],
     cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
     cliente_qdrant: Annotated[QdrantClient, Depends(obtener_cliente_qdrant)],
@@ -1623,7 +1723,7 @@ def aprobar_fuente_endpoint(
 @app.post("/curaduria/fuentes/{fuente_id}/marcar-obsoleta", response_model=FuenteCuraduriaEsquema)
 def marcar_fuente_obsoleta(
     fuente_id: str,
-    usuario: Annotated[Usuario, Depends(requiere_rol(RolUsuario.CURADOR))],
+    usuario: Annotated[Usuario, Depends(requiere_permiso("conocimiento:aprobar"))],
     sesion: Annotated[Session, Depends(obtener_sesion)],
     cliente_qdrant: Annotated[QdrantClient, Depends(obtener_cliente_qdrant)],
     coleccion: Annotated[str, Depends(obtener_coleccion_kb)],
@@ -1657,10 +1757,7 @@ def marcar_fuente_obsoleta(
 @app.get("/curaduria/glosario", response_model=list[GlosarioEsquema])
 def listar_glosario_curaduria(
     usuario: Annotated[
-        Usuario,
-        Depends(
-            requiere_rol(RolUsuario.CURADOR, RolUsuario.ADMINISTRADOR, RolUsuario.AUDITOR)
-        ),
+        Usuario, Depends(requiere_permiso("conocimiento:ver"))
     ],
     sesion: Annotated[Session, Depends(obtener_sesion)],
 ) -> list[GlosarioEsquema]:
@@ -1684,7 +1781,7 @@ def listar_glosario_curaduria(
 @app.post("/curaduria/glosario", response_model=GlosarioEsquema)
 def crear_termino_glosario(
     datos: SolicitudGlosario,
-    usuario: Annotated[Usuario, Depends(requiere_rol(RolUsuario.CURADOR))],
+    usuario: Annotated[Usuario, Depends(requiere_permiso("conocimiento:gestionar"))],
     sesion: Annotated[Session, Depends(obtener_sesion)],
 ) -> GlosarioEsquema:
     fila = Glosario(area_id=usuario.area_id, termino=datos.termino, definicion=datos.definicion)
@@ -1715,7 +1812,7 @@ def crear_termino_glosario(
 @app.delete("/curaduria/glosario/{termino_id}", status_code=status.HTTP_204_NO_CONTENT)
 def eliminar_termino_glosario(
     termino_id: str,
-    usuario: Annotated[Usuario, Depends(requiere_rol(RolUsuario.CURADOR))],
+    usuario: Annotated[Usuario, Depends(requiere_permiso("conocimiento:gestionar"))],
     sesion: Annotated[Session, Depends(obtener_sesion)],
 ) -> Response:
     fila = sesion.get(Glosario, uuid.UUID(termino_id))
@@ -1759,7 +1856,7 @@ def _errores_a_esquema(resultado: ResultadoImportacion) -> list[ErrorImportacion
 
 @app.post("/curaduria/plantilla/validar", response_model=RespuestaValidarPlantilla)
 async def validar_plantilla_endpoint(
-    usuario: Annotated[Usuario, Depends(requiere_rol(RolUsuario.CURADOR))],
+    usuario: Annotated[Usuario, Depends(requiere_permiso("conocimiento:gestionar"))],
     archivo: Annotated[UploadFile, File()],
 ) -> RespuestaValidarPlantilla:
     """Lee y valida la plantilla SIN persistir nada (RF-16, Bloque K2/K5) --
@@ -1775,7 +1872,7 @@ async def validar_plantilla_endpoint(
 
 @app.post("/curaduria/plantilla/importar", response_model=RespuestaImportarPlantilla)
 async def importar_plantilla_endpoint(
-    usuario: Annotated[Usuario, Depends(requiere_rol(RolUsuario.CURADOR))],
+    usuario: Annotated[Usuario, Depends(requiere_permiso("conocimiento:gestionar"))],
     sesion: Annotated[Session, Depends(obtener_sesion)],
     archivo: Annotated[UploadFile, File()],
 ) -> RespuestaImportarPlantilla:

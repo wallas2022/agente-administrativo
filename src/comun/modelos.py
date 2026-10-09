@@ -49,6 +49,11 @@ class Rol(Base):
 
 class Permiso(Base):
     __tablename__ = "permiso"
+    __table_args__ = (
+        # P-12 (Bloque 1): una fila por (rol, recurso, acción) -- la semilla
+        # de comun.permisos es idempotente apoyándose en esta restricción.
+        UniqueConstraint("rol_id", "recurso", "accion", name="ux_permiso_rol_recurso_accion"),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     rol_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("rol.id"), nullable=False)
@@ -66,10 +71,30 @@ class Usuario(Base):
     rol_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("rol.id"), nullable=False)
     origen_autenticacion: Mapped[str] = mapped_column(String(20), default="local")
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
+    # P-12 (Bloque 1, RF-01/RNF-SEG-01): nullable porque un usuario de
+    # origen_autenticacion != "local" (AD/LDAP, fuera de alcance todavía) no
+    # tiene contraseña propia que guardar acá.
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    debe_cambiar_password: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    intentos_fallidos: Mapped[int] = mapped_column(
+        nullable=False, default=0, server_default=text("0")
+    )
+    bloqueado_hasta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ultimo_acceso: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    rol: Mapped["Rol"] = relationship()
+    area: Mapped["Area"] = relationship()
 
 
 class Documento(Base):
     __tablename__ = "documento"
+    __table_args__ = (
+        # P-12 (Bloque 1, RNF-SEG-02): el historial filtra por alcance
+        # (propio/área) principalmente a través de esta combinación.
+        Index("ix_documento_usuario_carga_area", "usuario_carga_id", "area_id"),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     nombre_original: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -106,6 +131,11 @@ class TipoRevision(Base):
 
 class Analisis(Base):
     __tablename__ = "analisis"
+    __table_args__ = (
+        # P-12 (Bloque 1, RNF-SEG-02): GET /historial ordena/filtra por esta
+        # columna -- debe responder en <= 1 s con 10,000 análisis.
+        Index("ix_analisis_fecha_inicio", "fecha_inicio"),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     documento_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documento.id"), nullable=False)
