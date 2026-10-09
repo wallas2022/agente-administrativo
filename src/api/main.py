@@ -23,6 +23,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     Request,
     Response,
     UploadFile,
@@ -33,6 +34,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWTError
 from qdrant_client import QdrantClient
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from api.esquemas import (
@@ -45,6 +47,7 @@ from api.esquemas import (
     FuenteCuraduriaEsquema,
     GlosarioEsquema,
     HallazgoEsquema,
+    HistorialItemEsquema,
     ParteSubidaEsquema,
     RespuestaAnalisis,
     RespuestaAprobarFuente,
@@ -53,6 +56,7 @@ from api.esquemas import (
     RespuestaDecision,
     RespuestaEditarTextoOcr,
     RespuestaGenerarCorregido,
+    RespuestaHistorial,
     RespuestaImportarPlantilla,
     RespuestaIniciarCarga,
     RespuestaMe,
@@ -976,6 +980,115 @@ def listar_bitacora_analisis(
         BitacoraEsquema(id=str(e.id), accion=e.accion, fecha_hora=e.fecha_hora, detalle=e.detalle)
         for e in entradas
     ]
+
+
+ALCANCES_HISTORIAL = ("propio", "area", "todas")
+
+
+@app.get("/historial", response_model=RespuestaHistorial)
+def listar_historial(
+    usuario: Annotated[Usuario, Depends(usuario_actual)],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+    alcance: str = "propio",
+    desde: date | None = None,
+    hasta: date | None = None,
+    tipo_revision: str | None = None,
+    estado: str | None = None,
+    archivo: str | None = None,
+    usuario_id: str | None = None,
+    area_id: str | None = None,
+    pagina: int = Query(default=1, ge=1),
+    tamano_pagina: int = Query(default=20, ge=1, le=100),
+) -> RespuestaHistorial:
+    """HU-21: a diferencia de GET /analisis (panel de "análisis recientes",
+    siempre del área/todas según rol fijo), acá el alcance lo elige quien
+    consulta -- dentro de lo que su permiso le permita (roles-permisos.md
+    v0.3: historial:propio/área/todas)."""
+    if alcance not in ALCANCES_HISTORIAL:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"alcance debe ser uno de {ALCANCES_HISTORIAL}",
+        )
+    tiene_permiso = (
+        sesion.query(Permiso)
+        .filter_by(rol_id=usuario.rol_id, recurso="historial", accion=alcance)
+        .first()
+        is not None
+    )
+    if not tiene_permiso:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=f"No tiene el permiso historial:{alcance}"
+        )
+
+    consulta = (
+        sesion.query(Analisis, Documento, TipoRevision, Usuario, Area)
+        .join(Documento, Analisis.documento_id == Documento.id)
+        .join(TipoRevision, Analisis.tipo_revision_id == TipoRevision.id)
+        .join(Usuario, Analisis.usuario_id == Usuario.id)
+        .join(Area, Documento.area_id == Area.id)
+    )
+    if alcance == "propio":
+        consulta = consulta.filter(Analisis.usuario_id == usuario.id)
+    elif alcance == "area":
+        consulta = consulta.filter(Documento.area_id == usuario.area_id)
+    # alcance == "todas": sin filtro de usuario/área -- Administrador/Auditor
+    # pueden acotar igual con los parámetros usuario_id/area_id de abajo.
+
+    if desde is not None:
+        consulta = consulta.filter(Analisis.fecha_inicio >= desde)
+    if hasta is not None:
+        consulta = consulta.filter(Analisis.fecha_inicio < hasta + timedelta(days=1))
+    if tipo_revision:
+        consulta = consulta.filter(TipoRevision.nombre == tipo_revision)
+    if estado:
+        consulta = consulta.filter(Documento.estado == estado)
+    if archivo:
+        consulta = consulta.filter(Documento.nombre_original.ilike(f"%{archivo}%"))
+    if usuario_id:
+        consulta = consulta.filter(Analisis.usuario_id == uuid.UUID(usuario_id))
+    if area_id:
+        consulta = consulta.filter(Documento.area_id == uuid.UUID(area_id))
+
+    total = consulta.count()
+    filas = (
+        consulta.order_by(Analisis.fecha_inicio.desc())
+        .offset((pagina - 1) * tamano_pagina)
+        .limit(tamano_pagina)
+        .all()
+    )
+
+    analisis_ids = [a.id for a, _, _, _, _ in filas]
+    conteos: dict[uuid.UUID, int] = {
+        analisis_id: total_hallazgos
+        for analisis_id, total_hallazgos in (
+            sesion.query(Hallazgo.analisis_id, func.count(Hallazgo.id))
+            .filter(Hallazgo.analisis_id.in_(analisis_ids))
+            .group_by(Hallazgo.analisis_id)
+            .all()
+        )
+    }
+
+    resultados = [
+        HistorialItemEsquema(
+            id=str(a.id),
+            nombre_documento=d.nombre_original,
+            tipo_revision=tr.nombre,
+            estado=d.estado,
+            fecha_inicio=a.fecha_inicio,
+            fecha_fin=a.fecha_fin,
+            duracion_segundos=(
+                (a.fecha_fin - a.fecha_inicio).total_seconds() if a.fecha_fin else None
+            ),
+            usuario_nombre=u.nombre,
+            usuario_email=u.email,
+            area_nombre=ar.nombre,
+            numero_hallazgos=conteos.get(a.id, 0),
+        )
+        for a, d, tr, u, ar in filas
+    ]
+    return RespuestaHistorial(
+        total=total, pagina=pagina, tamano_pagina=tamano_pagina, resultados=resultados
+    )
 
 
 @app.get("/bitacora", response_model=list[BitacoraGlobalEsquema])

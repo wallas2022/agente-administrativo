@@ -95,6 +95,31 @@ class RespuestaAnalisis(BaseModel):
     tiene_version_corregida: bool = False
 
 
+class HistorialItemEsquema(BaseModel):
+    """P-12 (Bloque 3, HU-21): una fila de GET /historial -- a diferencia de
+    RespuestaAnalisis (pantalla de un análisis puntual), trae quién lo
+    corrió, su área, la duración ya calculada y el número de hallazgos."""
+
+    id: str
+    nombre_documento: str | None = None
+    tipo_revision: str
+    estado: str
+    fecha_inicio: datetime
+    fecha_fin: datetime | None = None
+    duracion_segundos: float | None = None
+    usuario_nombre: str
+    usuario_email: str
+    area_nombre: str
+    numero_hallazgos: int
+
+
+class RespuestaHistorial(BaseModel):
+    total: int
+    pagina: int
+    tamano_pagina: int
+    resultados: list[HistorialItemEsquema]
+
+
 class HallazgoEsquema(BaseModel):
     id: str
     regla_codigo: str | None = None

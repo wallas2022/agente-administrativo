@@ -1,14 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { clienteApi } from "../api/cliente";
+import { rutaDeAnalisis } from "../utils/rutaAnalisis";
 import { EstadoBadge } from "./EstadoBadge";
 import "./PanelAnalisisRecientes.css";
-
-const ESTADOS_EN_PROCESO = new Set(["cargado", "procesando"]);
-
-function rutaDe(a: { id: string; estado: string }): string {
-  return ESTADOS_EN_PROCESO.has(a.estado) ? `/analisis/${a.id}` : `/analisis/${a.id}/hallazgos`;
-}
 
 type Analisis = {
   id: string;
@@ -56,7 +51,7 @@ export function PanelAnalisisRecientes({ actualizarEn }: { actualizarEn: number 
       <ul className="panel-recientes__lista">
         {analisis?.map((a) => (
           <li key={a.id} className="panel-recientes__item">
-            <Link to={rutaDe(a)} className="panel-recientes__enlace">
+            <Link to={rutaDeAnalisis(a)} className="panel-recientes__enlace">
               <span className="panel-recientes__nombre">{a.nombre_documento ?? a.id}</span>
               <EstadoBadge estado={a.estado} />
             </Link>

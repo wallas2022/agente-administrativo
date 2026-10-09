@@ -254,6 +254,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/historial": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Listar Historial
+         * @description HU-21: a diferencia de GET /analisis (panel de "análisis recientes",
+         *     siempre del área/todas según rol fijo), acá el alcance lo elige quien
+         *     consulta -- dentro de lo que su permiso le permita (roles-permisos.md
+         *     v0.3: historial:propio/área/todas).
+         */
+        get: operations["listar_historial_historial_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/bitacora": {
         parameters: {
             query?: never;
@@ -881,6 +904,39 @@ export interface components {
             /** Referencia Citada */
             referencia_citada?: string | null;
         };
+        /**
+         * HistorialItemEsquema
+         * @description P-12 (Bloque 3, HU-21): una fila de GET /historial -- a diferencia de
+         *     RespuestaAnalisis (pantalla de un análisis puntual), trae quién lo
+         *     corrió, su área, la duración ya calculada y el número de hallazgos.
+         */
+        HistorialItemEsquema: {
+            /** Id */
+            id: string;
+            /** Nombre Documento */
+            nombre_documento?: string | null;
+            /** Tipo Revision */
+            tipo_revision: string;
+            /** Estado */
+            estado: string;
+            /**
+             * Fecha Inicio
+             * Format: date-time
+             */
+            fecha_inicio: string;
+            /** Fecha Fin */
+            fecha_fin?: string | null;
+            /** Duracion Segundos */
+            duracion_segundos?: number | null;
+            /** Usuario Nombre */
+            usuario_nombre: string;
+            /** Usuario Email */
+            usuario_email: string;
+            /** Area Nombre */
+            area_nombre: string;
+            /** Numero Hallazgos */
+            numero_hallazgos: number;
+        };
         /** ParteSubidaEsquema */
         ParteSubidaEsquema: {
             /** Numero Parte */
@@ -976,6 +1032,17 @@ export interface components {
         RespuestaGenerarCorregido: {
             /** Generado */
             generado: boolean;
+        };
+        /** RespuestaHistorial */
+        RespuestaHistorial: {
+            /** Total */
+            total: number;
+            /** Pagina */
+            pagina: number;
+            /** Tamano Pagina */
+            tamano_pagina: number;
+            /** Resultados */
+            resultados: components["schemas"]["HistorialItemEsquema"][];
         };
         /** RespuestaImportarPlantilla */
         RespuestaImportarPlantilla: {
@@ -1514,6 +1581,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BitacoraEsquema"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listar_historial_historial_get: {
+        parameters: {
+            query?: {
+                alcance?: string;
+                desde?: string | null;
+                hasta?: string | null;
+                tipo_revision?: string | null;
+                estado?: string | null;
+                archivo?: string | null;
+                usuario_id?: string | null;
+                area_id?: string | null;
+                pagina?: number;
+                tamano_pagina?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaHistorial"];
                 };
             };
             /** @description Validation Error */

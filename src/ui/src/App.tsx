@@ -6,6 +6,7 @@ import { BaseConocimiento } from "./paginas/BaseConocimiento";
 import { Bitacora } from "./paginas/Bitacora";
 import { CambiarPassword } from "./paginas/CambiarPassword";
 import { Hallazgos } from "./paginas/Hallazgos";
+import { Historial } from "./paginas/Historial";
 import { Login } from "./paginas/Login";
 import { NuevoAnalisis } from "./paginas/NuevoAnalisis";
 import { Proximamente } from "./paginas/Proximamente";
@@ -38,7 +39,7 @@ export function App() {
         <Route path="/" element={<NuevoAnalisis />} />
         <Route path="/analisis/:analisisId" element={<AgenteTrabajando />} />
         <Route path="/analisis/:analisisId/hallazgos" element={<Hallazgos />} />
-        <Route path="/historial" element={<Proximamente titulo="Historial" />} />
+        <Route path="/historial" element={<Historial />} />
         <Route
           path="/base-de-conocimiento"
           element={
