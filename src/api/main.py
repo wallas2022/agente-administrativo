@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 from api.esquemas import (
     AjusteAutoaprobadoEsquema,
     BitacoraEsquema,
+    BitacoraGlobalEsquema,
     ErrorImportacionEsquema,
     FragmentoVistaPreviaEsquema,
     FuenteConocimientoEsquema,
@@ -974,6 +975,45 @@ def listar_bitacora_analisis(
     return [
         BitacoraEsquema(id=str(e.id), accion=e.accion, fecha_hora=e.fecha_hora, detalle=e.detalle)
         for e in entradas
+    ]
+
+
+@app.get("/bitacora", response_model=list[BitacoraGlobalEsquema])
+def listar_bitacora(
+    usuario: Annotated[Usuario, Depends(requiere_permiso("bitacora:ver"))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+    fecha_desde: date | None = None,
+    fecha_hasta: date | None = None,
+    usuario_email: str | None = None,
+    accion: str | None = None,
+) -> list[BitacoraGlobalEsquema]:
+    """HU-20 (Bloque 2): pantalla "Bitácora", auditoría global de solo
+    lectura para Administrador/Auditor -- distinta de
+    GET /analisis/{id}/bitacora (detalle de pasos de UN análisis puntual,
+    gobernado por segmentación de área, no por este permiso)."""
+    consulta = sesion.query(Bitacora, Usuario).join(Usuario, Bitacora.usuario_id == Usuario.id)
+    if fecha_desde is not None:
+        consulta = consulta.filter(Bitacora.fecha_hora >= fecha_desde)
+    if fecha_hasta is not None:
+        consulta = consulta.filter(Bitacora.fecha_hora < fecha_hasta + timedelta(days=1))
+    if usuario_email:
+        consulta = consulta.filter(Usuario.email.ilike(f"%{usuario_email}%"))
+    if accion:
+        consulta = consulta.filter(Bitacora.accion.ilike(f"%{accion}%"))
+
+    filas = consulta.order_by(Bitacora.fecha_hora.desc()).all()
+    return [
+        BitacoraGlobalEsquema(
+            id=str(bitacora.id),
+            fecha_hora=bitacora.fecha_hora,
+            usuario_email=usuario_fila.email,
+            usuario_nombre=usuario_fila.nombre,
+            rol=bitacora.rol,
+            accion=bitacora.accion,
+            entidad_tipo=bitacora.entidad_tipo,
+            detalle=bitacora.detalle,
+        )
+        for bitacora, usuario_fila in filas
     ]
 
 

@@ -1,23 +1,38 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
+import type { Usuario } from "./ContextoAuth";
 import { RutaProtegida } from "./RutaProtegida";
 
-const usuarioMock = vi.hoisted(() => ({ actual: null as { email: string; rol: string } | null }));
+const usuarioMock = vi.hoisted(() => ({ actual: null as Usuario | null }));
 
 vi.mock("./ContextoAuth", () => ({
   useAuth: () => ({ usuario: usuarioMock.actual }),
 }));
 
-function renderizarEn(ruta: string, rolesPermitidos?: string[]) {
+function _usuario(sobrescribe: Partial<Usuario> = {}): Usuario {
+  return {
+    id: "u1",
+    nombre: "Ana Lista",
+    email: "analista@local",
+    rol: "analista",
+    area: "Contabilidad",
+    permisos: ["analisis:crear"],
+    debeCambiarPassword: false,
+    ...sobrescribe,
+  };
+}
+
+function renderizarEn(ruta: string, permisoRequerido?: string | string[]) {
   return render(
     <MemoryRouter initialEntries={[ruta]}>
       <Routes>
         <Route path="/login" element={<div>pantalla de login</div>} />
+        <Route path="/cambiar-password" element={<div>pantalla de cambiar contraseña</div>} />
         <Route
           path="/"
           element={
-            <RutaProtegida rolesPermitidos={rolesPermitidos}>
+            <RutaProtegida permisoRequerido={permisoRequerido}>
               <div>contenido protegido</div>
             </RutaProtegida>
           }
@@ -34,18 +49,28 @@ describe("RutaProtegida", () => {
     expect(screen.getByText("pantalla de login")).toBeInTheDocument();
   });
 
-  it("muestra el contenido si hay sesión y no se exige un rol", () => {
-    usuarioMock.actual = { email: "analista@local", rol: "analista" };
+  it("muestra el contenido si hay sesión y no se exige un permiso", () => {
+    usuarioMock.actual = _usuario();
     renderizarEn("/");
     expect(screen.getByText("contenido protegido")).toBeInTheDocument();
   });
 
-  it("redirige a / si el rol del usuario no está permitido", () => {
-    usuarioMock.actual = { email: "analista@local", rol: "analista" };
-    renderizarEn("/", ["revisor", "administrador"]);
-    // Se redirige a "/" (misma ruta protegida), que vuelve a exigir el rol:
-    // termina mostrando el mismo contenido protegido solo si el rol calza,
-    // así que con un rol no permitido el contenido nunca aparece.
+  it("muestra 'Sin acceso' (misma URL) si falta el permiso exigido", () => {
+    usuarioMock.actual = _usuario({ permisos: ["historial:propio"] });
+    renderizarEn("/", "analisis:crear");
     expect(screen.queryByText("contenido protegido")).not.toBeInTheDocument();
+    expect(screen.getByText("Sin acceso")).toBeInTheDocument();
+  });
+
+  it("muestra el contenido si tiene al menos uno de varios permisos exigidos", () => {
+    usuarioMock.actual = _usuario({ permisos: ["roles:administrar"] });
+    renderizarEn("/", ["usuarios:administrar", "roles:administrar", "areas:administrar"]);
+    expect(screen.getByText("contenido protegido")).toBeInTheDocument();
+  });
+
+  it("redirige a /cambiar-password si debe cambiar la contraseña, sin importar el permiso", () => {
+    usuarioMock.actual = _usuario({ debeCambiarPassword: true });
+    renderizarEn("/", "analisis:crear");
+    expect(screen.getByText("pantalla de cambiar contraseña")).toBeInTheDocument();
   });
 });

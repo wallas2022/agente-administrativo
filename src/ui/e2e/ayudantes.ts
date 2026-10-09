@@ -17,5 +17,8 @@ export async function iniciarSesion(page: Page, correo: string): Promise<void> {
   await page.getByLabel("Correo").fill(correo);
   await page.getByLabel("Contraseña").fill(CONTRASENA);
   await page.getByRole("button", { name: "Ingresar" }).click();
-  await page.waitForURL("/");
+  // P-12 (Bloque 2): el destino tras login depende del permiso de cada rol
+  // (analisis:crear -> "/", el resto -> "/historial", ver
+  // ContextoAuth.rutaInicial) -- no asumimos "/" para todos.
+  await page.waitForURL((url) => url.pathname !== "/login");
 }

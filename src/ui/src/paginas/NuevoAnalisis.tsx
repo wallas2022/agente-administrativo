@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { clienteApi } from "../api/cliente";
+import { useAuth } from "../auth/ContextoAuth";
 import { PanelAnalisisRecientes } from "../componentes/PanelAnalisisRecientes";
 import { dependenciasReales } from "../subida/dependenciasReales";
 import { extensionDe, subirDocumento, type ProgresoSubida } from "../subida/subirDocumento";
@@ -75,6 +76,8 @@ const NOMBRE_TEXTO_PEGADO = "texto-pegado.txt";
 
 export function NuevoAnalisis() {
   const navegar = useNavigate();
+  const { tienePermiso } = useAuth();
+  const puedeCrearAnalisis = tienePermiso("analisis:crear");
   const [tipoRevision, setTipoRevision] = useState<string>("contable");
   const [periodoCierre, setPeriodoCierre] = useState("");
   const [archivo, setArchivo] = useState<File | null>(null);
@@ -100,10 +103,11 @@ export function NuevoAnalisis() {
   const [actualizarPanelEn, setActualizarPanelEn] = useState(0);
 
   useEffect(() => {
+    if (!puedeCrearAnalisis) return;
     clienteApi.GET("/fuentes-conocimiento").then(({ data, error: errorRespuesta }) => {
       if (!errorRespuesta && data) setFuentes(data);
     });
-  }, []);
+  }, [puedeCrearAnalisis]);
 
   function alternarFuente(id: string) {
     setFuentesSeleccionadas((actual) => {
@@ -201,6 +205,18 @@ export function NuevoAnalisis() {
   }
 
   const porcentaje = progreso ? Math.round((progreso.bytesSubidos / progreso.bytesTotales) * 100) : 0;
+
+  // RF-02/RNF-02 (P-12, Bloque 2): sin analisis:crear (Revisor, Curador,
+  // Auditor) no se ofrece el formulario de carga -- se queda solo con el
+  // panel de análisis recientes, que es donde hoy llegan a sus análisis
+  // propios/del área mientras el Historial real (Bloque 3) no existe.
+  if (!puedeCrearAnalisis) {
+    return (
+      <div className="nuevo-analisis">
+        <PanelAnalisisRecientes actualizarEn={actualizarPanelEn} />
+      </div>
+    );
+  }
 
   return (
     <div className="nuevo-analisis">

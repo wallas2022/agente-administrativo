@@ -144,6 +144,21 @@ class BitacoraEsquema(BaseModel):
     detalle: str | None = None
 
 
+class BitacoraGlobalEsquema(BaseModel):
+    """P-12 (Bloque 2, HU-20): auditoría global para Administrador/Auditor
+    (`bitacora:ver`) -- distinta de BitacoraEsquema, que es el detalle de
+    pasos de UN análisis puntual (ver roles-permisos.md v0.3)."""
+
+    id: str
+    fecha_hora: datetime
+    usuario_email: str
+    usuario_nombre: str
+    rol: str | None = None
+    accion: str
+    entidad_tipo: str
+    detalle: str | None = None
+
+
 class AjusteAutoaprobadoEsquema(BaseModel):
     """SRS v0.9 (RG-06, PP-09): una fila del reporte "Ajustes autoaprobados"
     -- un hallazgo de CU-01 (contable) que el mismo usuario que cargó el

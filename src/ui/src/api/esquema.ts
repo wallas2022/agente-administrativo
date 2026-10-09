@@ -38,6 +38,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/cambiar-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cambiar Password
+         * @description HU-25: también sirve para un cambio voluntario (no solo el
+         *     obligatorio del primer ingreso) -- siempre pide la contraseña actual.
+         */
+        post: operations["cambiar_password_auth_cambiar_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Auth Me */
+        get: operations["auth_me_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/documentos/iniciar": {
         parameters: {
             query?: never;
@@ -216,6 +254,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/bitacora": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Listar Bitacora
+         * @description HU-20 (Bloque 2): pantalla "Bitácora", auditoría global de solo
+         *     lectura para Administrador/Auditor -- distinta de
+         *     GET /analisis/{id}/bitacora (detalle de pasos de UN análisis puntual,
+         *     gobernado por segmentación de área, no por este permiso).
+         */
+        get: operations["listar_bitacora_bitacora_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hallazgos/{hallazgo_id}/decision": {
         parameters: {
             query?: never;
@@ -324,6 +385,74 @@ export interface paths {
          *     el navegador.
          */
         get: operations["descargar_version_corregida_documentos__documento_id__version_corregida_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documentos/{documento_id}/version-original": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Descargar Version Original
+         * @description CU-06 (Bloque 3): sirve el archivo original (imagen o PDF) para la
+         *     vista lado a lado -- no existía ningún endpoint para ver (no descargar)
+         *     la versión original antes de este bloque, solo `version-corregida`.
+         */
+        get: operations["descargar_version_original_documentos__documento_id__version_original_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documentos/{documento_id}/texto-ocr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Editar Texto Ocr
+         * @description CU-06 (Bloque 3): edición manual del texto reconocido -- sobrescribe
+         *     el mismo objeto en S3 (misma `ruta_almacenamiento`), no crea una versión
+         *     nueva. El motor de OCR nunca autocorrige (RN-06); esto es una corrección
+         *     humana explícita, distinta.
+         */
+        put: operations["editar_texto_ocr_documentos__documento_id__texto_ocr_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documentos/{documento_id}/ocr-docx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Descargar Ocr Docx
+         * @description CU-06 (Bloque 3): descarga .docx del texto de OCR con las palabras
+         *     dudosas resaltadas en rojo/amarillo (RN-06) -- genera el documento al
+         *     vuelo a partir del texto actual (incluye ediciones manuales) y los
+         *     `Hallazgo` de palabra dudosa ya persistidos (Bloque 2).
+         */
+        get: operations["descargar_ocr_docx_documentos__documento_id__ocr_docx_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -560,6 +689,33 @@ export interface components {
             /** Detalle */
             detalle?: string | null;
         };
+        /**
+         * BitacoraGlobalEsquema
+         * @description P-12 (Bloque 2, HU-20): auditoría global para Administrador/Auditor
+         *     (`bitacora:ver`) -- distinta de BitacoraEsquema, que es el detalle de
+         *     pasos de UN análisis puntual (ver roles-permisos.md v0.3).
+         */
+        BitacoraGlobalEsquema: {
+            /** Id */
+            id: string;
+            /**
+             * Fecha Hora
+             * Format: date-time
+             */
+            fecha_hora: string;
+            /** Usuario Email */
+            usuario_email: string;
+            /** Usuario Nombre */
+            usuario_nombre: string;
+            /** Rol */
+            rol?: string | null;
+            /** Accion */
+            accion: string;
+            /** Entidad Tipo */
+            entidad_tipo: string;
+            /** Detalle */
+            detalle?: string | null;
+        };
         /** Body_crear_fuente_curaduria_fuentes_post */
         Body_crear_fuente_curaduria_fuentes_post: {
             /** Fuente Id */
@@ -783,6 +939,11 @@ export interface components {
             /** Version Anterior Obsoleta */
             version_anterior_obsoleta: boolean;
         };
+        /** RespuestaCambiarPassword */
+        RespuestaCambiarPassword: {
+            /** Cambiada */
+            cambiada: boolean;
+        };
         /** RespuestaCompletarCarga */
         RespuestaCompletarCarga: {
             /** Documento Id */
@@ -805,6 +966,11 @@ export interface components {
              * Format: date-time
              */
             fecha: string;
+        };
+        /** RespuestaEditarTextoOcr */
+        RespuestaEditarTextoOcr: {
+            /** Guardado */
+            guardado: boolean;
         };
         /** RespuestaGenerarCorregido */
         RespuestaGenerarCorregido: {
@@ -830,6 +996,27 @@ export interface components {
             upload_id: string;
             /** Llave Almacenamiento */
             llave_almacenamiento: string;
+        };
+        /**
+         * RespuestaMe
+         * @description P-12 (Bloque 1, HU-20): lo que la UI necesita para construir el menú
+         *     y las rutas -- nunca la contraseña ni su hash.
+         */
+        RespuestaMe: {
+            /** Id */
+            id: string;
+            /** Nombre */
+            nombre: string;
+            /** Email */
+            email: string;
+            /** Rol */
+            rol: string;
+            /** Area */
+            area: string;
+            /** Permisos */
+            permisos: string[];
+            /** Debe Cambiar Password */
+            debe_cambiar_password: boolean;
         };
         /** RespuestaToken */
         RespuestaToken: {
@@ -859,6 +1046,13 @@ export interface components {
             /** Fragmentos */
             fragmentos: components["schemas"]["FragmentoVistaPreviaEsquema"][];
         };
+        /** SolicitudCambiarPassword */
+        SolicitudCambiarPassword: {
+            /** Password Actual */
+            password_actual: string;
+            /** Password Nueva */
+            password_nueva: string;
+        };
         /** SolicitudCompletarCarga */
         SolicitudCompletarCarga: {
             /** Partes */
@@ -878,6 +1072,14 @@ export interface components {
             resultado: string;
             /** Comentario */
             comentario?: string | null;
+        };
+        /**
+         * SolicitudEditarTextoOcr
+         * @description CU-06 (Bloque 3): edición manual del texto reconocido por OCR.
+         */
+        SolicitudEditarTextoOcr: {
+            /** Texto */
+            texto: string;
         };
         /** SolicitudGlosario */
         SolicitudGlosario: {
@@ -971,6 +1173,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cambiar_password_auth_cambiar_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SolicitudCambiarPassword"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaCambiarPassword"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    auth_me_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaMe"];
                 };
             };
         };
@@ -1272,6 +1527,40 @@ export interface operations {
             };
         };
     };
+    listar_bitacora_bitacora_get: {
+        parameters: {
+            query?: {
+                fecha_desde?: string | null;
+                fecha_hasta?: string | null;
+                usuario_email?: string | null;
+                accion?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BitacoraGlobalEsquema"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     decidir_hallazgo_hallazgos__hallazgo_id__decision_post: {
         parameters: {
             query?: never;
@@ -1392,6 +1681,103 @@ export interface operations {
         };
     };
     descargar_version_corregida_documentos__documento_id__version_corregida_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documento_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    descargar_version_original_documentos__documento_id__version_original_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documento_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    editar_texto_ocr_documentos__documento_id__texto_ocr_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documento_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SolicitudEditarTextoOcr"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaEditarTextoOcr"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    descargar_ocr_docx_documentos__documento_id__ocr_docx_get: {
         parameters: {
             query?: never;
             header?: never;
