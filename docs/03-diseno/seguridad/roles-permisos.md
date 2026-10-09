@@ -1,10 +1,12 @@
 # Roles y permisos
 
-**Versión:** 0.2.0
-**Fecha:** 2026-09-30
-**Relacionado con:** docs/01-requerimientos/01-requerimiento-formal.md §6, RF-01,02,13,16,18,19; RNF-02; RN-07
+**Versión:** 0.3.0
+**Fecha:** 2026-10-09
+**Relacionado con:** docs/01-requerimientos/01-requerimiento-formal.md §6, RF-01,02,13,16,18,19; RNF-02; RN-07; docs/05-prompts/P-12-usuarios-roles-menu-historial.md; docs/02-analisis/05-analisis-usuarios-roles-historial.md
 
 Matriz rol × acción para los cinco roles operativos del sistema (el Patrocinador es un interesado de negocio, no opera el sistema — ver SRS §6).
+
+> **v0.3 (2026-10-09, P-12):** la matriz de la sección siguiente ("Acción") es la vista narrativa, sin cambios de fondo. La vista operativa nueva es la de **§ Matriz recurso:acción** más abajo: cada fila es una fila real de la tabla `permiso` (`rol_id`, `recurso`, `accion`), sembrada por `comun.permisos.sembrar_permisos_por_defecto` y editable por el Administrador (Bloque 4, HU-23) salvo las filas protegidas. El Administrador y el Auditor siguen viendo todas las áreas (sin cambio); la segmentación por área de un recurso puntual (un documento, un análisis) es un mecanismo aparte, descrito en "Supuesto 2", y no se modela como permiso.
 
 ## Matriz de permisos
 
@@ -44,3 +46,51 @@ Matriz rol × acción para los cinco roles operativos del sistema (el Patrocinad
 4. El Auditor y el Administrador tienen acceso de solo lectura a la bitácora; ningún rol, incluido Administrador, puede modificarla o eliminarla (RF-19 es append-only).
 5. Esta matriz cubre los permisos de la entrega 1; los casos de uso de entrega 2 (CU-03, CU-04, CU-06) siguen el mismo patrón de "Analista ejecuta, Revisor decide".
 6. v0.9 (2026-09-30): la segregación de funciones (fila "Decidir hallazgo") se volvió configurable por decisión del responsable del proyecto -- ver `docs/01-requerimientos/01-requerimiento-formal.md` §11 (RNF-02) y `docs/02-analisis/03-riesgos.md` (R-11).
+
+## Matriz recurso:acción (v0.3, P-12)
+
+Cada celda "Sí" es una fila sembrada en `permiso(rol_id, recurso, accion)`. 🔒 = protegida: el Administrador no puede editarla ni borrarla desde Configuración (HU-23) -- ni siquiera para su propio rol.
+
+| Recurso:acción | Analista | Revisor | Curador | Administrador | Auditor |
+| --- | --- | --- | --- | --- | --- |
+| `analisis:crear` | Sí | No | No | Sí | No |
+| `historial:propio` | Sí | Sí | Sí | Sí | Sí |
+| `historial:area` | Sí | Sí | Sí | Sí | Sí |
+| `historial:todas` | No | No | No | Sí | Sí |
+| `hallazgos:decidir` | No | Sí | No | Sí | No |
+| `conocimiento:ver` | No | No | Sí | Sí | Sí |
+| `conocimiento:gestionar` | No | No | Sí | No | No |
+| `conocimiento:aprobar` | No | No | Sí | No | No |
+| `bitacora:ver` | No | No | No | Sí 🔒 | Sí 🔒 |
+| `reportes:autoaprobados` | No | No | No | Sí | Sí |
+| `usuarios:administrar` | No | No | No | Sí 🔒 | No |
+| `roles:administrar` | No | No | No | Sí 🔒 | No |
+| `areas:administrar` | No | No | No | Sí 🔒 | No |
+
+Notas:
+- `historial:area` lo tienen los 5 roles: para Analista/Revisor/Curador es el techo real (ven su área); para Administrador/Auditor es un filtro más dentro de lo que ya pueden ver con `historial:todas` (HU-21: pueden acotar a una sola área en vez de ver todas a la vez).
+- `bitacora:ver` es la pantalla nueva de auditoría global (Bloque 2/HU-20), **no** el detalle de pasos de un análisis puntual (`GET /analisis/{id}/bitacora`, pantalla "Agente trabajando"): ese endpoint sigue gobernado por si el usuario puede ver ESE análisis (segmentación por área), no por este permiso -- no cambia con P-12.
+- `conocimiento:ver` es de solo lectura (listar/previsualizar fuentes y glosario); `conocimiento:gestionar` (crear/editar/importar) y `conocimiento:aprobar` (aprobar/marcar obsoleta) son escritura, exclusivas del Curador -- sin cambio de fondo respecto a v0.2, solo ahora expresado como permisos en vez de `requiere_rol` fijo.
+- `analisis:crear` cubre todo el flujo de carga (iniciar/partes/completar) de cualquier CU-01..06 -- es una sola acción de principio a fin, igual que ya la trataba la matriz narrativa ("Cargar documento" + "Ejecutar análisis" en una fila).
+
+## Menú por rol (HU-20)
+
+| Opción de menú | Permiso que la habilita | Analista | Revisor | Curador | Administrador | Auditor |
+| --- | --- | --- | --- | --- | --- | --- |
+| Nuevo análisis | `analisis:crear` | Sí | No | No | Sí | No |
+| Historial | `historial:propio` (siempre presente si hay sesión) | Sí | Sí | Sí | Sí | Sí |
+| Base de conocimiento | `conocimiento:ver` | No | No | Sí | Sí | Sí |
+| Ajustes autoaprobados | `reportes:autoaprobados` | No | No | No | Sí | Sí |
+| Bitácora | `bitacora:ver` | No | No | No | Sí | Sí |
+| Configuración | `usuarios:administrar` **o** `roles:administrar` **o** `areas:administrar` | No | No | No | Sí | No |
+
+La URL directa a una pantalla sin el permiso correspondiente muestra "Sin acceso" en la UI (no un redirect silencioso a `/`) y el endpoint que la respalda responde 403 -- el backend es la barrera real (RNF-02); el menú solo evita mostrar algo que de todas formas sería rechazado.
+
+## Reglas de protección (HU-22, HU-23, R-P1, R-P4)
+
+1. Un usuario nunca se borra, solo se desactiva (`usuario.activo = false`); no autodesactivarse.
+2. El sistema rechaza desactivar o quitarle el rol Administrador al único Administrador activo que queda.
+3. Las filas de `permiso` marcadas 🔒 en la matriz de arriba no se pueden editar ni borrar desde Configuración, bajo ningún rol.
+4. "Restaurar matriz por defecto" (Configuración → Roles y permisos) vuelve a sembrar exactamente esta matriz v0.3, sin tocar usuarios ni áreas.
+5. Un área con usuarios o documentos asociados no se puede eliminar (HU-24).
+6. Toda alta/edición/desactivación de usuario, cambio de rol, cambio de permisos, restablecimiento/cambio de contraseña, bloqueo e inicio de sesión fallido queda en bitácora -- nunca la contraseña ni su hash (RNF-SEG-01).

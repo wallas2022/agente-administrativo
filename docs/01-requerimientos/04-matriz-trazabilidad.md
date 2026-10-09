@@ -1,7 +1,7 @@
 # Matriz de trazabilidad — Agente Administrativo
 
-**Versión:** 0.6.3
-**Fecha:** 2026-09-30
+**Versión:** 0.6.4
+**Fecha:** 2026-10-09
 **Relacionado con:** docs/01-requerimientos/01-requerimiento-formal.md, 02-casos-de-uso.md, 03-historias-de-usuario.md, docs/04-pruebas/plan-pruebas-prototipo.md
 
 Trazabilidad OE → RG → RF → CU → HU → PP, construida a partir del SRS v0.6 y el plan de pruebas v0.3. Columna **Entrega**: 1 = MVP (CU-01, CU-02, CU-05 y transversales CU-07..10); 2 = iteración siguiente (CU-03, CU-04, CU-06, incluido RF-11/OCR).
@@ -10,8 +10,8 @@ El SRS (§8, §12) define explícitamente RG→RF y CU→RF; **no define explíc
 
 | RF | OE | RG | CU | HU | PP | RN | Entrega |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| RF-01 | OE-06 | RG-06, RG-07, RG-08 | CU-09 | HU-01 | — | — | 1 |
-| RF-02 | OE-06 | [POR CONFIRMAR: sin RG en el SRS] | CU-09 | HU-02 | PP-10 | — | 1 |
+| RF-01 | OE-06 | RG-06, RG-07, RG-08 | CU-09 | HU-01, HU-25 | — | — | 1 |
+| RF-02 | OE-06 | [POR CONFIRMAR: sin RG en el SRS] | CU-09 | HU-02, HU-20, HU-22, HU-23, HU-24 | PP-10 | — | 1 |
 | RF-03 | OE-01 | RG-01 | CU-01 | HU-01 | PP-18 | RN-09 | 1 |
 | RF-04 | OE-01 | RG-01 | CU-01 | HU-01 | — | — | 1 |
 | RF-05 | OE-01 | RG-01 | CU-01 | HU-01 | — | — | 1 |
@@ -27,8 +27,8 @@ El SRS (§8, §12) define explícitamente RG→RF y CU→RF; **no define explíc
 | RF-15 | OE-01 | RG-01 | CU-01 | HU-12 | — | — | 1 |
 | RF-16 | OE-05 | RG-03 | CU-08 | HU-11 | PP-08, PP-20 | — | 1 |
 | RF-17 | OE-02 | RG-02 | CU-05, CU-08 | HU-04, HU-11 | PP-20 | RN-06 | 1 |
-| RF-18 | OE-07 | [POR CONFIRMAR: sin RG en el SRS] | CU-10 | HU-14 | — | — | 1 |
-| RF-19 | OE-06 | RG-04, RG-08 | CU-10 | HU-13 | PP-11 | — | 1 |
+| RF-18 | OE-07 | [POR CONFIRMAR: sin RG en el SRS] | CU-10 | HU-14, HU-21 | — | — | 1 |
+| RF-19 | OE-06 | RG-04, RG-08 | CU-10 | HU-13, HU-20 | PP-11 | — | 1 |
 | RF-20 | OE-06 | [POR CONFIRMAR: sin RG en el SRS] | CU-07 | HU-14 | — | — | 1 |
 
 ## RN sin RF puntual (aplican de forma transversal)

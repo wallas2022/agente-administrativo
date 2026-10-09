@@ -1,8 +1,8 @@
 # Historias de usuario — Agente Administrativo
 
-**Versión:** 0.7
-**Fecha:** 2026-09-30
-**Relacionado con:** docs/01-requerimientos/02-casos-de-uso.md, docs/01-requerimientos/01-requerimiento-formal.md, docs/04-pruebas/plan-pruebas-prototipo.md
+**Versión:** 0.8
+**Fecha:** 2026-10-09
+**Relacionado con:** docs/01-requerimientos/02-casos-de-uso.md, docs/01-requerimientos/01-requerimiento-formal.md, docs/04-pruebas/plan-pruebas-prototipo.md, docs/05-prompts/P-12-usuarios-roles-menu-historial.md
 
 Formato: Como / quiero / para, con criterios de aceptación en Gherkin (Dado/Cuando/Entonces). La numeración HU-01 a HU-14 se fijó para que coincida con las referencias del plan de pruebas ([docs/04-pruebas/plan-pruebas-prototipo.md](../04-pruebas/plan-pruebas-prototipo.md) §2).
 
@@ -305,4 +305,163 @@ Característica: Autenticación, notificación y consulta de historial
     Dado que existen análisis registrados con distintos usuarios, áreas, tipos, estados y fechas
     Cuando un usuario autorizado consulta el historial aplicando filtros
     Entonces el sistema muestra solo los registros que coinciden con los filtros
+```
+
+---
+
+Numeración HU-15 a HU-19 reservada para otra iniciativa (no definida en este documento). HU-20 en adelante: P-12 (menú por permisos, historial, configuración), 2026-10-09.
+
+## HU-20 — Menú según mi rol
+
+**CU:** CU-09 · **RF:** RF-02, RNF-02 · **Entrega:** 1
+
+Como **usuario del sistema**, quiero ver en el menú solo las opciones que mi rol me permite usar, para no toparme con pantallas que de todas formas me van a rechazar.
+
+```gherkin
+Característica: Menú y rutas según permisos
+
+  Esquema del escenario: El menú muestra solo lo permitido
+    Dado que inicio sesión como "<rol>"
+    Entonces veo en el menú exactamente: "<opciones>"
+
+    Ejemplos:
+      | rol            | opciones                                                              |
+      | Analista       | Nuevo análisis, Historial                                             |
+      | Revisor        | Historial                                                             |
+      | Curador        | Base de conocimiento, Historial                                      |
+      | Auditor        | Historial, Bitácora, Ajustes autoaprobados                           |
+      | Administrador  | Historial, Bitácora, Ajustes autoaprobados, Configuración            |
+
+  Escenario: URL directa sin permiso
+    Dado que un usuario no tiene el permiso de una pantalla
+    Cuando entra directamente a esa URL
+    Entonces ve la página "Sin acceso"
+    Y el endpoint correspondiente responde 403 si lo llama de todas formas
+```
+
+## HU-21 — Consultar mi historial de análisis
+
+**CU:** CU-10 · **RF:** RF-18 · **Entrega:** 1
+
+Como **usuario del sistema**, quiero consultar el historial de análisis con filtros y ver el resultado de cualquiera de ellos, para encontrar trabajo pasado sin tener que recordar cuándo lo hice.
+
+```gherkin
+Característica: Historial de análisis
+
+  Escenario: Alcance por defecto
+    Dado que inicio sesión con cualquier rol
+    Cuando abro Historial
+    Entonces veo "Mis análisis" por defecto
+
+  Escenario: Cambiar de alcance según mi permiso
+    Dado que tengo el permiso "historial:area"
+    Cuando cambio el alcance a "Mi área"
+    Entonces veo los análisis de todos los usuarios de mi área
+
+  Escenario: Filtrar y abrir un resultado
+    Dado que estoy en Historial
+    Cuando aplico un filtro de fecha, tipo de revisión, estado o archivo
+    Y hago clic en una fila
+    Entonces veo el resultado de ese análisis
+```
+
+## HU-22 — Gestionar usuarios
+
+**CU:** CU-09 · **RF:** RF-02 · **Entrega:** 1
+
+Como **Administrador**, quiero crear, editar, activar/desactivar usuarios y restablecerles la contraseña, para mantener al día quién puede usar el sistema sin tocar código ni la base de datos directamente.
+
+```gherkin
+Característica: Gestión de usuarios
+
+  Escenario: Crear un usuario
+    Dado que soy Administrador
+    Cuando creo un usuario con nombre, email único, área y rol
+    Entonces el sistema genera una contraseña temporal y la muestra una sola vez
+    Y el usuario debe cambiarla en su primer ingreso
+
+  Escenario: No autodesactivarse
+    Dado que soy el usuario autenticado
+    Cuando intento desactivar mi propia cuenta
+    Entonces el sistema lo rechaza
+
+  Escenario: Siempre un Administrador activo
+    Dado que solo queda un Administrador activo
+    Cuando intento desactivarlo o quitarle el rol
+    Entonces el sistema lo rechaza
+
+  Escenario: Nunca se borra un usuario
+    Dado que un usuario ya no debe tener acceso
+    Cuando el Administrador actúa sobre esa cuenta
+    Entonces la única opción disponible es desactivarla, nunca eliminarla
+```
+
+## HU-23 — Ver y ajustar permisos por rol
+
+**CU:** CU-09 · **RF:** RF-02 · **Entrega:** 1
+
+Como **Administrador**, quiero ver la matriz de permisos por rol y ajustarla, para adaptar el acceso sin depender de un cambio de código.
+
+```gherkin
+Característica: Matriz de permisos editable
+
+  Escenario: Ver y cambiar un permiso
+    Dado que estoy en Configuración → Roles y permisos
+    Cuando marco o desmarco una casilla de la matriz
+    Entonces el cambio aplica desde el siguiente request de ese rol
+
+  Escenario: Permisos protegidos
+    Dado que una fila de la matriz está marcada como protegida
+    Cuando intento editarla o borrarla
+    Entonces el sistema lo rechaza
+
+  Escenario: Restaurar matriz por defecto
+    Dado que la matriz de permisos fue modificada
+    Cuando elijo "Restaurar matriz por defecto"
+    Entonces vuelve exactamente a la matriz v0.3 documentada
+```
+
+## HU-24 — Gestionar áreas
+
+**CU:** CU-09 · **RF:** RF-02 · **Entrega:** 1
+
+Como **Administrador**, quiero crear y renombrar áreas, para reflejar la estructura real de la organización.
+
+```gherkin
+Característica: Gestión de áreas
+
+  Escenario: Crear o renombrar un área
+    Dado que soy Administrador
+    Cuando creo un área nueva o renombro una existente
+    Entonces el cambio queda disponible para asignar a usuarios
+
+  Escenario: No eliminar un área en uso
+    Dado que un área tiene usuarios o documentos asociados
+    Cuando intento eliminarla
+    Entonces el sistema lo rechaza
+```
+
+## HU-25 — Cambiar mi contraseña temporal
+
+**CU:** CU-09 · **RF:** RF-01 · **Entrega:** 1
+
+Como **usuario nuevo**, quiero cambiar mi contraseña temporal en el primer ingreso, para que solo yo la conozca de ahí en adelante.
+
+```gherkin
+Característica: Cambio de contraseña obligatorio
+
+  Escenario: Primer ingreso con contraseña temporal
+    Dado que inicio sesión con una contraseña temporal
+    Cuando el sistema detecta que debo cambiarla
+    Entonces me pide una contraseña nueva antes de dejarme continuar
+
+  Escenario: Requisitos de la contraseña nueva
+    Dado que estoy cambiando mi contraseña
+    Cuando ingreso una con menos de 10 caracteres o sin letras y números
+    Entonces el sistema la rechaza
+
+  Escenario: Bloqueo por intentos fallidos
+    Dado que fallo 5 veces seguidas al iniciar sesión
+    Cuando intento una vez más
+    Entonces el sistema me bloquea por 15 minutos
 ```
