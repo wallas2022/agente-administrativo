@@ -8,6 +8,7 @@ Pruebas de integración de extremo a extremo (carga → análisis → revisión 
 
 - `test_cu05_pp03_pp04.py`: PP-03 (recall/falsos positivos) y PP-04 (preservación de formato) de CU-05, contra LanguageTool y Ollama reales — mide también el umbral RNF-04 (≤ 5 min/documento, SRS v0.8).
 - `test_pp14_modo_offline.py`: PP-14 adaptado al ambiente local (Bloque K6) — confirma que CU-01 (RN-02), CU-05 y la ingesta de conocimiento (Bloque K3) no necesitan resolver ningún host fuera de loopback.
+- `test_cu06_pp05_pp06.py`: PP-05 (CER en imágenes legibles) y PP-06 ("nunca inventar" en baja calidad) de CU-06, contra Tesseract real. **Excepción al resto de esta carpeta**: no corre desde el host (el binario de Tesseract no está instalado ahí, ver docs/02-analisis/04-analisis-cu06-ocr.md) — se salta solo ahí y debe copiarse y correrse dentro del contenedor del worker (instrucciones en el docstring del archivo).
 
 Correr desde el host (no dentro de un contenedor — la imagen de `api` no incluye pytest) necesita apuntar los clientes a los puertos publicados en `infra/compose.local.yml`, por ejemplo:
 ```bash

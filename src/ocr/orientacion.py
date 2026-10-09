@@ -26,10 +26,21 @@ _ROTACIONES = {
 def detectar_rotacion_tesseract(imagen: np.ndarray) -> int:
     """Implementación real: envuelve `pytesseract.image_to_osd`. Solo se
     importa acá (no a nivel de módulo) para que el resto de `ocr` se pueda
-    probar sin tener el binario de Tesseract instalado."""
+    probar sin tener el binario de Tesseract instalado.
+
+    Encontrado con el dataset de CU-06 (Bloque 4): sobre una imagen muy
+    degradada (desenfoque fuerte, "demasiados pocos caracteres"), el propio
+    comando de OSD de Tesseract puede fallar con `TesseractError` en vez de
+    devolver una confianza baja. Eso no debe tumbar todo el análisis -- si
+    no se puede determinar la orientación, se asume "sin rotación" y se deja
+    que la clasificación de confianza de `ocr.calidad` (que sí corre
+    siempre) decida si la página es ilegible."""
     import pytesseract
 
-    datos = pytesseract.image_to_osd(imagen, output_type=pytesseract.Output.DICT)
+    try:
+        datos = pytesseract.image_to_osd(imagen, output_type=pytesseract.Output.DICT)
+    except pytesseract.TesseractError:
+        return 0
     return int(datos.get("rotate", 0)) % 360
 
 

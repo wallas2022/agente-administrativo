@@ -47,7 +47,8 @@ Ejecutar PP-01, PP-03, PP-07 y PP-12 con 2–3 modelos candidatos (p. ej. gpt-os
 ## 4. Registro de resultados
 | Fecha | Ambiente | Prueba | Modelo / versión | Resultado | Cumple | Observaciones |
 | --- | --- | --- | --- | --- | --- | --- |
-| | | | | | | |
+| 2026-10-09 | local | PP-05 | Tesseract 5.5.0 (tessdata_best) | CER 0.000 (4/4 páginas legibles) | Sí | Dataset sintético pequeño, ver [local-CU06.md](resultados/local-CU06.md) |
+| 2026-10-09 | local | PP-06 | Tesseract 5.5.0 (tessdata_best) | 2/2 (100 %) ilegibles correctamente informadas | Sí | ver [local-CU06.md](resultados/local-CU06.md) |
 
 ## 5. Criterio de salida del piloto
 Se recomienda escalar si PP-02, PP-08, PP-09, PP-10, PP-11 y PP-14 se cumplen al 100 % (bloqueantes) y al menos 80 % del resto de pruebas de la entrega 1 alcanza su umbral. Las metas de rendimiento (PP-12, PP-13, PP-17) solo se consideran válidas medidas en stage.

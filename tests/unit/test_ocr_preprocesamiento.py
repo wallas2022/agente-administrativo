@@ -23,6 +23,26 @@ def _imagen_rectangulo_rotado(angulo_grados: float) -> np.ndarray:
     return cv2.warpAffine(lienzo, matriz, (200, 200))
 
 
+def _imagen_varias_lineas_horizontales() -> np.ndarray:
+    """Varias "líneas de texto" (cada una con varias "palabras" separadas,
+    no un bloque sólido -- más parecido a texto real) de ancho MUY
+    distinto, perfectamente horizontales. Es el caso real que encontró el
+    bug del dataset de CU-06 (Bloque 4): promediar todo el bloque con PCA
+    daba un ángulo falso de ~6° en vez de 0°."""
+    lienzo = np.zeros((300, 400), dtype=np.uint8)
+    anchos_linea = [250, 90, 300, 150, 110, 260]
+    rng = np.random.default_rng(7)
+    for i, ancho_linea in enumerate(anchos_linea):
+        y = 20 + i * 40
+        x = 20
+        fin_linea = 20 + ancho_linea
+        while x < fin_linea:
+            ancho_palabra = int(rng.integers(15, 35))
+            cv2.rectangle(lienzo, (x, y), (min(x + ancho_palabra, fin_linea), y + 15), 255, -1)
+            x += ancho_palabra + 8  # espacio entre palabras
+    return lienzo
+
+
 def test_calcular_angulo_inclinacion_imagen_vacia_da_cero() -> None:
     assert calcular_angulo_inclinacion(np.zeros((50, 50), dtype=np.uint8)) == 0.0
 
@@ -38,6 +58,17 @@ def test_enderezar_reduce_la_inclinacion_detectada() -> None:
     enderezada = enderezar(imagen)
     angulo_restante = calcular_angulo_inclinacion(enderezada)
     assert abs(angulo_restante) < 1.0
+
+
+def test_calcular_angulo_inclinacion_no_se_confunde_con_varias_lineas_de_distinto_ancho() -> None:
+    # Antes de la corrección (Bloque 4, dataset de CU-06: PCA sobre TODO el
+    # bloque, no sobre una sola línea), este mismo caso daba ~6°-9° de
+    # ángulo falso sobre un bloque perfectamente horizontal -- suficiente
+    # para que `enderezar` rompiera glifos reales de Tesseract (CER
+    # 0.53 -> 0.00, ver docs/04-pruebas/resultados/local-CU06.md).
+    imagen = _imagen_varias_lineas_horizontales()
+    angulo = calcular_angulo_inclinacion(imagen)
+    assert abs(angulo) < 3.5
 
 
 def test_enderezar_no_toca_una_imagen_ya_recta() -> None:

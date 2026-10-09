@@ -22,15 +22,49 @@ def _a_escala_grises(imagen: np.ndarray) -> np.ndarray:
     return cv2.cvtColor(imagen, cv2.COLOR_BGR2GRAY)
 
 
+def _bandas_de_texto(mascara: np.ndarray, *, separacion_minima: int = 3) -> list[tuple[int, int]]:
+    """Agrupa filas contiguas con contenido en "bandas" (cada banda ≈ una
+    línea de texto), separando dos bandas cuando hay al menos
+    `separacion_minima` filas vacías seguidas entre ellas."""
+    densidad_filas = mascara.sum(axis=1)
+    bandas: list[tuple[int, int]] = []
+    inicio: int | None = None
+    vacias_seguidas = 0
+    for y, tiene_contenido in enumerate(densidad_filas > 0):
+        if tiene_contenido:
+            if inicio is None:
+                inicio = y
+            vacias_seguidas = 0
+        elif inicio is not None:
+            vacias_seguidas += 1
+            if vacias_seguidas >= separacion_minima:
+                bandas.append((inicio, y - vacias_seguidas))
+                inicio = None
+    if inicio is not None:
+        bandas.append((inicio, len(densidad_filas) - 1))
+    return bandas
+
+
 def calcular_angulo_inclinacion(imagen: np.ndarray) -> float:
     """Ángulo (grados, en el rango (-45, 45]) que hay que corregir para
-    enderezar el texto. Usa PCA sobre los píxeles de primer plano en vez del
-    ángulo de `cv2.minAreaRect` (cuyo rango/signo cambia entre versiones de
-    OpenCV) -- el autovector principal da la dirección dominante del texto
-    de forma estable sin importar la versión instalada."""
+    enderezar el texto. Usa PCA sobre los píxeles de primer plano de UNA
+    sola línea de texto (la más densa) -- no de todo el bloque. Promediar
+    varias líneas de distinto largo (encontrado con el dataset de CU-06,
+    Bloque 4: un párrafo de 6 líneas, perfectamente horizontal, daba un
+    "ángulo" falso de -6°, y enderezarlo de más rompía los caracteres)
+    arrastra ruido que una sola línea bien elegida no tiene. Una inclinación
+    de página real (escaneo torcido) afecta a todas las líneas por igual,
+    así que una sola basta como referencia."""
     gris = _a_escala_grises(imagen)
     _, binaria = cv2.threshold(gris, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
-    coordenadas = cv2.findNonZero(binaria)
+
+    bandas = _bandas_de_texto(binaria)
+    if not bandas:
+        return 0.0
+    inicio, fin = max(bandas, key=lambda banda: int(binaria[banda[0] : banda[1] + 1, :].sum()))
+    recorte = binaria[inicio : fin + 1, :]
+
+    coordenadas = cv2.findNonZero(recorte)
     if coordenadas is None or len(coordenadas) < 2:
         return 0.0
 
