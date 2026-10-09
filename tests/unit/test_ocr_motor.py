@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 
-from ocr.motor import procesar_imagen
+from ocr.motor import procesar_imagen, procesar_imagen_captura
 
 IMAGEN = np.zeros((80, 50), dtype=np.uint8)
 
@@ -84,3 +84,50 @@ def test_procesar_imagen_numero_de_pagina_se_conserva() -> None:
         funcion_osd=lambda _img: 0,
     )
     assert resultado.numero == 3
+
+
+# --- procesar_imagen_captura (Bloque 2b) ------------------------------------
+
+
+def _datos_captura_con_basura() -> dict[str, list[Any]]:
+    # "Hola" (buena) + "##" (menos de 3 alfanuméricos -- se descarta).
+    return {
+        "block_num": [1, 2],
+        "par_num": [1, 1],
+        "line_num": [1, 1],
+        "left": [10, 10],
+        "top": [10, 40],
+        "width": [40, 20],
+        "height": [15, 15],
+        "conf": [92.0, 85.0],
+        "text": ["Hola", "##"],
+    }
+
+
+def test_procesar_imagen_captura_descarta_lineas_basura() -> None:
+    imagen_color = np.zeros((100, 200, 3), dtype=np.uint8)
+    resultado = procesar_imagen_captura(
+        imagen_color, funcion_ocr=lambda _img: _datos_captura_con_basura()
+    )
+    assert [linea.texto for linea in resultado.lineas] == ["Hola"]
+
+
+def test_procesar_imagen_captura_escala_el_resultado_x3() -> None:
+    imagen_color = np.zeros((100, 200, 3), dtype=np.uint8)
+    resultado = procesar_imagen_captura(
+        imagen_color, funcion_ocr=lambda _img: _datos_tesseract_falsos()
+    )
+    assert (resultado.alto_px, resultado.ancho_px) == (300, 600)
+
+
+def test_procesar_imagen_captura_nunca_llama_al_ocr_real_con_fake() -> None:
+    llamadas: list[np.ndarray] = []
+
+    def _fake(img: np.ndarray) -> dict[str, list[Any]]:
+        llamadas.append(img)
+        return _datos_tesseract_falsos()
+
+    procesar_imagen_captura(np.zeros((50, 50, 3), dtype=np.uint8), funcion_ocr=_fake)
+    assert len(llamadas) == 1
+    # Lo que recibe el fake ya pasó por preprocesar_captura (x3, un canal).
+    assert llamadas[0].shape == (150, 150)

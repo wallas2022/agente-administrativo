@@ -73,8 +73,82 @@ mypy src/ocr: sin hallazgos (9 archivos)
 - [docs/04-pruebas/estado-proyecto.md](../estado-proyecto.md) (nuevo).
 - [docs/04-pruebas/guion-demo-sandbox.md](../guion-demo-sandbox.md) (nuevo, sección OCR).
 
-## Pendiente
+## Pendiente (antes del Bloque 2b)
 
 - Dataset real/fotografiado (no solo sintético) para una medición de PP-05 con validez más allá del caso base.
 - Medición en stage (8 CPU) cuando exista (ADR-005).
 - Resto de bloques de CU-11 y otras iteraciones de CU-06 (tablas en imágenes, post-corrección LLM en segundo plano) quedan fuera del alcance de P-11.
+
+---
+
+# Bloque 2b — Soporte para capturas de pantalla
+
+**Fecha:** 2026-10-09
+**Relacionado con:** `src/ocr/capturas.py` (nuevo)
+
+## Alcance
+
+Una captura de pantalla (interfaz de usuario, texto antialiased y nítido) es un caso distinto de un documento escaneado/fotografiado: no tiene DPI embebido, el fondo es perfectamente plano (no la textura de papel real) y el texto suele ser mucho más chico en píxeles reales. Se detecta (`ocr.capturas.es_captura_de_pantalla`: sin DPI o DPI ≤ 96, o fondo plano) y se procesa distinto (`ocr.motor.procesar_imagen_captura`: escala x3, sin binarización adaptativa, `--psm` adaptado a si el texto está disperso, sin corrección de orientación) sin tocar el camino existente para escaneos.
+
+**Decisión que exigió retocar el dataset del Bloque 4**: las imágenes sintéticas de `legible_*`/`baja_calidad_*` (generadas con `cv2.imwrite`, sin metadatos) tenían fondo perfectamente plano y sin DPI -- exactamente lo que ahora dispara la detección de "captura". Se les agregó un chunk PNG `pHYs` a 300 DPI y una textura de fondo leve (`_agregar_textura_papel`, std ≈ 6) para que sigan representando lo que siempre quisieron representar (papel escaneado), y se re-verificó que el CER siguiera en 0.000 tras el cambio (sí).
+
+## Dataset de capturas (`tests/dataset/cu-06/capturas/`)
+
+| Archivo | Qué prueba |
+| --- | --- |
+| `pagina_web_100.png` | página web a tamaño completo, texto chico (escala de fuente 0.5) |
+| `ventana_75.png` | ventana reducida al 75 %, texto más chico todavía (escala 0.38) |
+| `pagina_web_jpg_comprimido.jpg` | la misma página web, re-codificada JPEG calidad 35 (artefactos de compresión) |
+
+`respuestas_capturas.json`: texto esperado de las 3. Meta informativa (no es PP-05): CER ≤ 10 %.
+
+## Hallazgo: el OSD de Tesseract no es confiable en recortes chicos de interfaz
+
+Al correr `pagina_web_100.png` por el pipeline completo, el resultado fue confianza 0 (nada reconocido); la versión JPEG dio texto con apariencia de volteado ("pepilgejuog ap ¡eyod..."). Diagnóstico: el propio OSD de Tesseract reportaba **180°** sobre una imagen perfectamente derecha (confirmado probando la misma imagen sin pasar por `corregir_orientacion`: ahí sí se reconocía bien). Una captura de pantalla, a diferencia de una foto o un escaneo, **nunca viene rotada en la práctica** -- así que `procesar_imagen_captura` dejó de llamar al OSD en absoluto. Con ese cambio, las 3 capturas pasaron a CER 0.000.
+
+## Antes / después (misma imagen: `pagina_web_100.png`)
+
+```python
+from ocr.motor import procesar_imagen, procesar_imagen_captura
+# misma imagen decodificada para ambas llamadas
+
+# ANTES (Bloque 1-4: procesar_imagen, sin detección de capturas)
+#   confianza_media=40.9   segundos=1.80
+#   texto='"sejensuew seytodes sns eynsuco apand by\nPepIIgejuo ap euod je
+#          opuesuatg\nepnAy 194 JEYP3 CALCIY'   (OSD también confundido acá)
+
+# DESPUÉS (Bloque 2b: procesar_imagen_captura)
+#   confianza_media=96.0   segundos=0.72
+#   texto='Archivo Editar Ver Ayuda\nBienvenido al portal de Contabilidad\n
+#          Aqui puede consultar sus reportes mensuales.'
+```
+
+Con el umbral `OCR_PAGINA_ILEGIBLE=50` de antes, el resultado "antes" (confianza 40.9) se habría informado ilegible -- no se habría inventado texto (PP-06 seguía cumpliéndose), pero una captura perfectamente legible se habría descartado por completo. El Bloque 2b no corrige un caso de "texto inventado": corrige un caso de "se tira algo que sí se podía leer".
+
+## Medición completa (dataset real, Tesseract real, dentro del worker)
+
+```
+legible_render_limpio.png   CER=0.000  (sin cambios respecto al Bloque 4)
+legible_perspectiva.png     CER=0.000  (sin cambios)
+legible_rotada_90.png       CER=0.000  (sin cambios, OSD sigue en 270°)
+pdf_escaneado_2paginas.pdf  CER=0.000 / 0.000  (sin cambios)
+baja_calidad_desenfoque.png       -> ilegible (sin cambios)
+baja_calidad_bajo_contraste.png   -> ilegible (sin cambios)
+
+pagina_web_100.png              CER=0.000  confianza=96.0%  0.60 s
+ventana_75.png                  CER=0.000  confianza=94.7%  0.69 s
+pagina_web_jpg_comprimido.jpg   CER=0.000  confianza=96.0%  0.59 s
+
+10 passed in 35.11 s
+```
+
+```
+tests/unit (suite completa, con los cambios de este bloque): 409 passed
+ruff check src tests: sin hallazgos
+mypy src/ocr: sin hallazgos (10 archivos)
+```
+
+## Pendiente
+
+- Dataset de capturas real (capturas de pantalla de verdad, no renderizadas) -- las 3 de este bloque son sintéticas, igual que el resto del dataset de CU-06.
+- La detección "fondo plano" asume que un documento escaneado real tiene algo de textura; una fotocopia extremadamente limpia podría, en teoría, confundirse con una captura -- no se encontró ningún caso así en este dataset, pero tampoco se descartó formalmente.

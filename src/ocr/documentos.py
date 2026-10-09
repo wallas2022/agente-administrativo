@@ -11,8 +11,14 @@ import cv2
 import numpy as np
 import pymupdf
 
+from ocr.capturas import (
+    ALTURA_MINIMA_LINEA_CAPTURA,
+    altura_media_linea,
+    es_captura_de_pantalla,
+    leer_dpi,
+)
 from ocr.modelos import Linea, Palabra, ResultadoPagina
-from ocr.motor import FuncionOcr, procesar_imagen
+from ocr.motor import FuncionOcr, procesar_imagen, procesar_imagen_captura
 from ocr.orientacion import FuncionOsd
 from ocr.preprocesamiento import DPI_MINIMO
 
@@ -127,9 +133,21 @@ def procesar_documento(
     extension = tipo_archivo.lower().lstrip(".")
     if extension in EXTENSIONES_IMAGEN:
         imagen = decodificar_imagen(contenido)
-        return [
-            procesar_imagen(imagen, numero=1, funcion_ocr=funcion_ocr, funcion_osd=funcion_osd)
-        ]
+        if es_captura_de_pantalla(dpi=leer_dpi(contenido), imagen=imagen):
+            return [procesar_imagen_captura(imagen, numero=1, funcion_ocr=funcion_ocr)]
+        resultado = procesar_imagen(
+            imagen, numero=1, funcion_ocr=funcion_ocr, funcion_osd=funcion_osd
+        )
+        # Bloque 2b: ni DPI ni fondo delataron una captura, pero la letra
+        # consistentemente chica sí -- p. ej. una captura con una textura de
+        # fondo que no quedó perfectamente plana. Se reintenta con el
+        # preprocesado de capturas en vez de quedarse con un resultado
+        # probablemente pobre del preprocesado pensado para papel escaneado.
+        if 0 < altura_media_linea(resultado) < ALTURA_MINIMA_LINEA_CAPTURA:
+            return [
+                procesar_imagen_captura(imagen, numero=1, funcion_ocr=funcion_ocr)
+            ]
+        return [resultado]
     if extension == "pdf":
         return procesar_pdf(contenido, funcion_ocr=funcion_ocr, funcion_osd=funcion_osd)
     raise ValueError(f"Tipo de archivo no soportado para OCR: {tipo_archivo!r}")

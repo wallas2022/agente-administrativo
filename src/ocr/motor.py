@@ -15,6 +15,8 @@ from typing import Any
 
 import numpy as np
 
+from ocr.calidad import Umbrales, umbrales_desde_entorno
+from ocr.capturas import elegir_psm, filtrar_lineas_basura, preprocesar_captura
 from ocr.modelos import Linea, Palabra, ResultadoPagina
 from ocr.orientacion import FuncionOsd, corregir_orientacion
 from ocr.preprocesamiento import DPI_MINIMO, preprocesar
@@ -22,14 +24,17 @@ from ocr.preprocesamiento import DPI_MINIMO, preprocesar
 FuncionOcr = Callable[[np.ndarray], dict[str, list[Any]]]
 
 
-def ocr_imagen_tesseract(imagen: np.ndarray) -> dict[str, list[Any]]:
+def ocr_imagen_tesseract(imagen: np.ndarray, *, psm: int | None = None) -> dict[str, list[Any]]:
     """Implementación real: envuelve `pytesseract.image_to_data`. Import
     diferido (igual que `orientacion.detectar_rotacion_tesseract`) para que
-    el resto del paquete se pueda probar sin el binario instalado."""
+    el resto del paquete se pueda probar sin el binario instalado. `psm`
+    (Bloque 2b, capturas de pantalla) solo lo arma `procesar_imagen_captura`
+    -- el resto del motor sigue con el `--psm` automático de Tesseract."""
     import pytesseract
 
+    config = "--oem 1" + (f" --psm {psm}" if psm is not None else "")
     return pytesseract.image_to_data(
-        imagen, lang="spa+eng", config="--oem 1", output_type=pytesseract.Output.DICT
+        imagen, lang="spa+eng", config=config, output_type=pytesseract.Output.DICT
     )
 
 
@@ -111,3 +116,35 @@ def procesar_imagen(
     datos = funcion(lista)
     alto_px, ancho_px = lista.shape[:2]
     return _construir_resultado_pagina(numero, ancho_px, alto_px, datos)
+
+
+def procesar_imagen_captura(
+    imagen: np.ndarray,
+    *,
+    numero: int = 1,
+    funcion_ocr: FuncionOcr | None = None,
+    umbrales: Umbrales | None = None,
+) -> ResultadoPagina:
+    """Variante de `procesar_imagen` para capturas de pantalla (CU-06,
+    Bloque 2b, `ocr.documentos.procesar_documento` decide cuál de las dos
+    usar): preprocesado sin binarización adaptativa, `--psm` adaptado a si
+    el texto está disperso, y descarte final de líneas "basura" (bordes de
+    ventana/iconos que Tesseract confunde con texto).
+
+    Sin corrección de orientación: a diferencia de una foto/escaneo, una
+    captura de pantalla nunca viene rotada en la práctica -- y se encontró
+    con el dataset de capturas (Bloque 2b) que el OSD de Tesseract no es
+    confiable en recortes chicos de interfaz (reportó 180° en una imagen
+    perfectamente derecha, produciendo texto ilegible/vacío donde sin OSD
+    el reconocimiento salía bien)."""
+    preprocesada = preprocesar_captura(imagen)
+
+    if funcion_ocr is not None:
+        datos = funcion_ocr(preprocesada)
+    else:
+        datos = ocr_imagen_tesseract(preprocesada, psm=elegir_psm(preprocesada))
+
+    alto_px, ancho_px = preprocesada.shape[:2]
+    resultado = _construir_resultado_pagina(numero, ancho_px, alto_px, datos)
+    umbrales_efectivos = umbrales or umbrales_desde_entorno()
+    return filtrar_lineas_basura(resultado, umbral_confianza=umbrales_efectivos.conf_dudosa)

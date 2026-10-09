@@ -179,3 +179,47 @@ def test_pp06_imagenes_de_baja_calidad_se_informan_ilegibles(nombre_archivo: str
         f"se esperaba que {nombre_archivo} se marcara ilegible "
         f"(confianza_media={pagina.confianza_media:.1f})"
     )
+
+
+# --- Bloque 2b: capturas de pantalla (métrica informativa, separada de PP-05) ---
+
+RAIZ_CAPTURAS = RAIZ_DATASET / "capturas"
+RUTA_RESPUESTAS_CAPTURAS = RAIZ_CAPTURAS / "respuestas_capturas.json"
+CER_INFORMATIVO_CAPTURAS = 0.10
+
+
+def _cargar_respuestas_capturas() -> dict[str, str]:
+    return json.loads(RUTA_RESPUESTAS_CAPTURAS.read_text(encoding="utf-8"))
+
+
+@pytest.mark.skipif(
+    not RUTA_RESPUESTAS_CAPTURAS.exists() or not TESSERACT_DISPONIBLE,
+    reason="dataset de capturas de CU-06 o Tesseract no disponibles",
+)
+@pytest.mark.parametrize(
+    "nombre_archivo", ["pagina_web_100.png", "ventana_75.png", "pagina_web_jpg_comprimido.jpg"]
+)
+def test_capturas_cer_informativo(nombre_archivo: str) -> None:
+    """Bloque 2b: meta informativa de CER <= 10 % en capturas de pantalla,
+    aparte del umbral oficial de PP-05 (5 %, para documentos escaneados) --
+    el texto de interfaz (fuentes muy chicas, antialiased) es un caso más
+    difícil a propósito, no se espera el mismo piso que en PP-05."""
+    respuestas = _cargar_respuestas_capturas()
+    extension = nombre_archivo.rsplit(".", 1)[-1].lower()
+    contenido = (RAIZ_CAPTURAS / nombre_archivo).read_bytes()
+
+    inicio = time.monotonic()
+    paginas = procesar_documento(contenido, tipo_archivo=extension)
+    segundos = time.monotonic() - inicio
+
+    assert len(paginas) == 1
+    pagina = paginas[0]
+    cer = _cer(respuestas[nombre_archivo], pagina.texto)
+    print(
+        f"\n[captura {nombre_archivo}] CER={cer:.3f} confianza_media={pagina.confianza_media:.1f} "
+        f"segundos={segundos:.2f} texto={pagina.texto!r}"
+    )
+
+    assert cer <= CER_INFORMATIVO_CAPTURAS, (
+        f"CER {cer:.3f} por encima de la meta informativa de capturas (10 %)"
+    )
