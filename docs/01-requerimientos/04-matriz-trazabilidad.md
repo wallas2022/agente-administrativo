@@ -1,8 +1,8 @@
 # Matriz de trazabilidad — Agente Administrativo
 
-**Versión:** 0.6.4
-**Fecha:** 2026-10-09
-**Relacionado con:** docs/01-requerimientos/01-requerimiento-formal.md, 02-casos-de-uso.md, 03-historias-de-usuario.md, docs/04-pruebas/plan-pruebas-prototipo.md
+**Versión:** 0.7
+**Fecha:** 2026-10-12
+**Relacionado con:** docs/01-requerimientos/01-requerimiento-formal.md, 02-casos-de-uso.md, 03-historias-de-usuario.md, docs/04-pruebas/plan-pruebas-prototipo.md, docs/05-prompts/P-13-dashboard-administrador-consumo.md
 
 Trazabilidad OE → RG → RF → CU → HU → PP, construida a partir del SRS v0.6 y el plan de pruebas v0.3. Columna **Entrega**: 1 = MVP (CU-01, CU-02, CU-05 y transversales CU-07..10); 2 = iteración siguiente (CU-03, CU-04, CU-06, incluido RF-11/OCR).
 
@@ -30,6 +30,8 @@ El SRS (§8, §12) define explícitamente RG→RF y CU→RF; **no define explíc
 | RF-18 | OE-07 | [POR CONFIRMAR: sin RG en el SRS] | CU-10 | HU-14, HU-21 | — | — | 1 |
 | RF-19 | OE-06 | RG-04, RG-08 | CU-10 | HU-13, HU-20 | PP-11 | — | 1 |
 | RF-20 | OE-06 | [POR CONFIRMAR: sin RG en el SRS] | CU-07 | HU-14 | — | — | 1 |
+| RF-21 | [POR CONFIRMAR: nuevo, P-13] | [POR CONFIRMAR: sin RG en el SRS] | [POR CONFIRMAR: sin CU dedicado] | HU-26, HU-27, HU-28 | — | — | 2 |
+| RF-22 | [POR CONFIRMAR: nuevo, P-13] | [POR CONFIRMAR: sin RG en el SRS] | [POR CONFIRMAR: sin CU dedicado] | HU-26, HU-27, HU-28, HU-29, HU-30 | — | — | 2 |
 
 ## RN sin RF puntual (aplican de forma transversal)
 
@@ -52,6 +54,11 @@ Varias pruebas del plan validan un RNF u OE completo, no un RF puntual:
 | RNF-07 (disponibilidad/recuperación) | PP-15 | ≤ 4 h de recuperación |
 | RNF-12 (retención) | PP-19 | 100 % documentos > 3 meses eliminados y auditados |
 | OE-07 (valor del piloto) | PP-16, PP-17 | Satisfacción ≥ 4/5; reducción de tiempo ≥ 83 % |
+| RNF-11 (observabilidad, P-13) | [POR CONFIRMAR: sin PP dedicada] | Registro de prompts, tiempos, errores y consumo de recursos |
+| RNF-15 (rendimiento del registro de uso, P-13) | [POR CONFIRMAR: sin PP dedicada] | ≤ 20 ms por llamada, nunca hace fallar el análisis |
+| RNF-16 (rendimiento del dashboard, P-13) | [POR CONFIRMAR: sin PP dedicada] | ≤ 2 s con 100,000 registros |
+| RNF-17 (seguridad de la configuración visible, P-13) | [POR CONFIRMAR: sin PP dedicada] | 0 secretos visibles |
+| RNF-18 (aislamiento de exportadores, P-13) | [POR CONFIRMAR: sin PP dedicada] | 0 acceso de escritura al host, 0 conexiones a internet |
 
 ## RNF con RG asociado (según SRS §8)
 
@@ -65,11 +72,11 @@ RNF-03, RNF-04, RNF-05, RNF-07 a RNF-14 no tienen un RG asociado explícito en e
 
 ## Cobertura
 
-- Los 20 RF (RF-01 a RF-20) del SRS v0.6 aparecen en esta matriz.
-- Los 10 CU (CU-01 a CU-10) y las 14 HU (HU-01 a HU-14) están referenciados.
-- Los 14 RNF (RNF-01 a RNF-14) están completos en el SRS ([01-requerimiento-formal.md](01-requerimiento-formal.md) §11).
-- Las 19 PP (PP-01 a PP-19) del plan de pruebas ([docs/04-pruebas/plan-pruebas-prototipo.md](../04-pruebas/plan-pruebas-prototipo.md)) están referenciadas, directamente por RF o por RNF/OE.
-- Los 10 riesgos (R-01 a R-10) están completos en [docs/02-analisis/03-riesgos.md](../02-analisis/03-riesgos.md).
+- Los 22 RF (RF-01 a RF-22) del SRS v0.10 aparecen en esta matriz; RF-21 y RF-22 son nuevos (P-13, 2026-10-12).
+- Los 10 CU (CU-01 a CU-10) y las 30 HU (HU-01 a HU-30) están referenciados; HU-26 a HU-30 son nuevas (P-13).
+- Los 18 RNF (RNF-01 a RNF-18) están completos en el SRS ([01-requerimiento-formal.md](01-requerimiento-formal.md) §11); RNF-15 a RNF-18 son nuevos (P-13).
+- Las 19 PP (PP-01 a PP-19) del plan de pruebas ([docs/04-pruebas/plan-pruebas-prototipo.md](../04-pruebas/plan-pruebas-prototipo.md)) están referenciadas, directamente por RF o por RNF/OE. RF-21/RF-22 y RNF-11/RNF-15..18 todavía no tienen una PP dedicada (ver Brechas).
+- Los 16 riesgos (R-01 a R-16) están completos en [docs/02-analisis/03-riesgos.md](../02-analisis/03-riesgos.md); R-12 a R-16 son nuevos (P-13).
 - Las 9 reglas de negocio (RN-01 a RN-09) de [docs/02-analisis/02-reglas-de-negocio.md](../02-analisis/02-reglas-de-negocio.md) están referenciadas: RN-01 a RN-07 y RN-09 contra su RF, RN-08 (retención) de forma transversal.
 
 ## Brechas detectadas en el SRS (para el responsable del proyecto)
@@ -77,6 +84,7 @@ RNF-03, RNF-04, RNF-05, RNF-07 a RNF-14 no tienen un RG asociado explícito en e
 1. **RF-02, RF-18, RF-20 sin RG asociado** en la tabla del §8: son funcionalidad base de plataforma (administración de roles, consulta de historial, notificación) que probablemente no necesite un RG de negocio dedicado, pero conviene confirmarlo explícitamente en la próxima revisión del SRS. RF-01 sí quedó con RG asignado (RG-06/07/08) tras la revisión de esta matriz.
 2. **RF-20 sin OE asociado**: a diferencia de RF-01, RF-02, RF-09 y RF-18 (ya resueltos en esta revisión), RF-20 (enviar análisis a un revisor y notificarlo) no tiene un objetivo específico claro; se sugiere vincularlo a OE-06 (seguridad/gobernanza) o dejarlo como funcionalidad de soporte sin OE.
 3. **RF-04, RF-05, RF-07, RF-08, RF-09, RF-15, RF-18, RF-20 sin PP directa** en el plan v0.3: son requerimientos cubiertos indirectamente por las pruebas de los CU en los que participan (p. ej. PP-01/PP-03/PP-07 ejercitan el flujo completo de CU-01/CU-05), pero no tienen un caso de prueba dedicado; sugerido para una futura revisión del plan de pruebas. RF-17 ya no está en esta lista desde el Bloque K7 (PP-20, ingesta de conocimiento con citas correctas).
+4. **RF-21, RF-22 y RNF-11/RNF-15..18 (P-13) sin OE, RG, CU ni PP** todavía: son funcionalidad de observabilidad/administración transversal nueva (el SRS nunca definió un caso de uso para esto); el Bloque 5 de P-13 debe agregar sus propios casos de prueba al plan. Numeración: P-13 §5 proponía RF-25/RF-26 y RNF-16..19, pero el SRS vigente solo llegaba a RF-20/RNF-14 -- se usó la siguiente numeración libre real (RF-21/RF-22, RNF-15..18) para no dejar huecos; a confirmar con el responsable del proyecto.
 
 ## Supuestos
 

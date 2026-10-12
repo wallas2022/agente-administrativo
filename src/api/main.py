@@ -117,6 +117,7 @@ from comun.seguridad import (
     verificar_password,
 )
 from comun.semillas import sembrar_datos_de_prueba
+from comun.uso_llm import envolver_funcion_embedding_inyectada, envolver_funcion_llm_inyectada
 from curaduria.extraccion import PdfSinTextoError, extraer_fragmentos
 from curaduria.fuentes import aprobar_fuente, clasificar_tipo_fuente, prioridad_de_tipo
 from curaduria.indexacion import (
@@ -799,12 +800,36 @@ def mejorar_redaccion_stream(
     analisis_id_uuid = analisis.id
     version_original_id = version_original.id
     documento_id = documento.id
+    usuario_id = usuario.id
+    area_id = documento.area_id
 
     def _generador() -> Iterator[str]:
         # Sesión propia: la que inyecta Depends(obtener_sesion) se cierra en
         # cuanto termina esta función (antes de que FastAPI empiece a leer
         # el generador del cuerpo de la respuesta), así que no sirve acá.
         sesion_fase2 = fabrica_sesion()
+        # P-13 (Bloque 1, RF-21): envuelve las funciones ya inyectadas por
+        # Depends (que en pruebas pueden ser un fake, ver
+        # tests/unit/test_api_mejorar_redaccion_stream.py -- por eso se
+        # envuelve el Callable inyectado en vez de llamar a generar_texto
+        # directo, ver comun/uso_llm.envolver_funcion_llm_inyectada) para
+        # registrar el uso sin cambiar su contrato.
+        funcion_llm_instrumentada = envolver_funcion_llm_inyectada(
+            funcion_llm,
+            sesion=sesion_fase2,
+            usuario_id=usuario_id,
+            area_id=area_id,
+            analisis_id=analisis_id_uuid,
+            caso_uso="redaccion",
+        )
+        funcion_embedding_instrumentada = envolver_funcion_embedding_inyectada(
+            funcion_embedding,
+            sesion=sesion_fase2,
+            usuario_id=usuario_id,
+            area_id=area_id,
+            analisis_id=analisis_id_uuid,
+            caso_uso="embeddings_busqueda",
+        )
         try:
             hubo_hallazgos_nuevos = False
             yield (
@@ -851,7 +876,7 @@ def mejorar_redaccion_stream(
                     glosario=glosario,
                     cliente_qdrant=cliente_qdrant,  # type: ignore[arg-type]
                     coleccion_rag=coleccion_rag,
-                    funcion_embedding=funcion_embedding,
+                    funcion_embedding=funcion_embedding_instrumentada,
                 )
 
                 # Bloque 3 (rendimiento): se genera y publica cada opción
@@ -867,7 +892,7 @@ def mejorar_redaccion_stream(
                         preparado.parrafo_base,
                         accion=accion,
                         estilo=estilo,
-                        funcion_llm=funcion_llm,
+                        funcion_llm=funcion_llm_instrumentada,
                         cita_estilo=preparado.cita_estilo,
                     )
                     if opcion is None:
@@ -2294,6 +2319,17 @@ def aprobar_fuente_endpoint(
             cliente_qdrant, coleccion=coleccion, fuente_id_negocio=fuente.fuente_id
         )
 
+    # P-13 (Bloque 1, RF-21): envuelve la función inyectada (ver
+    # comun/uso_llm.envolver_funcion_embedding_inyectada) -- no hay
+    # analisis_id acá, es indexación de la Base de Conocimiento (CU-08).
+    funcion_embedding_instrumentada = envolver_funcion_embedding_inyectada(
+        funcion_embedding,
+        sesion=sesion,
+        usuario_id=usuario.id,
+        area_id=fuente.area_id,
+        analisis_id=None,
+        caso_uso="embeddings_kb",
+    )
     try:
         resultado = indexar_fuente(
             sesion,
@@ -2302,7 +2338,7 @@ def aprobar_fuente_endpoint(
             contenido_archivo=contenido,
             tipo_archivo=extension,
             area_nombre=area.nombre if area else "",
-            funcion_embedding=funcion_embedding,
+            funcion_embedding=funcion_embedding_instrumentada,
             dimension=DIMENSION_BGE_M3,
             usuario_id=usuario.id,
             coleccion=coleccion,

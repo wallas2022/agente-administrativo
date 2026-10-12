@@ -191,7 +191,9 @@ def test_historial_incluye_usuario_duracion_y_numero_hallazgos(cliente, sesion_b
     analista = sesion_bd.query(Usuario).filter_by(email="analista@local").one()
     inicio = datetime.now(UTC) - timedelta(minutes=5)
     fin = inicio + timedelta(minutes=2)
-    _crear_analisis(sesion_bd, usuario=analista, fecha_inicio=inicio, fecha_fin=fin, numero_hallazgos=3)
+    _crear_analisis(
+        sesion_bd, usuario=analista, fecha_inicio=inicio, fecha_fin=fin, numero_hallazgos=3
+    )
 
     token = _token(cliente, "analista@local")
     respuesta = cliente.get("/historial", headers={"Authorization": f"Bearer {token}"})

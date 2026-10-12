@@ -17,7 +17,7 @@ from qdrant_client import QdrantClient
 os.environ.setdefault("API_SECRET_KEY", "clave-de-prueba")
 
 from api import main  # noqa: E402
-from comun.modelos import Bitacora, FuenteConocimiento, Glosario  # noqa: E402
+from comun.modelos import Bitacora, FuenteConocimiento, Glosario, UsoLlm  # noqa: E402
 from rag.cliente_embeddings import DIMENSION_BGE_M3  # noqa: E402
 
 RAIZ = Path(__file__).resolve().parents[2]
@@ -190,6 +190,12 @@ def test_aprobar_fuente_indexa_y_la_deja_vigente(cliente, sesion_bd) -> None:
     assert cliente_qdrant.count(collection_name=COLECCION_PRUEBA).count == 7
     assert sesion_bd.query(Bitacora).filter_by(accion="fuente_aprobada").count() == 1
     assert sesion_bd.query(Bitacora).filter_by(accion="fuente_indexada").count() == 1
+
+    # P-13 (Bloque 1, RF-21): una fila de uso por fragmento embebido, aunque
+    # funcion_embedding venga de un fake inyectado por Depends.
+    usos = sesion_bd.query(UsoLlm).filter_by(caso_uso="embeddings_kb").all()
+    assert len(usos) == 7
+    assert all(u.resultado == "ok" and u.analisis_id is None for u in usos)
 
 
 def test_aprobar_una_segunda_version_obsoletea_la_primera(cliente, sesion_bd) -> None:

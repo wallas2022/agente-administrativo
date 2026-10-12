@@ -22,6 +22,7 @@ from comun.modelos import (
     Usuario,
     VersionDocumento,
 )
+from orquestador import tareas
 from orquestador.tareas import ejecutar_analisis
 
 BUCKET = "documentos"
@@ -307,3 +308,117 @@ def test_ejecutar_analisis_ocr_pagina_ilegible_marca_con_hallazgos() -> None:
         )["Body"].read()
         assert b"ilegible" in texto_publicado
         assert b"garabato" not in texto_publicado
+
+
+def test_analizar_documento_envuelve_llm_y_embedding_con_contexto_del_analisis(
+    monkeypatch,
+) -> None:
+    """P-13 (Bloque 1, RF-21): analizar_documento (la tarea Celery, no
+    ejecutar_analisis) resuelve analisis/documento/tipo_revision una vez
+    para poder envolver funcion_llm/funcion_embedding con usuario, área,
+    análisis y caso de uso -- sin tocar la firma de ejecutar_analisis (sigue
+    siendo lógica pura, probada arriba con funciones falsas)."""
+    import httpx
+
+    sesion, documento_id, analisis_id = _sesion_con_documento_y_analisis()
+
+    monkeypatch.setattr(tareas, "obtener_fabrica_sesion", lambda: (lambda: sesion))
+
+    capturado: dict[str, Any] = {}
+
+    def _ejecutar_analisis_falso(_sesion, _documento_id, _analisis_id, **kwargs):
+        capturado.update(kwargs)
+        return EstadoDocumento.EN_REVISION.value
+
+    monkeypatch.setattr(tareas, "ejecutar_analisis", _ejecutar_analisis_falso)
+    monkeypatch.setattr(
+        "comun.glosario.cargar_glosario", lambda: set(), raising=False
+    )
+
+    resultado = tareas.analizar_documento(str(documento_id), str(analisis_id))
+
+    assert resultado == EstadoDocumento.EN_REVISION.value
+    funcion_llm_envuelta = capturado["funcion_llm"]
+    funcion_embedding_envuelta = capturado["funcion_embedding"]
+
+    class _RespuestaChatFalsa:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return {"message": {"content": "explicación generada"}, "eval_count": 30}
+
+    monkeypatch.setattr(
+        httpx, "post", lambda url, *, json, timeout: _RespuestaChatFalsa()
+    )
+    texto = funcion_llm_envuelta("prompt de prueba")
+    assert texto == "explicación generada"
+
+    class _RespuestaEmbedFalsa:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return {"embeddings": [[0.1, 0.2]]}
+
+    monkeypatch.setattr(
+        httpx, "post", lambda url, *, json, timeout: _RespuestaEmbedFalsa()
+    )
+    vector = funcion_embedding_envuelta("texto de búsqueda")
+    assert vector == [0.1, 0.2]
+
+    from comun.modelos import UsoLlm
+
+    usos = {u.caso_uso: u for u in sesion.query(UsoLlm).all()}
+    assert usos["contable"].resultado == "ok"
+    assert usos["contable"].tokens_salida == 30
+    assert usos["embeddings_busqueda"].resultado == "ok"
+    assert usos["contable"].usuario_id == sesion.get(Analisis, analisis_id).usuario_id
+
+
+def test_validar_dudosos_ortografia_envuelve_funcion_llm_con_contexto_del_analisis(
+    monkeypatch,
+) -> None:
+    """P-13 (Bloque 1, RF-21): mismo patrón que analizar_documento, para la
+    tarea async de CU-05 (confirma/descarta dudosos de ortografía)."""
+    import httpx
+
+    sesion, documento_id, analisis_id = _sesion_con_documento_y_analisis()
+    tipo_revision = sesion.get(Analisis, analisis_id).tipo_revision_id
+    sesion.get(TipoRevision, tipo_revision).nombre = "ortografia"
+    sesion.commit()
+
+    monkeypatch.setattr(tareas, "obtener_fabrica_sesion", lambda: (lambda: sesion))
+
+    capturado: dict[str, Any] = {}
+
+    def _ejecutar_validacion_falsa(_sesion, _analisis_id, **kwargs):
+        capturado.update(kwargs)
+
+    monkeypatch.setattr(
+        tareas, "ejecutar_validacion_dudosos_ortografia", _ejecutar_validacion_falsa
+    )
+
+    tareas.validar_dudosos_ortografia(str(analisis_id))
+
+    funcion_llm_envuelta = capturado["funcion_llm"]
+
+    class _RespuestaChatFalsa:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return {"message": {"content": "confirmado"}, "eval_count": 12}
+
+    monkeypatch.setattr(
+        httpx, "post", lambda url, *, json, timeout: _RespuestaChatFalsa()
+    )
+    texto = funcion_llm_envuelta("prompt de prueba")
+    assert texto == "confirmado"
+
+    from comun.modelos import UsoLlm
+
+    fila = sesion.query(UsoLlm).filter_by(caso_uso="ortografia").one()
+    assert fila.resultado == "ok"
+    assert fila.tokens_salida == 12
+    assert fila.usuario_id == sesion.get(Analisis, analisis_id).usuario_id

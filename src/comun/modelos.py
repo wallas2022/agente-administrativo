@@ -392,3 +392,42 @@ class Bitacora(Base):
     # permitidas" (PP-09 anterior) por "0 aprobaciones sin registro": toda
     # autoaprobación debe quedar marcada así en la bitácora.
     autoaprobado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class UsoLlm(Base):
+    """P-13 (Bloque 1, RF-21): una fila por cada llamada real al LLM o a
+    embeddings -- lo que GET /admin/dashboard/* (Bloque 3) agrega para el
+    Administrador (HU-26..28). `analisis_id` es nulo para `embeddings_kb`
+    (indexación de la Base de Conocimiento, CU-08): no hay un análisis de
+    por medio ahí, solo una fuente. Ver ADR-009 (no reemplaza a Langfuse,
+    que sigue siendo la herramienta de depuración de trazas individuales)."""
+
+    __tablename__ = "uso_llm"
+    __table_args__ = (
+        Index("ix_uso_llm_fecha_hora", "fecha_hora"),
+        Index("ix_uso_llm_usuario_id", "usuario_id"),
+        Index("ix_uso_llm_caso_uso", "caso_uso"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    usuario_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("usuario.id"), nullable=False)
+    area_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("area.id"), nullable=False)
+    analisis_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("analisis.id"))
+    # "contable" | "ortografia" | "redaccion" | "embeddings_kb" |
+    # "embeddings_busqueda" -- String simple, no Enum/CHECK (mismo criterio
+    # que el resto de "estados" de este archivo, validado en la capa de
+    # dominio, ver comun/uso_llm.py).
+    caso_uso: Mapped[str] = mapped_column(String(30), nullable=False)
+    modelo: Mapped[str] = mapped_column(String(100), nullable=False)
+    fecha_hora: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Métricas de Ollama (/api/chat, /api/embed) -- cualquiera puede ser nula
+    # si esa versión de Ollama no la informa (R-15, nunca se estima).
+    tokens_entrada: Mapped[int | None] = mapped_column()
+    tokens_salida: Mapped[int | None] = mapped_column()
+    duracion_total_ms: Mapped[int | None] = mapped_column()
+    duracion_carga_ms: Mapped[int | None] = mapped_column()
+    duracion_lectura_ms: Mapped[int | None] = mapped_column()
+    duracion_generacion_ms: Mapped[int | None] = mapped_column()
+    # "ok" | "timeout" | "error" -- una llamada que falla también se
+    # registra (RF-21), sin tokens/duraciones (se desconocen).
+    resultado: Mapped[str] = mapped_column(String(20), nullable=False)

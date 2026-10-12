@@ -1,7 +1,7 @@
 # Requerimiento formal (SRS) — Agente Administrativo
 
-**Versión:** 0.9 (borrador para validación)
-**Fecha:** 2026-09-30
+**Versión:** 0.10 (borrador para validación)
+**Fecha:** 2026-10-12
 **Relacionado con:** docs/00-rol-y-lineamientos.md
 
 | Campo | Valor |
@@ -145,6 +145,8 @@ Prioridad MoSCoW: M = debe, S = debería, C = podría.
 | RF-18 | Consultar historial de análisis con filtros (usuario, área, tipo, estado, fecha) | S |
 | RF-19 | Registrar bitácora de auditoría de todas las acciones | M |
 | RF-20 | Enviar un análisis a un revisor y notificarlo | C |
+| RF-21 | Registrar el uso de cada llamada al LLM y a embeddings (tokens, duración, modelo, usuario, caso de uso, resultado) (P-13, 2026-10-12) | S |
+| RF-22 | Dashboard de consumo y recursos para el Administrador, tras el permiso `dashboard:ver` (P-13, 2026-10-12) | S |
 
 ## 11. Requerimientos no funcionales
 | ID | Categoría | Requerimiento |
@@ -163,6 +165,10 @@ Prioridad MoSCoW: M = debe, S = debería, C = podría.
 | RNF-12 | Retención | Documentos originales, corregidos y resultados se conservan 3 meses y luego se eliminan de forma automática y auditada; la bitácora de auditoría se conserva [POR CONFIRMAR] |
 | RNF-13 | Documentación | Toda la documentación en Markdown dentro de `docs/`; diagramas y flujos solo en Mermaid |
 | RNF-14 | Portabilidad | El mismo artefacto (imágenes con el mismo tag) corre en local y stage; solo cambia la configuración (`compose.<ambiente>.yml`, `.env.<ambiente>`); despliegue a stage offline y reversible por snapshot |
+| RNF-15 | Rendimiento del registro de uso | Registrar el uso de una llamada al LLM/embeddings no agrega más de 20 ms, y nunca hace fallar el análisis si el registro falla (P-13, 2026-10-12) |
+| RNF-16 | Rendimiento del dashboard | El Dashboard del Administrador carga en ≤ 2 s con 100,000 registros de uso (P-13, 2026-10-12) |
+| RNF-17 | Seguridad de la configuración visible | Ninguna variable con `PASSWORD`, `SECRET`, `KEY`, `TOKEN` o credenciales aparece en la vista de configuración del dashboard; lista blanca, no lista negra (P-13, 2026-10-12) |
+| RNF-18 | Aislamiento de los exportadores de métricas | `node-exporter`/`cAdvisor` sin acceso de escritura al host, solo red interna, sin internet en ejecución (P-13, 2026-10-12) |
 
 ## 12. Casos de uso (resumen)
 Detalle en [docs/01-requerimientos/02-casos-de-uso.md](02-casos-de-uso.md). **Entrega 1: CU-01, CU-02, CU-05.**
@@ -212,6 +218,11 @@ Detalle y seguimiento en [docs/02-analisis/03-riesgos.md](../02-analisis/03-ries
 | R-09 | Baja adopción | Media | Medio | Usuarios clave en piloto, métricas visibles | Patrocinador |
 | R-10 | Acceso tardío al stage o diferencias local vs. stage | Alta | Medio | Paridad por contenedores (RNF-14), modelos parametrizados, guía de despliegue lista, PP de rendimiento solo en stage | Patrocinador / TI |
 | R-11 | Autoaprobación permitida por defecto (v0.9, `SEGREGACION_APROBACION=false`) reduce el control de cuatro-ojos en CU-01/CU-02/CU-05 | Media | Medio | Toda autoaprobación queda en bitácora y en el reporte "Ajustes autoaprobados" (Jefatura/Auditor); `SEGREGACION_APROBACION=true` restaura el bloqueo si el riesgo se materializa | Jefatura / Auditoría |
+| R-12 | Un secreto aparece por error en la vista "Configuración" del dashboard (P-13) | Baja | Alto | Lista blanca explícita (RNF-17) + prueba automática que falla si aparece un valor de `.env` marcado como secreto | Líder técnico |
+| R-13 | `node-exporter`/`cAdvisor` necesitan montar rutas del host (P-13, ADR-009) | Media | Medio | Montajes de solo lectura, sin puertos publicados, en red interna | TI |
+| R-14 | El registro de uso del LLM frena o rompe un análisis (P-13) | Baja | Alto | Inserción fuera de la ruta crítica, con manejo de errores que nunca propaga (RNF-15) | Líder técnico |
+| R-15 | Cifras de tokens de embeddings no disponibles según la versión de Ollama (P-13) | Media | Bajo | Registrar `NULL`/"no informado" en vez de estimar | Líder técnico |
+| R-16 | Más carga en la VM de stage por el scraping de métricas (P-13) | Baja | Bajo | Intervalo de 30 s, retención de Prometheus 15 días | TI |
 
 ## 16. Plan del piloto
 ```mermaid

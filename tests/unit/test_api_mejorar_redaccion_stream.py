@@ -19,7 +19,7 @@ os.environ.setdefault("API_SECRET_KEY", "clave-de-prueba")
 
 from api import main  # noqa: E402
 from comun.estados import EstadoDocumento  # noqa: E402
-from comun.modelos import Base, Documento, Hallazgo  # noqa: E402
+from comun.modelos import Base, Documento, Hallazgo, UsoLlm  # noqa: E402
 from comun.semillas import sembrar_datos_de_prueba  # noqa: E402
 
 COLECCION_PRUEBA = "kb_prueba_cu02_stream"
@@ -205,6 +205,16 @@ def test_stream_persiste_mejora_sugerida_y_marca_documento_con_hallazgos(
 
     documento = sesion.query(Documento).one()
     assert documento.estado == EstadoDocumento.CON_HALLAZGOS.value
+
+    # P-13 (Bloque 1, RF-21): cada llamada al LLM de la fase 2 queda
+    # registrada, aunque funcion_llm venga de un fake inyectado por Depends
+    # (ver envolver_funcion_llm_inyectada). No hay fuente de conocimiento
+    # indexada en esta prueba (la colección Qdrant no existe), así que
+    # buscar_fragmentos nunca llama a funcion_embedding -- esa ruta
+    # (embeddings_busqueda) está cubierta en tests/unit/test_uso_llm.py.
+    usos = sesion.query(UsoLlm).all()
+    assert {u.caso_uso for u in usos} == {"redaccion"}
+    assert all(u.resultado == "ok" for u in usos)
     sesion.close()
 
     # Idempotencia: volver a entrar a la pantalla de resultados (p. ej. el

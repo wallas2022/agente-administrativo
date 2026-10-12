@@ -320,6 +320,7 @@ def ejecutar_analisis(
 def analizar_documento(documento_id: str, analisis_id: str) -> str:
     from comun.cola import encolar_validacion_dudosos_ortografia
     from comun.glosario import cargar_glosario
+    from comun.uso_llm import envolver_generar_texto, envolver_obtener_embedding
     from ocr.motor import ocr_imagen_tesseract
     from ocr.orientacion import detectar_rotacion_tesseract
     from ortografia.cliente_languagetool import revisar_texto
@@ -334,6 +335,37 @@ def analizar_documento(documento_id: str, analisis_id: str) -> str:
         qdrant_port = os.environ.get("QDRANT_PORT", "6333")
         cliente_qdrant = QdrantClient(url=f"http://{qdrant_host}:{qdrant_port}")
 
+        # P-13 (Bloque 1, RF-21): envuelto acá (no dentro de ejecutar_analisis)
+        # para no tocar su firma -- sigue siendo lógica pura probable con
+        # funciones falsas, ver tests/unit/test_orquestador_tareas.py. Si no
+        # se encuentra el análisis/documento, se usan las funciones reales
+        # sin envolver -- ejecutar_analisis igual va a marcar el análisis
+        # como fallido antes de intentar usarlas.
+        analisis_fila = sesion.get(Analisis, uuid.UUID(analisis_id))
+        documento_fila = (
+            sesion.get(Documento, analisis_fila.documento_id) if analisis_fila else None
+        )
+        tipo_revision_fila = (
+            sesion.get(TipoRevision, analisis_fila.tipo_revision_id) if analisis_fila else None
+        )
+        funcion_embedding = obtener_embedding
+        funcion_llm = generar_texto
+        if analisis_fila is not None and documento_fila is not None:
+            funcion_llm = envolver_generar_texto(
+                sesion=sesion,
+                usuario_id=analisis_fila.usuario_id,
+                area_id=documento_fila.area_id,
+                analisis_id=analisis_fila.id,
+                caso_uso=tipo_revision_fila.nombre if tipo_revision_fila else "desconocido",
+            )
+            funcion_embedding = envolver_obtener_embedding(
+                sesion=sesion,
+                usuario_id=analisis_fila.usuario_id,
+                area_id=documento_fila.area_id,
+                analisis_id=analisis_fila.id,
+                caso_uso="embeddings_busqueda",
+            )
+
         return ejecutar_analisis(
             sesion,
             uuid.UUID(documento_id),
@@ -341,8 +373,8 @@ def analizar_documento(documento_id: str, analisis_id: str) -> str:
             cliente_s3=almacenamiento.obtener_cliente_s3(),
             bucket=os.environ.get("MINIO_BUCKET_DOCUMENTOS", "documentos"),
             cliente_qdrant=cliente_qdrant,
-            funcion_embedding=obtener_embedding,
-            funcion_llm=generar_texto,
+            funcion_embedding=funcion_embedding,
+            funcion_llm=funcion_llm,
             modelo_llm=os.environ.get("LLM_MODEL_PRINCIPAL", ""),
             coleccion_rag=os.environ.get("QDRANT_COLECCION"),
             funcion_revisar_lt=revisar_texto,
@@ -441,6 +473,7 @@ def ejecutar_validacion_dudosos_ortografia(
 
 @app.task(name="orquestador.tareas.validar_dudosos_ortografia")
 def validar_dudosos_ortografia(analisis_id: str) -> None:
+    from comun.uso_llm import envolver_generar_texto
     from rag.cliente_llm import generar_texto
 
     sesion = obtener_fabrica_sesion()()
@@ -449,8 +482,28 @@ def validar_dudosos_ortografia(analisis_id: str) -> None:
             "LLM_MODEL_PRINCIPAL", ""
         )
 
-        def _funcion_llm(prompt: str) -> str:
-            return generar_texto(prompt, modelo=modelo_ortografia)
+        # P-13 (Bloque 1, RF-21): igual que en analizar_documento, se busca
+        # el análisis/documento una sola vez acá para poder registrar el uso
+        # -- ejecutar_validacion_dudosos_ortografia también los busca (son
+        # consultas baratas, ya en el identity map de la misma sesión).
+        analisis_fila = sesion.get(Analisis, uuid.UUID(analisis_id))
+        documento_fila = (
+            sesion.get(Documento, analisis_fila.documento_id) if analisis_fila else None
+        )
+
+        if analisis_fila is not None and documento_fila is not None:
+            _funcion_llm = envolver_generar_texto(
+                sesion=sesion,
+                usuario_id=analisis_fila.usuario_id,
+                area_id=documento_fila.area_id,
+                analisis_id=analisis_fila.id,
+                caso_uso="ortografia",
+                modelo=modelo_ortografia,
+            )
+        else:
+
+            def _funcion_llm(prompt: str) -> str:
+                return generar_texto(prompt, modelo=modelo_ortografia)
 
         ejecutar_validacion_dudosos_ortografia(
             sesion,

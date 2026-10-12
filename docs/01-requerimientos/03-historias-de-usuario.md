@@ -1,8 +1,8 @@
 # Historias de usuario — Agente Administrativo
 
-**Versión:** 0.8.1
+**Versión:** 0.9
 **Fecha:** 2026-10-12
-**Relacionado con:** docs/01-requerimientos/02-casos-de-uso.md, docs/01-requerimientos/01-requerimiento-formal.md, docs/04-pruebas/plan-pruebas-prototipo.md, docs/05-prompts/P-12-usuarios-roles-menu-historial.md
+**Relacionado con:** docs/01-requerimientos/02-casos-de-uso.md, docs/01-requerimientos/01-requerimiento-formal.md, docs/04-pruebas/plan-pruebas-prototipo.md, docs/05-prompts/P-12-usuarios-roles-menu-historial.md, docs/05-prompts/P-13-dashboard-administrador-consumo.md
 
 Formato: Como / quiero / para, con criterios de aceptación en Gherkin (Dado/Cuando/Entonces). La numeración HU-01 a HU-14 se fijó para que coincida con las referencias del plan de pruebas ([docs/04-pruebas/plan-pruebas-prototipo.md](../04-pruebas/plan-pruebas-prototipo.md) §2).
 
@@ -464,4 +464,105 @@ Característica: Cambio de contraseña obligatorio
     Dado que fallo 5 veces seguidas al iniciar sesión
     Cuando intento una vez más
     Entonces el sistema me bloquea por 15 minutos
+```
+
+## HU-26 — Ver los tokens consumidos
+
+**RF:** RF-21, RF-22 · **Entrega:** 2 (P-13, depende de P-12)
+
+Como **Administrador**, quiero ver los tokens consumidos por el agente, para entender cuánto está trabajando y detectar problemas de rendimiento.
+
+```gherkin
+Característica: Tarjetas y gráfico de consumo de tokens
+
+  Escenario: Ver el resumen del período
+    Dado que estoy en Dashboard → Consumo
+    Cuando elijo un rango de fechas
+    Entonces veo tokens de entrada, de salida y totales, número de llamadas al LLM, tokens/s promedio y % de llamadas con timeout
+    Y veo un gráfico diario del período
+
+  Escenario: Filtrar por área, caso de uso o modelo
+    Dado que estoy viendo el consumo
+    Cuando aplico un filtro de área, caso de uso o modelo
+    Entonces las tarjetas y el gráfico se recalculan solo con lo filtrado
+```
+
+## HU-27 — Ver el consumo por usuario
+
+**RF:** RF-21, RF-22 · **Entrega:** 2 (P-13)
+
+Como **Administrador**, quiero ver cuánto consume cada usuario, para identificar patrones de uso y exportar la información.
+
+```gherkin
+Característica: Consumo por usuario
+
+  Escenario: Tabla ordenable
+    Dado que estoy en Dashboard → Usuarios
+    Entonces veo, por usuario: área, número de análisis, tokens de entrada/salida, tiempo de LLM y timeouts
+    Y puedo ordenar la tabla por cualquier columna
+
+  Escenario: Exportar y filtrar
+    Dado que estoy viendo la tabla de usuarios
+    Cuando exporto a CSV
+    Entonces descargo exactamente lo que estoy viendo (con los filtros aplicados)
+
+  Escenario: Ir al detalle de un usuario
+    Dado que estoy viendo la tabla de usuarios
+    Cuando hago clic en uno
+    Entonces el dashboard se filtra a ese usuario
+```
+
+## HU-28 — Saber qué consume más
+
+**RF:** RF-21, RF-22 · **Entrega:** 2 (P-13)
+
+Como **Administrador**, quiero un ranking de qué caso de uso y qué modelo consumen más, para priorizar dónde optimizar.
+
+```gherkin
+Característica: Ranking por caso de uso y modelo
+
+  Escenario: Ver el ranking
+    Dado que estoy en Dashboard → Consumo
+    Entonces veo un ranking por caso de uso (contable, redacción, ortografía, OCR, embeddings) y por modelo
+    Y cada fila muestra tokens, tiempo de LLM y duración media del análisis
+```
+
+## HU-29 — Ver los recursos del servidor
+
+**RF:** RF-22 · **Entrega:** 2 (P-13)
+
+Como **Administrador**, quiero ver el estado de CPU, memoria, disco y los modelos cargados en Ollama, para anticipar problemas de capacidad.
+
+```gherkin
+Característica: Recursos de infraestructura
+
+  Escenario: Ver el estado actual
+    Dado que estoy en Dashboard → Recursos
+    Entonces veo CPU %, RAM usada/total y disco de /srv/agente usado/total del host
+    Y veo CPU % y memoria de cada contenedor frente a su límite
+    Y veo los modelos de Ollama en memoria (tamaño, hasta cuándo quedan cargados) e instalados
+    Y la vista se actualiza cada 30 segundos
+
+  Escenario: Alerta de disco
+    Dado que el disco usado llega al 70 % o más
+    Cuando abro Dashboard → Recursos
+    Entonces veo una alerta visible, no solo el número
+```
+
+## HU-30 — Ver la configuración actual
+
+**RF:** RF-22 · **Entrega:** 2 (P-13)
+
+Como **Administrador**, quiero ver la configuración vigente del sistema, para confirmar con qué parámetros está corriendo sin tener que entrar a cada contenedor.
+
+```gherkin
+Característica: Configuración vigente (solo lectura)
+
+  Escenario: Ver la configuración
+    Dado que estoy en Dashboard → Configuración
+    Entonces veo el ambiente, la versión/commit de la app, los modelos configurados, los parámetros de Ollama, los umbrales de OCR, la segregación de funciones vigente, y los límites de CPU/RAM por contenedor
+
+  Escenario: Ningún secreto visible
+    Dado que estoy viendo la configuración
+    Entonces ninguna variable con contraseña, llave o token aparece, ni siquiera parcialmente
 ```

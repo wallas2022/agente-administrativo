@@ -25,6 +25,20 @@ def _respuesta_de_chat(contenido: str = "ok") -> _RespuestaFalsa:
     return _RespuestaFalsa({"message": {"content": contenido}})
 
 
+def _respuesta_de_chat_con_metricas(contenido: str = "ok") -> _RespuestaFalsa:
+    return _RespuestaFalsa(
+        {
+            "message": {"content": contenido},
+            "prompt_eval_count": 120,
+            "eval_count": 45,
+            "total_duration": 5_000_000_000,
+            "load_duration": 1_000_000_000,
+            "prompt_eval_duration": 500_000_000,
+            "eval_duration": 3_500_000_000,
+        }
+    )
+
+
 def test_generar_texto_envia_keep_alive_24h_por_defecto(monkeypatch) -> None:
     llamada: dict = {}
 
@@ -199,3 +213,55 @@ def test_generar_texto_devuelve_el_contenido_del_mensaje(monkeypatch) -> None:
     resultado = cliente_llm.generar_texto("hola", modelo="modelo-x")
 
     assert resultado == "el párrafo mejorado"
+
+
+# --- generar_texto_con_metricas (P-13, Bloque 1, RF-21) --------------------
+
+
+def test_generar_texto_con_metricas_expone_tokens_y_duraciones(monkeypatch) -> None:
+    monkeypatch.setattr(
+        httpx, "post", lambda url, *, json, timeout: _respuesta_de_chat_con_metricas()
+    )
+
+    resultado = cliente_llm.generar_texto_con_metricas("hola", modelo="modelo-x")
+
+    assert resultado.texto == "ok"
+    assert resultado.metricas.modelo == "modelo-x"
+    assert resultado.metricas.tokens_entrada == 120
+    assert resultado.metricas.tokens_salida == 45
+    assert resultado.metricas.duracion_total_ms == 5000
+    assert resultado.metricas.duracion_carga_ms == 1000
+    assert resultado.metricas.duracion_lectura_ms == 500
+    assert resultado.metricas.duracion_generacion_ms == 3500
+
+
+def test_generar_texto_con_metricas_usa_none_si_ollama_no_informa_un_campo(monkeypatch) -> None:
+    """R-15: una versión de Ollama que no informa un campo no debe hacer
+    fallar el registro de uso -- se guarda None, nunca se estima."""
+    monkeypatch.setattr(
+        httpx, "post", lambda url, *, json, timeout: _respuesta_de_chat("ok")
+    )
+
+    resultado = cliente_llm.generar_texto_con_metricas("hola", modelo="modelo-x")
+
+    assert resultado.metricas.tokens_entrada is None
+    assert resultado.metricas.tokens_salida is None
+    assert resultado.metricas.duracion_total_ms is None
+
+
+def test_generar_texto_sigue_devolviendo_solo_el_texto(monkeypatch) -> None:
+    """generar_texto (Callable[[str], str]) es el contrato que ya usa todo
+    el proyecto -- no debe cambiar aunque generar_texto_con_metricas exista."""
+    monkeypatch.setattr(
+        httpx, "post", lambda url, *, json, timeout: _respuesta_de_chat_con_metricas("hola")
+    )
+
+    resultado = cliente_llm.generar_texto("hola", modelo="modelo-x")
+
+    assert resultado == "hola"
+    assert isinstance(resultado, str)
+
+
+def test_ns_a_ms_convierte_nanosegundos_a_milisegundos() -> None:
+    assert cliente_llm.ns_a_ms(5_000_000_000) == 5000
+    assert cliente_llm.ns_a_ms(None) is None

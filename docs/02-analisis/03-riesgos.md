@@ -1,10 +1,10 @@
 # Registro de riesgos — Agente Administrativo
 
-**Versión:** 0.7
-**Fecha:** 2026-09-30
-**Relacionado con:** [docs/01-requerimientos/01-requerimiento-formal.md](../01-requerimientos/01-requerimiento-formal.md) §15, [docs/02-analisis/02-reglas-de-negocio.md](02-reglas-de-negocio.md)
+**Versión:** 0.8
+**Fecha:** 2026-10-12
+**Relacionado con:** [docs/01-requerimientos/01-requerimiento-formal.md](../01-requerimientos/01-requerimiento-formal.md) §15, [docs/02-analisis/02-reglas-de-negocio.md](02-reglas-de-negocio.md), docs/05-prompts/P-13-dashboard-administrador-consumo.md, ADR-009
 
-Registro completo de riesgos (R-01 a R-11), fuente: requerimiento formal v0.9. El resumen embebido en el SRS ([01-requerimiento-formal.md](../01-requerimientos/01-requerimiento-formal.md) §15) enlaza aquí para el detalle y seguimiento.
+Registro completo de riesgos (R-01 a R-16), fuente: requerimiento formal v0.10. El resumen embebido en el SRS ([01-requerimiento-formal.md](../01-requerimientos/01-requerimiento-formal.md) §15) enlaza aquí para el detalle y seguimiento.
 
 | ID | Riesgo | Probabilidad | Impacto | Mitigación | Responsable | Estado |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -19,16 +19,22 @@ Registro completo de riesgos (R-01 a R-11), fuente: requerimiento formal v0.9. E
 | R-09 | Baja adopción | Media | Medio | Usuarios clave en piloto, métricas visibles | Patrocinador | Abierto |
 | R-10 | Acceso tardío al stage o diferencias local vs. stage | Alta | Medio | Paridad por contenedores (RNF-14), modelos parametrizados, guía de despliegue lista, PP de rendimiento solo en stage | Patrocinador / TI | Abierto |
 | R-11 | Autoaprobación permitida por defecto (SRS v0.9, SEGREGACION_APROBACION=false) reduce el control de cuatro-ojos en CU-01/CU-02/CU-05 -- un usuario podría autoaprobar un ajuste incorrecto sin que otra persona lo revise | Media | Medio | Toda autoaprobación queda marcada en la bitácora (Bitacora.autoaprobado) y visible en el reporte "Ajustes autoaprobados" (GET /reportes/ajustes-autoaprobados) para Jefatura/Auditor; PP-09 pasó de "0 autoaprobaciones permitidas" a "0 aprobaciones sin registro"; SEGREGACION_APROBACION=true restaura el bloqueo si el riesgo se materializa | Jefatura / Auditoría | Abierto |
+| R-12 | Un secreto aparece por error en la vista "Configuración" del Dashboard del Administrador (P-13) | Baja | Alto | Lista blanca explícita (RNF-17) + prueba automática que falla si aparece un valor de `.env` marcado como secreto | Líder técnico | Abierto |
+| R-13 | `node-exporter`/`cAdvisor` necesitan montar rutas del host (P-13, ADR-009) | Media | Medio | Montajes de solo lectura, sin puertos publicados, en red interna | TI | Abierto |
+| R-14 | El registro de uso del LLM (`uso_llm`) frena o rompe un análisis (P-13) | Baja | Alto | Inserción fuera de la ruta crítica, con manejo de errores que nunca propaga a quien llama (RNF-15) | Líder técnico | Abierto |
+| R-15 | Cifras de tokens de embeddings no disponibles según la versión de Ollama (P-13) | Media | Bajo | Registrar `NULL`/"no informado" en vez de estimar | Líder técnico | Abierto |
+| R-16 | Más carga en la VM de stage por el scraping de métricas de `node-exporter`/`cAdvisor` (P-13) | Baja | Bajo | Intervalo de scraping 30 s, retención de Prometheus 15 días | TI | Abierto |
 
 ## Riesgos por categoría
 
 | Categoría | Riesgos |
 | --- | --- |
-| Calidad del modelo / resultados | R-01, R-05, R-06 |
-| Infraestructura / rendimiento | R-02, R-07, R-10 |
+| Calidad del modelo / resultados | R-01, R-05, R-06, R-15 |
+| Infraestructura / rendimiento | R-02, R-07, R-10, R-13, R-16 |
 | Gobierno de datos | R-03, R-08 |
-| Seguridad | R-04, R-11 |
+| Seguridad | R-04, R-11, R-12 |
 | Adopción / negocio | R-09 |
+| Observabilidad / dashboard (P-13) | R-12, R-13, R-14, R-15, R-16 |
 
 ## Supuestos
 
@@ -36,3 +42,4 @@ Registro completo de riesgos (R-01 a R-11), fuente: requerimiento formal v0.9. E
 2. R-02 y R-10 están directamente ligados a la estrategia de ambientes ([docs/03-diseno/despliegue/estrategia-ambientes.md](../03-diseno/despliegue/estrategia-ambientes.md), [ADR-004](../03-diseno/adr/ADR-004-ambientes-local-stage.md)).
 3. Revisión de este registro sugerida junto con cada actualización del SRS o al cierre de cada fase del piloto (ver §16 del SRS).
 4. R-11 (2026-09-30, SRS v0.9): decisión del responsable del proyecto de volver configurable la segregación de funciones (antes bloqueada sin excepción, RN-07) -- no existía como riesgo en versiones anteriores del registro porque la autoaprobación estaba prohibida por diseño.
+5. R-12 a R-16 (2026-10-12, P-13): agregados al iniciar el Dashboard del Administrador -- ver [docs/02-analisis/06-analisis-dashboard-administrador.md](06-analisis-dashboard-administrador.md) y [ADR-009](../03-diseno/adr/ADR-009-observabilidad-dashboard-administrador.md).
