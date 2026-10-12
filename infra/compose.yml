@@ -230,12 +230,63 @@ services:
       retries: 3
     restart: unless-stopped
 
+  # P-13 (Bloque 2, ADR-009): métricas del host -- CPU, RAM, disco (HU-29).
+  # Sin puertos publicados al host: solo prometheus (red_interna) lo consulta.
+  # Montajes de solo lectura, nunca escribe nada (R-13).
+  node-exporter:
+    image: prom/node-exporter:v1.8.2   # validar
+    networks:
+      - red_interna
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/host/root"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9100/metrics > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # P-13 (Bloque 2, ADR-009): métricas por contenedor -- CPU, memoria vs.
+  # límite (HU-29). docker.sock de solo lectura: cAdvisor solo lee stats,
+  # nunca gestiona contenedores (distinto de montarlo en la propia API).
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1   # validar
+    networks:
+      - red_interna
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:v2.55.0   # validar
     networks:
       - red_interna
     volumes:
       - ./monitoreo/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    # Retención 15 días (P-13, ADR-009, R-16) -- suficiente para HU-29 (vista
+    # en vivo, se actualiza cada 30s) sin acumular datos indefinidamente.
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+    depends_on:
+      - node-exporter
+      - cadvisor
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
       interval: 30s

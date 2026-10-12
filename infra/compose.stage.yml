@@ -111,6 +111,23 @@ services:
           cpus: "0.50"
           memory: 1G
 
+  # P-13 (Bloque 2, ADR-009): exporters livianos, sin datos persistentes que
+  # respaldar (solo leen y reexponen métricas) -- límites bajos, mismo
+  # patrón que el resto de servicios de monitoreo de este archivo.
+  node-exporter:
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+
+  cadvisor:
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
   prometheus:
     volumes:
       - type: bind

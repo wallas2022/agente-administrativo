@@ -147,6 +147,24 @@ services:
           cpus: "0.50"
           memory: 512M
 
+  # P-13 (Bloque 2): mismo perfil opcional que prometheus/grafana -- sin
+  # Prometheus corriendo, no tiene sentido tenerlos levantados aparte.
+  node-exporter:
+    profiles: ["observabilidad"]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.10"
+          memory: 64M
+
+  cadvisor:
+    profiles: ["observabilidad"]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.15"
+          memory: 128M
+
   prometheus:
     profiles: ["observabilidad"]
     ports:
