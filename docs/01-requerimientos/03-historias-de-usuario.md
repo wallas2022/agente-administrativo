@@ -1,7 +1,7 @@
 # Historias de usuario — Agente Administrativo
 
-**Versión:** 0.8
-**Fecha:** 2026-10-09
+**Versión:** 0.8.1
+**Fecha:** 2026-10-12
 **Relacionado con:** docs/01-requerimientos/02-casos-de-uso.md, docs/01-requerimientos/01-requerimiento-formal.md, docs/04-pruebas/plan-pruebas-prototipo.md, docs/05-prompts/P-12-usuarios-roles-menu-historial.md
 
 Formato: Como / quiero / para, con criterios de aceptación en Gherkin (Dado/Cuando/Entonces). La numeración HU-01 a HU-14 se fijó para que coincida con las referencias del plan de pruebas ([docs/04-pruebas/plan-pruebas-prototipo.md](../04-pruebas/plan-pruebas-prototipo.md) §2).
@@ -325,12 +325,12 @@ Característica: Menú y rutas según permisos
     Entonces veo en el menú exactamente: "<opciones>"
 
     Ejemplos:
-      | rol            | opciones                                                              |
-      | Analista       | Nuevo análisis, Historial                                             |
-      | Revisor        | Historial                                                             |
-      | Curador        | Base de conocimiento, Historial                                      |
-      | Auditor        | Historial, Bitácora, Ajustes autoaprobados                           |
-      | Administrador  | Historial, Bitácora, Ajustes autoaprobados, Configuración            |
+      | rol            | opciones                                                                                 |
+      | Analista       | Nuevo análisis, Historial                                                                |
+      | Revisor        | Historial                                                                                |
+      | Curador        | Historial, Base de conocimiento                                                          |
+      | Auditor        | Historial, Base de conocimiento, Ajustes autoaprobados, Bitácora                         |
+      | Administrador  | Nuevo análisis, Historial, Base de conocimiento, Ajustes autoaprobados, Bitácora, Configuración |
 
   Escenario: URL directa sin permiso
     Dado que un usuario no tiene el permiso de una pantalla
