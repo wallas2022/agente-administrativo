@@ -4,6 +4,15 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# P-13 (Bloque 3, HU-30): versión/commit de la app para la pantalla de
+# Configuración del Dashboard -- "build arg", no leído de un archivo en
+# tiempo de ejecución (no hay git disponible dentro del contenedor). Sin
+# pasar --build-arg, quedan en "sin-confirmar" (nunca inventados).
+ARG APP_VERSION=sin-confirmar
+ARG GIT_COMMIT=sin-confirmar
+ENV APP_VERSION=${APP_VERSION}
+ENV GIT_COMMIT=${GIT_COMMIT}
+
 COPY comun/requirements.txt ./comun/requirements.txt
 COPY api/requirements.txt ./api/requirements.txt
 COPY parsers/requirements.txt ./parsers/requirements.txt

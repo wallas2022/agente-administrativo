@@ -1,12 +1,14 @@
 # Roles y permisos
 
-**Versión:** 0.3.0
-**Fecha:** 2026-10-09
-**Relacionado con:** docs/01-requerimientos/01-requerimiento-formal.md §6, RF-01,02,13,16,18,19; RNF-02; RN-07; docs/05-prompts/P-12-usuarios-roles-menu-historial.md; docs/02-analisis/05-analisis-usuarios-roles-historial.md
+**Versión:** 0.4.0
+**Fecha:** 2026-10-12
+**Relacionado con:** docs/01-requerimientos/01-requerimiento-formal.md §6, RF-01,02,13,16,18,19,21,22; RNF-02; RN-07; docs/05-prompts/P-12-usuarios-roles-menu-historial.md; docs/05-prompts/P-13-dashboard-administrador-consumo.md; docs/02-analisis/05-analisis-usuarios-roles-historial.md; docs/02-analisis/06-analisis-dashboard-administrador.md
 
 Matriz rol × acción para los cinco roles operativos del sistema (el Patrocinador es un interesado de negocio, no opera el sistema — ver SRS §6).
 
 > **v0.3 (2026-10-09, P-12):** la matriz de la sección siguiente ("Acción") es la vista narrativa, sin cambios de fondo. La vista operativa nueva es la de **§ Matriz recurso:acción** más abajo: cada fila es una fila real de la tabla `permiso` (`rol_id`, `recurso`, `accion`), sembrada por `comun.permisos.sembrar_permisos_por_defecto` y editable por el Administrador (Bloque 4, HU-23) salvo las filas protegidas. El Administrador y el Auditor siguen viendo todas las áreas (sin cambio); la segmentación por área de un recurso puntual (un documento, un análisis) es un mecanismo aparte, descrito en "Supuesto 2", y no se modela como permiso.
+>
+> **v0.4 (2026-10-12, P-13):** agrega `dashboard:ver` (solo Administrador, protegido) para el Dashboard de consumo/recursos/configuración -- ver ADR-009 y HU-26..30.
 
 ## Matriz de permisos
 
@@ -66,6 +68,7 @@ Cada celda "Sí" es una fila sembrada en `permiso(rol_id, recurso, accion)`. �
 | `usuarios:administrar` | No | No | No | Sí 🔒 | No |
 | `roles:administrar` | No | No | No | Sí 🔒 | No |
 | `areas:administrar` | No | No | No | Sí 🔒 | No |
+| `dashboard:ver` | No | No | No | Sí 🔒 | No |
 
 Notas:
 - `historial:area` lo tienen los 5 roles: para Analista/Revisor/Curador es el techo real (ven su área); para Administrador/Auditor es un filtro más dentro de lo que ya pueden ver con `historial:todas` (HU-21: pueden acotar a una sola área en vez de ver todas a la vez).
@@ -83,6 +86,7 @@ Notas:
 | Ajustes autoaprobados | `reportes:autoaprobados` | No | No | No | Sí | Sí |
 | Bitácora | `bitacora:ver` | No | No | No | Sí | Sí |
 | Configuración | `usuarios:administrar` **o** `roles:administrar` **o** `areas:administrar` | No | No | No | Sí | No |
+| Dashboard (P-13) | `dashboard:ver` | No | No | No | Sí | No |
 
 La URL directa a una pantalla sin el permiso correspondiente muestra "Sin acceso" en la UI (no un redirect silencioso a `/`) y el endpoint que la respalda responde 403 -- el backend es la barrera real (RNF-02); el menú solo evita mostrar algo que de todas formas sería rechazado.
 

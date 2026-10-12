@@ -7,7 +7,9 @@ negocio todavía (Sprint 1). Relacionado con docs/03-diseno/c4/02-contenedores.m
 docs/03-diseno/secuencia/cu-01-excel-contable.md.
 """
 
+import csv
 import hashlib
+import io
 import json
 import mimetypes
 import os
@@ -30,7 +32,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWTError
 from qdrant_client import QdrantClient
@@ -43,6 +45,7 @@ from api.esquemas import (
     BitacoraEsquema,
     BitacoraGlobalEsquema,
     ErrorImportacionEsquema,
+    FilaConsumoUsuarioEsquema,
     FragmentoVistaPreviaEsquema,
     FuenteConocimientoEsquema,
     FuenteCuraduriaEsquema,
@@ -55,6 +58,8 @@ from api.esquemas import (
     RespuestaAprobarFuente,
     RespuestaCambiarPassword,
     RespuestaCompletarCarga,
+    RespuestaConfiguracion,
+    RespuestaConsumo,
     RespuestaCrearUsuario,
     RespuestaDecision,
     RespuestaEditarTextoOcr,
@@ -64,6 +69,7 @@ from api.esquemas import (
     RespuestaIniciarCarga,
     RespuestaMe,
     RespuestaPasswordTemporal,
+    RespuestaRecursos,
     RespuestaToken,
     RespuestaValidarPlantilla,
     RespuestaVistaPrevia,
@@ -82,6 +88,12 @@ from api.esquemas import (
 )
 from comun import almacenamiento
 from comun.cola import encolar_analisis
+from comun.dashboard import (
+    calcular_consumo,
+    calcular_consumo_por_usuario,
+    consultar_recursos,
+    obtener_configuracion_vigente,
+)
 from comun.db import obtener_fabrica_sesion, obtener_sesion
 from comun.estados import EstadoAnalisis, EstadoDocumento, RolUsuario
 from comun.glosario import cargar_glosario
@@ -1602,6 +1614,95 @@ def eliminar_area(
         detalle=nombre,
     )
     sesion.commit()
+
+
+# --- Dashboard del Administrador (P-13, Bloque 3: HU-26..30) ----------------
+
+
+@app.get("/admin/dashboard/consumo", response_model=RespuestaConsumo)
+def dashboard_consumo(
+    usuario: Annotated[Usuario, Depends(requiere_permiso("dashboard:ver"))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+    desde: date | None = None,
+    hasta: date | None = None,
+    area_id: str | None = None,
+    caso_uso: str | None = None,
+    modelo: str | None = None,
+) -> RespuestaConsumo:
+    """HU-26 (tarjetas, serie diaria) + HU-28 (ranking por caso de uso y
+    por modelo), ambas sobre la misma consulta a `uso_llm`."""
+    resultado = calcular_consumo(
+        sesion,
+        desde=desde,
+        hasta=hasta,
+        area_id=uuid.UUID(area_id) if area_id else None,
+        caso_uso=caso_uso,
+        modelo=modelo,
+    )
+    return RespuestaConsumo(**resultado)
+
+
+def _csv_de_consumo_usuarios(filas: list[dict]) -> Response:
+    columnas = [
+        "usuario_nombre",
+        "usuario_email",
+        "area_nombre",
+        "numero_analisis",
+        "tokens_entrada",
+        "tokens_salida",
+        "duracion_llm_total_ms",
+        "timeouts",
+    ]
+    buffer = io.StringIO()
+    escritor = csv.DictWriter(buffer, fieldnames=columnas)
+    escritor.writeheader()
+    for fila in filas:
+        escritor.writerow({columna: fila[columna] for columna in columnas})
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=consumo_por_usuario.csv"},
+    )
+
+
+@app.get("/admin/dashboard/usuarios")
+def dashboard_usuarios(
+    usuario: Annotated[Usuario, Depends(requiere_permiso("dashboard:ver"))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+    desde: date | None = None,
+    hasta: date | None = None,
+    formato: str | None = None,
+) -> Response:
+    """HU-27: tabla por usuario; `?formato=csv` exporta exactamente lo
+    mismo que se ve filtrado (sin `response_model`: esta ruta devuelve
+    JSON o CSV según `formato`, FastAPI no valida un `Response` ya armado)."""
+    filas = calcular_consumo_por_usuario(sesion, desde=desde, hasta=hasta)
+    if formato == "csv":
+        return _csv_de_consumo_usuarios(filas)
+    esquemas_fila = [FilaConsumoUsuarioEsquema(**fila) for fila in filas]
+    return JSONResponse(content=[e.model_dump() for e in esquemas_fila])
+
+
+@app.get("/admin/dashboard/recursos", response_model=RespuestaRecursos)
+def dashboard_recursos(
+    usuario: Annotated[Usuario, Depends(requiere_permiso("dashboard:ver"))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> RespuestaRecursos:
+    """HU-29: host + contenedores (vía Prometheus, `None` si no está
+    disponible -- apagado por defecto en local, ver ADR-009) + Ollama
+    (`/api/ps`, `/api/tags`). Alertas calculadas (disco, memoria de
+    Ollama, timeouts del LLM)."""
+    return RespuestaRecursos(**consultar_recursos(sesion))
+
+
+@app.get("/admin/dashboard/configuracion", response_model=RespuestaConfiguracion)
+def dashboard_configuracion(
+    usuario: Annotated[Usuario, Depends(requiere_permiso("dashboard:ver"))],
+) -> RespuestaConfiguracion:
+    """HU-30: solo variables de la lista blanca (RNF-17) -- nunca una
+    variable con PASSWORD/SECRET/KEY/TOKEN, sin importar lo que haya en
+    el entorno (ver comun.dashboard.VARIABLES_CONFIGURACION_VISIBLES)."""
+    return RespuestaConfiguracion(**obtener_configuracion_vigente())
 
 
 @app.post("/hallazgos/{hallazgo_id}/decision", response_model=RespuestaDecision)

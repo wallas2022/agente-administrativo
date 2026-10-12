@@ -350,3 +350,100 @@ class RespuestaImportarPlantilla(BaseModel):
     es_valido: bool
     errores: list[ErrorImportacionEsquema]
     cargado: dict[str, int] | None = None
+
+
+# --- Dashboard del Administrador (P-13, Bloque 3) ---------------------------
+
+
+class TarjetasConsumoEsquema(BaseModel):
+    tokens_entrada: int
+    tokens_salida: int
+    tokens_totales: int
+    llamadas: int
+    tokens_por_segundo_promedio: float | None = None
+    pct_timeouts: float
+
+
+class PuntoSerieDiariaEsquema(BaseModel):
+    fecha: str
+    tokens_entrada: int
+    tokens_salida: int
+    llamadas: int
+
+
+class ItemRankingConsumoEsquema(BaseModel):
+    """Una fila del ranking por caso de uso o por modelo (HU-28) -- solo
+    uno de `caso_uso`/`modelo` viene lleno según cuál ranking es."""
+
+    caso_uso: str | None = None
+    modelo: str | None = None
+    tokens_totales: int
+    duracion_llm_total_ms: int
+    llamadas: int
+    duracion_media_analisis_ms: float | None = None
+
+
+class RespuestaConsumo(BaseModel):
+    tarjetas: TarjetasConsumoEsquema
+    serie_diaria: list[PuntoSerieDiariaEsquema]
+    ranking_caso_uso: list[ItemRankingConsumoEsquema]
+    ranking_modelo: list[ItemRankingConsumoEsquema]
+
+
+class FilaConsumoUsuarioEsquema(BaseModel):
+    usuario_id: str
+    usuario_nombre: str
+    usuario_email: str
+    area_nombre: str
+    numero_analisis: int
+    tokens_entrada: int
+    tokens_salida: int
+    duracion_llm_total_ms: int
+    timeouts: int
+
+
+class RecursosHostEsquema(BaseModel):
+    cpu_ocupado_pct: float | None = None
+    vcpus: int | None = None
+    memoria_usada_bytes: int
+    memoria_total_bytes: int
+    disco_usado_bytes: int | None = None
+    disco_total_bytes: int | None = None
+    carga_1m: float | None = None
+
+
+class RecursosContenedorEsquema(BaseModel):
+    nombre: str
+    cpu_pct: float
+    memoria_usada_bytes: int | None = None
+    memoria_limite_bytes: int | None = None
+    memoria_pct_del_limite: float | None = None
+
+
+class RecursosOllamaEsquema(BaseModel):
+    # Se pasa tal cual lo que devuelve Ollama (/api/ps, /api/tags) -- forma
+    # variable entre versiones, no se modela campo por campo.
+    modelos_en_memoria: list[dict]
+    modelos_instalados: list[dict]
+
+
+class AlertaDashboardEsquema(BaseModel):
+    tipo: str
+    mensaje: str
+
+
+class RespuestaRecursos(BaseModel):
+    # False cuando Prometheus no está disponible (apagado por defecto en
+    # local, perfil "observabilidad" -- ver ADR-009) -- la pantalla debe
+    # mostrar un mensaje claro, no un error.
+    prometheus_disponible: bool
+    host: RecursosHostEsquema | None = None
+    contenedores: list[RecursosContenedorEsquema] | None = None
+    ollama: RecursosOllamaEsquema | None = None
+    alertas: list[AlertaDashboardEsquema]
+
+
+class RespuestaConfiguracion(BaseModel):
+    variables: dict[str, str]
+    app_version: str
+    git_commit: str

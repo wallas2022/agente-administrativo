@@ -48,6 +48,7 @@ MATRIZ_PERMISOS_DEFECTO: dict[RolUsuario, frozenset[tuple[str, str]]] = {
             ("usuarios", "administrar"),
             ("roles", "administrar"),
             ("areas", "administrar"),
+            ("dashboard", "ver"),
         }
     ),
     RolUsuario.AUDITOR: frozenset(
@@ -77,6 +78,7 @@ PERMISOS_PROTEGIDOS: frozenset[tuple[RolUsuario, str, str]] = frozenset(
         (RolUsuario.ADMINISTRADOR, "usuarios", "administrar"),
         (RolUsuario.ADMINISTRADOR, "roles", "administrar"),
         (RolUsuario.ADMINISTRADOR, "areas", "administrar"),
+        (RolUsuario.ADMINISTRADOR, "dashboard", "ver"),
     }
 )
 
