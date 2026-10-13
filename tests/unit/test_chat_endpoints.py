@@ -288,3 +288,39 @@ def test_registra_el_uso_del_llm_del_chat(
     filas = sesion_bd.query(UsoLlm).filter(UsoLlm.caso_uso == "chat_kb").all()
     assert len(filas) == 2  # 1 de embeddings (búsqueda) + 1 del LLM (respuesta)
     assert all(f.analisis_id is None for f in filas)
+
+
+# --- Bloque 4 (cierre): el chat es accesible a cualquier rol autenticado ----
+
+
+@pytest.mark.parametrize(
+    "email",
+    ["analista@local", "revisor@local", "curador@local", "auditor@local", "administrador@local"],
+)
+def test_chat_no_tiene_permiso_propio_cualquier_rol_puede_usarlo(
+    cliente: TestClient, email: str
+) -> None:
+    """A diferencia del Dashboard del Administrador (dashboard:ver, P-13),
+    el chat no exige ningún permiso -- solo sesión iniciada (CU-12, HU-31),
+    igual que Historial."""
+    encabezado = _encabezado(cliente, email)
+    assert cliente.post("/chat/conversaciones", headers=encabezado).status_code == 200
+    assert cliente.get("/chat/conversaciones", headers=encabezado).status_code == 200
+
+
+def test_cada_rol_solo_ve_sus_propias_conversaciones(cliente: TestClient) -> None:
+    """RNF-19: aislamiento entre usuarios -- con los 5 roles creando una
+    conversación cada uno, cada quien solo ve la suya."""
+    correos = [
+        "analista@local",
+        "revisor@local",
+        "curador@local",
+        "auditor@local",
+        "administrador@local",
+    ]
+    for correo in correos:
+        cliente.post("/chat/conversaciones", headers=_encabezado(cliente, correo))
+
+    for correo in correos:
+        respuesta = cliente.get("/chat/conversaciones", headers=_encabezado(cliente, correo))
+        assert len(respuesta.json()) == 1

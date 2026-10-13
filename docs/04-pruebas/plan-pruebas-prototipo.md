@@ -44,6 +44,9 @@ Detalle individual de cada prueba en [docs/04-pruebas/casos-prueba/](casos-prueb
 | PP-22 | Permisos del Dashboard: solo Administrador | HU-26..30 / RF-22 | Accesos al menú "Dashboard" y a sus 4 endpoints por roles distintos de Administrador | 0 (403) | 1 |
 | PP-23 | Configuración del Dashboard sin secretos | HU-30 / RNF-17 | Variables marcadas como secreto (`PASSWORD`/`SECRET`/`KEY`/`TOKEN`) expuestas en `GET /admin/dashboard/configuracion` | 0 | 1 |
 | PP-24 | Sobrecarga del registro de uso del LLM | RF-21 / RNF-15 | Tiempo agregado por llamada a `registrar_uso_llm` | ≤ 20 ms | 1 |
+| PP-25 | Acceso al chat de la Base de Conocimiento por cualquier rol | HU-31 / RF-23 | Roles autenticados que reciben 403 al crear/listar conversaciones | 0 | 2 |
+| PP-26 | Aislamiento de conversaciones del chat entre usuarios | HU-34 / RNF-19 | Conversaciones de un usuario visibles para otro | 0 | 2 |
+| PP-27 | Un adjunto del chat nunca se agrega a la Base de Conocimiento | HU-32 / RF-24 | Fuentes/fragmentos nuevos en Qdrant o `FuenteConocimiento` tras adjuntar un archivo | 0 | 2 |
 
 ## 3. Comparación de modelos
 Ejecutar PP-01, PP-03, PP-07 y PP-12 con 2–3 modelos candidatos (p. ej. gpt-oss-120b, gpt-oss-20b, Qwen3-30B-A3B), primero en local (PC Core Ultra 7, 128 GB) y luego en stage (desde 28-oct-2026). Registrar precisión, tiempo y RAM usada. La decisión se documenta como ADR.

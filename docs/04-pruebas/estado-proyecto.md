@@ -1,6 +1,6 @@
 # Estado del proyecto — Agente Administrativo
 
-**Versión:** 0.2.0
+**Versión:** 0.3.0
 **Fecha:** 2026-10-13
 **Relacionado con:** docs/01-requerimientos/04-matriz-trazabilidad.md, docs/04-pruebas/plan-pruebas-prototipo.md, docs/04-pruebas/resultados/
 
@@ -20,6 +20,7 @@ Snapshot basado únicamente en evidencia verificable (documentos de resultados e
 | CU-08 | Gestionar base de conocimiento | 1 | En curso -- ingesta y aprobación de fuentes (Bloque K5) | [local-SKB.md](resultados/local-SKB.md) |
 | CU-09 | Administrar usuarios y roles | 1 | **Completo (P-12)**: login y permisos contra base de datos (bcrypt, bloqueo por intentos), menú y rutas por permisos, y Configuración → Usuarios/Roles y permisos/Áreas (alta, edición, contraseña temporal, matriz editable, reglas de protección) | [local-P12-bloque1.md](resultados/local-P12-bloque1.md)..[bloque4.md](resultados/local-P12-bloque4.md) |
 | CU-10 | Consultar auditoría | 1 | **Completo (P-12)**: `GET /historial` (alcance/filtros/paginación, HU-21) y pantalla "Bitácora" (auditoría global, Administrador/Auditor) -- además de `GET /analisis/{id}/bitacora`, que sigue siendo el detalle de pasos de un análisis puntual | [local-P12-bloque2.md](resultados/local-P12-bloque2.md), [local-P12-bloque3.md](resultados/local-P12-bloque3.md) |
+| CU-12 | Consultar la base de conocimiento por chat (HU-31..34, RF-23/RF-24) | 2 | **Completo (P-14)**: modelo de datos y generación multi-turno (Bloque 1), API del chat con recuperación RAG y adjuntos vía OCR/parsers (Bloque 2), pantalla de inicio para todos los roles (Bloque 3), cierre con permisos/aislamiento confirmados (Bloque 4) | [local-P14-bloque1.md](resultados/local-P14-bloque1.md)..[bloque4.md](resultados/local-P14-bloque4.md) |
 
 ## Otras capacidades (transversales, sin CU dedicado en el SRS)
 
@@ -47,4 +48,4 @@ Snapshot basado únicamente en evidencia verificable (documentos de resultados e
 
 ## Qué falta para considerar el piloto listo para escalar
 
-Ver criterio de salida en [plan-pruebas-prototipo.md §5](plan-pruebas-prototipo.md#5-criterio-de-salida-del-piloto): PP-02, PP-08, PP-09, PP-10, PP-11 y PP-14 al 100 % (bloqueantes) + 80 % del resto de la Entrega 1. PP-10 (permisos por área) y PP-11 (bitácora completa) ya tienen fila en `plan-pruebas-prototipo.md §4`, medidas por la suite de P-12 (Bloques 0-5). PP-21 a PP-24 (Dashboard del Administrador: rendimiento, permisos, secretos, sobrecarga del registro) también ya tienen fila, medidas en P-13 (Bloque 5). PP-09 (segregación de funciones), PP-13, PP-15, PP-16 y PP-19 siguen sin una fila -- [POR CONFIRMAR] si ya se midieron en algún documento no enlazado aquí.
+Ver criterio de salida en [plan-pruebas-prototipo.md §5](plan-pruebas-prototipo.md#5-criterio-de-salida-del-piloto): PP-02, PP-08, PP-09, PP-10, PP-11 y PP-14 al 100 % (bloqueantes) + 80 % del resto de la Entrega 1. PP-10 (permisos por área) y PP-11 (bitácora completa) ya tienen fila en `plan-pruebas-prototipo.md §4`, medidas por la suite de P-12 (Bloques 0-5). PP-21 a PP-24 (Dashboard del Administrador: rendimiento, permisos, secretos, sobrecarga del registro) también ya tienen fila, medidas en P-13 (Bloque 5). PP-25 a PP-27 (chat de la Base de Conocimiento: acceso por cualquier rol, aislamiento entre usuarios, adjuntos sin fuga a la Base de Conocimiento) ya tienen fila, medidas en P-14 (Bloque 4). PP-09 (segregación de funciones), PP-13, PP-15, PP-16 y PP-19 siguen sin una fila -- [POR CONFIRMAR] si ya se midieron en algún documento no enlazado aquí.
