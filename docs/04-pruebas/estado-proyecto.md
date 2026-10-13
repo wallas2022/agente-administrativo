@@ -1,7 +1,7 @@
 # Estado del proyecto — Agente Administrativo
 
-**Versión:** 0.1.0
-**Fecha:** 2026-10-09
+**Versión:** 0.2.0
+**Fecha:** 2026-10-13
 **Relacionado con:** docs/01-requerimientos/04-matriz-trazabilidad.md, docs/04-pruebas/plan-pruebas-prototipo.md, docs/04-pruebas/resultados/
 
 Snapshot basado únicamente en evidencia verificable (documentos de resultados en `docs/04-pruebas/resultados/`, ADRs aceptados y la matriz de trazabilidad) -- no son porcentajes estimados, son hechos ya documentados en otro lugar. [POR CONFIRMAR] marca lo que no se pudo verificar al escribir esto.
@@ -21,6 +21,14 @@ Snapshot basado únicamente en evidencia verificable (documentos de resultados e
 | CU-09 | Administrar usuarios y roles | 1 | **Completo (P-12)**: login y permisos contra base de datos (bcrypt, bloqueo por intentos), menú y rutas por permisos, y Configuración → Usuarios/Roles y permisos/Áreas (alta, edición, contraseña temporal, matriz editable, reglas de protección) | [local-P12-bloque1.md](resultados/local-P12-bloque1.md)..[bloque4.md](resultados/local-P12-bloque4.md) |
 | CU-10 | Consultar auditoría | 1 | **Completo (P-12)**: `GET /historial` (alcance/filtros/paginación, HU-21) y pantalla "Bitácora" (auditoría global, Administrador/Auditor) -- además de `GET /analisis/{id}/bitacora`, que sigue siendo el detalle de pasos de un análisis puntual | [local-P12-bloque2.md](resultados/local-P12-bloque2.md), [local-P12-bloque3.md](resultados/local-P12-bloque3.md) |
 
+## Otras capacidades (transversales, sin CU dedicado en el SRS)
+
+| Capacidad | Entrega | Estado | Evidencia |
+| --- | --- | --- | --- |
+| Dashboard del Administrador: consumo de LLM/embeddings, recursos de infraestructura y configuración vigente (HU-26..30, RF-21/RF-22) | 1 | **Completo (P-13)**: registro de uso (Bloque 1), métricas de host/contenedores vía Prometheus (Bloque 2), 4 endpoints bajo el permiso `dashboard:ver` (Bloque 3), pantalla con 4 pestañas y gráficos SVG propios (Bloque 4), cierre con datos sintéticos de 100,000 registros y sobrecarga del registro medida (Bloque 5) | [local-P13-bloque1.md](resultados/local-P13-bloque1.md)..[bloque5.md](resultados/local-P13-bloque5.md) |
+
+[POR CONFIRMAR] igual que CU-07, el SRS no define un caso de uso de administración/observabilidad transversal -- ver `docs/02-analisis/06-analisis-dashboard-administrador.md` para la justificación de no forzar un CU nuevo.
+
 ## Infraestructura y decisiones (ADR)
 
 | ADR | Decisión | Estado |
@@ -33,9 +41,10 @@ Snapshot basado únicamente en evidencia verificable (documentos de resultados e
 | ADR-006 | Almacenamiento de objetos (S3/MinIO/LocalStack) | Aceptado |
 | ADR-007 | Motor de OCR (Tesseract + OpenCV + PyMuPDF) | Aceptado, implementado (CU-06) |
 | ADR-008 | Rendimiento LLM de CU-02 | Aceptado -- ≤60 s no se garantiza en todo hardware; modelo por defecto sin cambios |
+| ADR-009 | Observabilidad del Dashboard del Administrador (node-exporter + cAdvisor + Prometheus) | Aceptado, implementado (P-13) |
 
 **Ambiente**: local (Windows + WSL2 + Docker Desktop, Ollama nativo de Windows). Stage todavía no existe (pendiente desde el 28-oct-2026 según referencias en el plan de pruebas) -- todas las mediciones de este documento y de `docs/04-pruebas/resultados/` son de **local**, no de stage.
 
 ## Qué falta para considerar el piloto listo para escalar
 
-Ver criterio de salida en [plan-pruebas-prototipo.md §5](plan-pruebas-prototipo.md#5-criterio-de-salida-del-piloto): PP-02, PP-08, PP-09, PP-10, PP-11 y PP-14 al 100 % (bloqueantes) + 80 % del resto de la Entrega 1. PP-10 (permisos por área) y PP-11 (bitácora completa) ya tienen fila en `plan-pruebas-prototipo.md §4`, medidas por la suite de P-12 (Bloques 0-5). PP-09 (segregación de funciones), PP-13, PP-15, PP-16 y PP-19 siguen sin una fila -- [POR CONFIRMAR] si ya se midieron en algún documento no enlazado aquí.
+Ver criterio de salida en [plan-pruebas-prototipo.md §5](plan-pruebas-prototipo.md#5-criterio-de-salida-del-piloto): PP-02, PP-08, PP-09, PP-10, PP-11 y PP-14 al 100 % (bloqueantes) + 80 % del resto de la Entrega 1. PP-10 (permisos por área) y PP-11 (bitácora completa) ya tienen fila en `plan-pruebas-prototipo.md §4`, medidas por la suite de P-12 (Bloques 0-5). PP-21 a PP-24 (Dashboard del Administrador: rendimiento, permisos, secretos, sobrecarga del registro) también ya tienen fila, medidas en P-13 (Bloque 5). PP-09 (segregación de funciones), PP-13, PP-15, PP-16 y PP-19 siguen sin una fila -- [POR CONFIRMAR] si ya se midieron en algún documento no enlazado aquí.

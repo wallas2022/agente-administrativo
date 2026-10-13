@@ -10,11 +10,21 @@ from __future__ import annotations
 import os
 import uuid
 from datetime import UTC, date, datetime, timedelta
+from typing import TypedDict
 
 import httpx
-from sqlalchemy.orm import Session
+from sqlalchemy import case, func
+from sqlalchemy.orm import Query, Session
 
-from comun.modelos import Analisis, UsoLlm, Usuario
+from comun.modelos import Analisis, Area, UsoLlm, Usuario
+
+
+class _FiltrosConsumo(TypedDict):
+    desde: date | None
+    hasta: date | None
+    area_id: uuid.UUID | None
+    caso_uso: str | None
+    modelo: str | None
 
 # Umbrales de alerta (P-13 §5) -- no configurables por ahora, documentados
 # acá para que quien lea el código no tenga que ir al prompt original.
@@ -47,18 +57,29 @@ VARIABLES_CONFIGURACION_VISIBLES: tuple[str, ...] = (
 
 
 # --- Consumo (HU-26, HU-28) -------------------------------------------------
+#
+# RNF-16 (dashboard <= 2s con 100,000 registros de uso): la primera versión
+# de este módulo traía todas las filas a Python (`.all()`) y agregaba ahí --
+# con 100,000 filas tardaba ~2.6s, por encima del umbral (medido con la
+# prueba de rendimiento, ver tests/unit/test_dashboard_rendimiento.py). Todo
+# lo de abajo agrega en SQL (GROUP BY/SUM/COUNT); el único bucle en Python
+# que queda es sobre los pares (grupo, analisis_id) DISTINCT -- acotado por
+# el número de análisis reales, no por el número de filas de uso_llm.
+
+_TOKENS_POR_FILA = func.coalesce(UsoLlm.tokens_entrada, 0) + func.coalesce(UsoLlm.tokens_salida, 0)
+_DURACION_POR_FILA = func.coalesce(UsoLlm.duracion_total_ms, 0)
+_ES_TIMEOUT = case((UsoLlm.resultado == "timeout", 1), else_=0)
 
 
-def _filas_de_consumo(
-    sesion: Session,
+def _filtrar_consumo(
+    consulta: Query,
     *,
     desde: date | None,
     hasta: date | None,
     area_id: uuid.UUID | None,
     caso_uso: str | None,
     modelo: str | None,
-) -> list[UsoLlm]:
-    consulta = sesion.query(UsoLlm)
+) -> Query:
     if desde is not None:
         consulta = consulta.filter(UsoLlm.fecha_hora >= desde)
     if hasta is not None:
@@ -69,60 +90,103 @@ def _filas_de_consumo(
         consulta = consulta.filter(UsoLlm.caso_uso == caso_uso)
     if modelo is not None:
         consulta = consulta.filter(UsoLlm.modelo == modelo)
-    return consulta.all()
+    return consulta
+
+
+def _fecha_iso(valor: object) -> str:
+    """`func.date(...)` devuelve un `date` en Postgres y un `str` en SQLite
+    (usado en pruebas) -- se normaliza acá en vez de asumir un tipo."""
+    isoformat = getattr(valor, "isoformat", None)
+    return isoformat() if callable(isoformat) else str(valor)
 
 
 def _duracion_media_analisis_por_grupo(
-    sesion: Session, filas: list[UsoLlm], campo: str
+    sesion: Session,
+    columna_grupo,
+    *,
+    desde: date | None,
+    hasta: date | None,
+    area_id: uuid.UUID | None,
+    caso_uso: str | None,
+    modelo: str | None,
 ) -> dict[str, float | None]:
     """HU-28: "duración media del análisis" por caso de uso/modelo -- de los
     `Analisis` ya terminados (`fecha_fin` no nulo) referenciados por las
     filas de uso de ese grupo (`embeddings_kb` no tiene `analisis_id`,
-    queda en `None` -- no aplica, no es "no informado")."""
-    ids_por_grupo: dict[str, set[uuid.UUID]] = {}
-    for fila in filas:
-        if fila.analisis_id is None:
+    queda en `None` -- no aplica, no es "no informado"). Solo trae pares
+    (grupo, analisis_id) DISTINCT, acotado por el número de análisis, no por
+    el número de filas de uso_llm."""
+    pares = _filtrar_consumo(
+        sesion.query(columna_grupo.label("grupo"), UsoLlm.analisis_id).filter(
+            UsoLlm.analisis_id.isnot(None)
+        ),
+        desde=desde,
+        hasta=hasta,
+        area_id=area_id,
+        caso_uso=caso_uso,
+        modelo=modelo,
+    ).distinct()
+    sub = pares.subquery()
+
+    duraciones_por_grupo: dict[str, list[float]] = {}
+    filas = (
+        sesion.query(sub.c.grupo, Analisis.fecha_inicio, Analisis.fecha_fin)
+        .join(Analisis, Analisis.id == sub.c.analisis_id)
+        .filter(Analisis.fecha_fin.isnot(None))
+        .all()
+    )
+    for grupo, inicio, fin in filas:
+        if fin is None:
             continue
-        ids_por_grupo.setdefault(getattr(fila, campo), set()).add(fila.analisis_id)
+        duraciones_por_grupo.setdefault(grupo, []).append((fin - inicio).total_seconds() * 1000)
 
-    resultado: dict[str, float | None] = {}
-    for clave, ids in ids_por_grupo.items():
-        analisis_filas = (
-            sesion.query(Analisis)
-            .filter(Analisis.id.in_(ids), Analisis.fecha_fin.isnot(None))
-            .all()
-        )
-        duraciones_ms = [
-            (a.fecha_fin - a.fecha_inicio).total_seconds() * 1000
-            for a in analisis_filas
-            if a.fecha_fin is not None
-        ]
-        resultado[clave] = sum(duraciones_ms) / len(duraciones_ms) if duraciones_ms else None
-    return resultado
+    return {
+        grupo: sum(duraciones) / len(duraciones)
+        for grupo, duraciones in duraciones_por_grupo.items()
+    }
 
 
-def _rankear(sesion: Session, filas: list[UsoLlm], campo: str) -> list[dict]:
-    agregados: dict[str, dict] = {}
-    for fila in filas:
-        clave = getattr(fila, campo)
-        grupo = agregados.setdefault(
-            clave, {"tokens_totales": 0, "duracion_llm_total_ms": 0, "llamadas": 0}
-        )
-        grupo["tokens_totales"] += (fila.tokens_entrada or 0) + (fila.tokens_salida or 0)
-        grupo["duracion_llm_total_ms"] += fila.duracion_total_ms or 0
-        grupo["llamadas"] += 1
+def _rankear(
+    sesion: Session,
+    columna_grupo,
+    nombre_campo: str,
+    *,
+    desde: date | None,
+    hasta: date | None,
+    area_id: uuid.UUID | None,
+    caso_uso: str | None,
+    modelo: str | None,
+) -> list[dict]:
+    kwargs: _FiltrosConsumo = {
+        "desde": desde,
+        "hasta": hasta,
+        "area_id": area_id,
+        "caso_uso": caso_uso,
+        "modelo": modelo,
+    }
+    consulta = _filtrar_consumo(
+        sesion.query(
+            columna_grupo,
+            func.sum(_TOKENS_POR_FILA),
+            func.sum(_DURACION_POR_FILA),
+            func.count(UsoLlm.id),
+        ),
+        **kwargs,
+    ).group_by(columna_grupo)
 
-    duracion_media_analisis = _duracion_media_analisis_por_grupo(sesion, filas, campo)
-    return [
+    duracion_media = _duracion_media_analisis_por_grupo(sesion, columna_grupo, **kwargs)
+
+    filas = [
         {
-            campo: clave,
-            **valores,
-            "duracion_media_analisis_ms": duracion_media_analisis.get(clave),
+            nombre_campo: clave,
+            "tokens_totales": tokens or 0,
+            "duracion_llm_total_ms": duracion or 0,
+            "llamadas": llamadas,
+            "duracion_media_analisis_ms": duracion_media.get(clave),
         }
-        for clave, valores in sorted(
-            agregados.items(), key=lambda kv: -kv[1]["tokens_totales"]
-        )
+        for clave, tokens, duracion, llamadas in consulta.all()
     ]
+    return sorted(filas, key=lambda f: -f["tokens_totales"])
 
 
 def calcular_consumo(
@@ -134,25 +198,47 @@ def calcular_consumo(
     caso_uso: str | None = None,
     modelo: str | None = None,
 ) -> dict:
-    filas = _filas_de_consumo(
-        sesion, desde=desde, hasta=hasta, area_id=area_id, caso_uso=caso_uso, modelo=modelo
-    )
+    kwargs: _FiltrosConsumo = {
+        "desde": desde,
+        "hasta": hasta,
+        "area_id": area_id,
+        "caso_uso": caso_uso,
+        "modelo": modelo,
+    }
 
-    tokens_entrada = sum(f.tokens_entrada or 0 for f in filas)
-    tokens_salida = sum(f.tokens_salida or 0 for f in filas)
-    llamadas = len(filas)
-    timeouts = sum(1 for f in filas if f.resultado == "timeout")
-    duracion_generacion_total_s = sum(f.duracion_generacion_ms or 0 for f in filas) / 1000
+    (
+        tokens_entrada,
+        tokens_salida,
+        llamadas,
+        timeouts,
+        duracion_generacion_total_ms,
+    ) = _filtrar_consumo(
+        sesion.query(
+            func.coalesce(func.sum(UsoLlm.tokens_entrada), 0),
+            func.coalesce(func.sum(UsoLlm.tokens_salida), 0),
+            func.count(UsoLlm.id),
+            func.coalesce(func.sum(_ES_TIMEOUT), 0),
+            func.coalesce(func.sum(UsoLlm.duracion_generacion_ms), 0),
+        ),
+        **kwargs,
+    ).one()
+    duracion_generacion_total_s = duracion_generacion_total_ms / 1000
 
-    serie_por_fecha: dict[date, dict] = {}
-    for fila in filas:
-        clave = fila.fecha_hora.date()
-        dia = serie_por_fecha.setdefault(
-            clave, {"tokens_entrada": 0, "tokens_salida": 0, "llamadas": 0}
+    fecha_dia = func.date(UsoLlm.fecha_hora)
+    serie = (
+        _filtrar_consumo(
+            sesion.query(
+                fecha_dia.label("fecha"),
+                func.coalesce(func.sum(UsoLlm.tokens_entrada), 0),
+                func.coalesce(func.sum(UsoLlm.tokens_salida), 0),
+                func.count(UsoLlm.id),
+            ),
+            **kwargs,
         )
-        dia["tokens_entrada"] += fila.tokens_entrada or 0
-        dia["tokens_salida"] += fila.tokens_salida or 0
-        dia["llamadas"] += 1
+        .group_by(fecha_dia)
+        .order_by(fecha_dia)
+        .all()
+    )
 
     return {
         "tarjetas": {
@@ -168,11 +254,16 @@ def calcular_consumo(
             "pct_timeouts": round(timeouts / llamadas * 100, 2) if llamadas else 0.0,
         },
         "serie_diaria": [
-            {"fecha": fecha.isoformat(), **valores}
-            for fecha, valores in sorted(serie_por_fecha.items())
+            {
+                "fecha": _fecha_iso(fecha),
+                "tokens_entrada": te,
+                "tokens_salida": ts,
+                "llamadas": llamadas_del_dia,
+            }
+            for fecha, te, ts, llamadas_del_dia in serie
         ],
-        "ranking_caso_uso": _rankear(sesion, filas, "caso_uso"),
-        "ranking_modelo": _rankear(sesion, filas, "modelo"),
+        "ranking_caso_uso": _rankear(sesion, UsoLlm.caso_uso, "caso_uso", **kwargs),
+        "ranking_modelo": _rankear(sesion, UsoLlm.modelo, "modelo", **kwargs),
     }
 
 
@@ -180,50 +271,52 @@ def calcular_consumo_por_usuario(
     sesion: Session, *, desde: date | None = None, hasta: date | None = None
 ) -> list[dict]:
     """HU-27: tabla por usuario -- área, número de análisis distintos,
-    tokens, tiempo de LLM y timeouts."""
-    consulta = sesion.query(UsoLlm, Usuario).join(Usuario, UsoLlm.usuario_id == Usuario.id)
+    tokens, tiempo de LLM y timeouts. `COUNT(DISTINCT ...)` ignora los NULL
+    por definición del SQL estándar, igual que el `set()` que reemplaza."""
+    consulta = (
+        sesion.query(
+            Usuario.id,
+            Usuario.nombre,
+            Usuario.email,
+            Area.nombre,
+            func.count(func.distinct(UsoLlm.analisis_id)),
+            func.coalesce(func.sum(UsoLlm.tokens_entrada), 0),
+            func.coalesce(func.sum(UsoLlm.tokens_salida), 0),
+            func.coalesce(func.sum(UsoLlm.duracion_total_ms), 0),
+            func.coalesce(func.sum(_ES_TIMEOUT), 0),
+        )
+        .join(Usuario, UsoLlm.usuario_id == Usuario.id)
+        .join(Area, Usuario.area_id == Area.id)
+    )
     if desde is not None:
         consulta = consulta.filter(UsoLlm.fecha_hora >= desde)
     if hasta is not None:
         consulta = consulta.filter(UsoLlm.fecha_hora < hasta + timedelta(days=1))
-
-    agregados: dict[uuid.UUID, dict] = {}
-    for uso, usuario in consulta.all():
-        grupo = agregados.setdefault(
-            usuario.id,
-            {
-                "usuario_id": str(usuario.id),
-                "usuario_nombre": usuario.nombre,
-                "usuario_email": usuario.email,
-                "area_nombre": usuario.area.nombre,
-                "analisis_ids": set(),
-                "tokens_entrada": 0,
-                "tokens_salida": 0,
-                "duracion_llm_total_ms": 0,
-                "timeouts": 0,
-            },
-        )
-        if uso.analisis_id is not None:
-            grupo["analisis_ids"].add(uso.analisis_id)
-        grupo["tokens_entrada"] += uso.tokens_entrada or 0
-        grupo["tokens_salida"] += uso.tokens_salida or 0
-        grupo["duracion_llm_total_ms"] += uso.duracion_total_ms or 0
-        if uso.resultado == "timeout":
-            grupo["timeouts"] += 1
+    consulta = consulta.group_by(Usuario.id, Usuario.nombre, Usuario.email, Area.nombre)
 
     filas = [
         {
-            "usuario_id": g["usuario_id"],
-            "usuario_nombre": g["usuario_nombre"],
-            "usuario_email": g["usuario_email"],
-            "area_nombre": g["area_nombre"],
-            "numero_analisis": len(g["analisis_ids"]),
-            "tokens_entrada": g["tokens_entrada"],
-            "tokens_salida": g["tokens_salida"],
-            "duracion_llm_total_ms": g["duracion_llm_total_ms"],
-            "timeouts": g["timeouts"],
+            "usuario_id": str(usuario_id),
+            "usuario_nombre": nombre,
+            "usuario_email": email,
+            "area_nombre": area_nombre,
+            "numero_analisis": numero_analisis,
+            "tokens_entrada": tokens_entrada,
+            "tokens_salida": tokens_salida,
+            "duracion_llm_total_ms": duracion_total,
+            "timeouts": timeouts,
         }
-        for g in agregados.values()
+        for (
+            usuario_id,
+            nombre,
+            email,
+            area_nombre,
+            numero_analisis,
+            tokens_entrada,
+            tokens_salida,
+            duracion_total,
+            timeouts,
+        ) in consulta.all()
     ]
     return sorted(filas, key=lambda f: -(f["tokens_entrada"] + f["tokens_salida"]))
 

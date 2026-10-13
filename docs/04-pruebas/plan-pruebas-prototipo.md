@@ -1,7 +1,7 @@
 # Plan de pruebas del prototipo
 
-**Versión:** 0.5
-**Fecha:** 2026-10-09
+**Versión:** 0.6
+**Fecha:** 2026-10-13
 **Relacionado con:** docs/01-requerimientos/01-requerimiento-formal.md (v0.9), docs/01-requerimientos/03-historias-de-usuario.md
 
 Objetivo: validar con datos reales (anonimizados) del área de Contabilidad que el agente cumple los objetivos OE-01..OE-07 antes de escalar. Umbrales alineados con el requerimiento formal v0.9. Entrega 1 prioriza CU-01, CU-02 y CU-05.
@@ -40,6 +40,10 @@ Detalle individual de cada prueba en [docs/04-pruebas/casos-prueba/](casos-prueb
 | PP-18 | Carga de archivo de 1 GB | RF-03 | Carga completa y reanudable sin error | 100 % | 1 |
 | PP-19 | Depuración por retención de 3 meses | RNF-12 | Documentos > 3 meses eliminados y registrados en bitácora | 100 % | 1 |
 | PP-20 | Ingesta de documentos con citas correctas | RF-16 / RF-17 / CU-08 | Citas con sección/página correcta del documento ingerido | 100 % | 1 |
+| PP-21 | Rendimiento del Dashboard del Administrador con 100,000 registros de uso | HU-26 / HU-27 / RNF-16 | Tiempo de respuesta de `GET /admin/dashboard/consumo` y `/usuarios` | ≤ 2 s | 1 |
+| PP-22 | Permisos del Dashboard: solo Administrador | HU-26..30 / RF-22 | Accesos al menú "Dashboard" y a sus 4 endpoints por roles distintos de Administrador | 0 (403) | 1 |
+| PP-23 | Configuración del Dashboard sin secretos | HU-30 / RNF-17 | Variables marcadas como secreto (`PASSWORD`/`SECRET`/`KEY`/`TOKEN`) expuestas en `GET /admin/dashboard/configuracion` | 0 | 1 |
+| PP-24 | Sobrecarga del registro de uso del LLM | RF-21 / RNF-15 | Tiempo agregado por llamada a `registrar_uso_llm` | ≤ 20 ms | 1 |
 
 ## 3. Comparación de modelos
 Ejecutar PP-01, PP-03, PP-07 y PP-12 con 2–3 modelos candidatos (p. ej. gpt-oss-120b, gpt-oss-20b, Qwen3-30B-A3B), primero en local (PC Core Ultra 7, 128 GB) y luego en stage (desde 28-oct-2026). Registrar precisión, tiempo y RAM usada. La decisión se documenta como ADR.
@@ -51,6 +55,10 @@ Ejecutar PP-01, PP-03, PP-07 y PP-12 con 2–3 modelos candidatos (p. ej. gpt-os
 | 2026-10-09 | local | PP-06 | Tesseract 5.5.0 (tessdata_best) | 2/2 (100 %) ilegibles correctamente informadas | Sí | ver [local-CU06.md](resultados/local-CU06.md) |
 | 2026-10-09 | local | PP-10 | P-12 (permisos en base de datos, RBAC) | 0 accesos a documentos/análisis de otra área (116 casos rol×endpoint del Bloque 0, en verde después de cada bloque siguiente) | Sí | ver [local-P12-bloque0.md](resultados/local-P12-bloque0.md)..[bloque4.md](resultados/local-P12-bloque4.md) |
 | 2026-10-09 | local | PP-11 | P-12 (bitácora, RF-19) | 0 contraseñas/hashes en respuestas ni en el campo `detalle` de bitácora, verificado tras crear usuario, editar usuario, restablecer y cambiar contraseña | Sí | ver [local-P12-bloque5.md](resultados/local-P12-bloque5.md) |
+| 2026-10-13 | local | PP-21 | P-13 (agregación en SQL, `comun/dashboard.py`) | `GET /admin/dashboard/consumo`: 0.24 s; `/usuarios`: 0.17 s, contra Postgres real con 100,000 filas sintéticas (`COPY`, borradas después) | Sí | La primera versión (agregando en Python) tardaba 2.58 s -- reescrita en este bloque; ver [local-P13-bloque5.md](resultados/local-P13-bloque5.md) |
+| 2026-10-13 | local | PP-22 | P-13 (permiso `dashboard:ver`) | 0 accesos: 403 en los 4 endpoints para analista/revisor/curador/auditor; menú "Dashboard" visible solo para Administrador | Sí | ver [local-P13-bloque3.md](resultados/local-P13-bloque3.md), [local-P13-bloque4.md](resultados/local-P13-bloque4.md) |
+| 2026-10-13 | local | PP-23 | P-13 (lista blanca, RNF-17) | 0 variables con `PASSWORD`/`SECRET`/`KEY`/`TOKEN` en `/admin/dashboard/configuracion`, comparado contra el `.env.local.example` real | Sí | ver [local-P13-bloque3.md](resultados/local-P13-bloque3.md) |
+| 2026-10-13 | local | PP-24 | P-13 (`registrar_uso_llm`) | 0.151 ms/llamada en promedio (500 llamadas simuladas, SQLite en memoria) | Sí | Medido sobre la función de registro en aislamiento, no contra Postgres real -- ver [local-P13-bloque5.md](resultados/local-P13-bloque5.md) |
 
 ## 5. Criterio de salida del piloto
 Se recomienda escalar si PP-02, PP-08, PP-09, PP-10, PP-11 y PP-14 se cumplen al 100 % (bloqueantes) y al menos 80 % del resto de pruebas de la entrega 1 alcanza su umbral. Las metas de rendimiento (PP-12, PP-13, PP-17) solo se consideran válidas medidas en stage.

@@ -1,15 +1,15 @@
 # Guion de demo (sandbox local)
 
-**Versión:** 0.2.0
-**Fecha:** 2026-10-09
-**Relacionado con:** docs/04-pruebas/estado-proyecto.md, docs/04-pruebas/resultados/, docs/05-prompts/P-12-usuarios-roles-menu-historial.md
+**Versión:** 0.3.0
+**Fecha:** 2026-10-13
+**Relacionado con:** docs/04-pruebas/estado-proyecto.md, docs/04-pruebas/resultados/, docs/05-prompts/P-12-usuarios-roles-menu-historial.md, docs/05-prompts/P-13-dashboard-administrador-consumo.md
 
 Pasos para demostrar el agente en el ambiente local (Docker Desktop), con datos sintéticos (sin datos reales de la organización). Requiere el stack levantado:
 ```bash
 docker compose --env-file .env.local -f infra/compose.yml -f infra/compose.local.yml up -d
 ```
 
-Este documento se arma por secciones a medida que cada caso de uso llega a un estado demostrable. Hoy tiene las secciones de CU-06 (OCR) y P-12 (menú por rol, historial, configuración); el resto queda pendiente.
+Este documento se arma por secciones a medida que cada caso de uso llega a un estado demostrable. Hoy tiene las secciones de CU-06 (OCR), P-12 (menú por rol, historial, configuración) y P-13 (Dashboard del Administrador); el resto queda pendiente.
 
 ## Usuarios de prueba por rol
 
@@ -21,7 +21,7 @@ Todos los usuarios semilla (`comun/semillas.py`, solo con `APP_ENV=local` -- nun
 | Revisor | revisor@local | Decide hallazgos (aceptar/rechazar/deshacer), Historial |
 | Curador | curador@local | Base de conocimiento (fuentes, glosario), Historial |
 | Auditor | auditor@local | Historial (todas las áreas), Bitácora, Ajustes autoaprobados -- todo de solo lectura |
-| Administrador | administrador@local | Todo lo anterior, más Configuración (Usuarios, Roles y permisos, Áreas) |
+| Administrador | administrador@local | Todo lo anterior, más Dashboard (consumo, usuarios, recursos, configuración) y Configuración (Usuarios, Roles y permisos, Áreas) |
 
 ## P-12 — Menú por rol, Historial y Configuración
 
@@ -30,6 +30,16 @@ Todos los usuarios semilla (`comun/semillas.py`, solo con `APP_ENV=local` -- nun
 3. **Historial (HU-21)**: con `administrador@local`, abrir Historial y cambiar el alcance (Mis análisis / Mi área / Todas las áreas); mostrar los filtros de fecha, tipo de revisión, estado y archivo, y la duración/número de hallazgos de cada fila.
 4. **Bitácora**: con `auditor@local`, abrir Bitácora y filtrar por usuario o acción -- señalar que nunca aparece una contraseña ni su hash, ni siquiera tras crear o editar un usuario.
 5. **Configuración (HU-22, HU-23, HU-24)**: con `administrador@local`, crear un usuario (la contraseña temporal solo se muestra una vez), des/activar uno existente, y mostrar que el sistema rechaza desactivar al único Administrador activo; en Roles y permisos, marcar/desmarcar una casilla y mostrar que una fila protegida (p. ej. `administrador:usuarios:administrar`) no se puede tocar; en Áreas, mostrar que una con usuarios o documentos asociados no se puede eliminar.
+
+## P-13 — Dashboard del Administrador
+
+**Precondición**: haber corrido al menos un análisis real (cualquier tipo de revisión) con alguno de los usuarios de la tabla de arriba, para que la pestaña Consumo no muestre "sin datos todavía".
+
+1. **Menú y permiso (HU-26..30, RF-22)**: iniciar sesión con `administrador@local` y mostrar que "Dashboard" aparece en el menú; con cualquier otro rol (p. ej. `analista@local`), la opción no aparece, y entrar directo a `/dashboard` por URL muestra "Sin acceso".
+2. **Consumo (HU-26, HU-28)**: pestaña "Consumo" -- tarjetas de tokens/llamadas/timeouts, gráfico de tokens por día y los dos rankings (por caso de uso y por modelo); cambiar los filtros de fecha/caso de uso/modelo y mostrar que los números cambian.
+3. **Usuarios (HU-27)**: pestaña "Usuarios" -- tabla de consumo por usuario y botón "Exportar CSV".
+4. **Recursos (HU-29)**: pestaña "Recursos" -- si el stack corre sin el perfil `observabilidad` (el caso normal en esta demo), mostrar el mensaje claro de "Prometheus apagado en este entorno" en vez de un error; la sección de Ollama (modelos en memoria/instalados) sí funciona siempre, sin depender de Prometheus.
+5. **Configuración (HU-30)**: pestaña "Configuración" -- mostrar la lista de variables visibles y señalar que ninguna es una contraseña, clave o token (RNF-17).
 
 ## CU-06 — Imagen a texto (OCR)
 
