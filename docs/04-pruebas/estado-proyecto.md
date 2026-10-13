@@ -26,6 +26,7 @@ Snapshot basado únicamente en evidencia verificable (documentos de resultados e
 
 | Capacidad | Entrega | Estado | Evidencia |
 | --- | --- | --- | --- |
+| Aprobación de fuentes y Garage en stage (P-15): errores visibles, fragmentación acotada, indexación asíncrona, embeddings robustos, infraestructura y pruebas | 1 | **En curso (P-15)**: ADR-006 v2 (Garage en stage) y ADR-010 (indexación asíncrona y fragmentación) escritos; bloques 1..6 pendientes de ejecución uno a uno | [P-15](../05-prompts/P-15-aprobacion-fuentes-y-garage.md), ADR-006, ADR-010 |
 | Dashboard del Administrador: consumo de LLM/embeddings, recursos de infraestructura y configuración vigente (HU-26..30, RF-21/RF-22) | 1 | **Completo (P-13)**: registro de uso (Bloque 1), métricas de host/contenedores vía Prometheus (Bloque 2), 4 endpoints bajo el permiso `dashboard:ver` (Bloque 3), pantalla con 4 pestañas y gráficos SVG propios (Bloque 4), cierre con datos sintéticos de 100,000 registros y sobrecarga del registro medida (Bloque 5) | [local-P13-bloque1.md](resultados/local-P13-bloque1.md)..[bloque5.md](resultados/local-P13-bloque5.md) |
 
 [POR CONFIRMAR] igual que CU-07, el SRS no define un caso de uso de administración/observabilidad transversal -- ver `docs/02-analisis/06-analisis-dashboard-administrador.md` para la justificación de no forzar un CU nuevo.
