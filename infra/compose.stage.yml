@@ -18,7 +18,7 @@ services:
       resources:
         limits:
           cpus: "0.50"
-          memory: 512M
+          memory: 64G
 
   api:
     env_file: ../.env.stage
@@ -66,8 +66,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.50"   # [POR CONFIRMAR] según modelo MoE objetivo cargado
-          memory: 200G   # [POR CONFIRMAR] mayoría de la RAM de la VM para el modelo
+          cpus: "8"   # todos los vCPU de la VM
+          memory: 64G   # [POR CONFIRMAR] mayoría de la RAM de la VM para el modelo
 
   qdrant:
     volumes:
@@ -92,12 +92,12 @@ services:
           cpus: "1.00"
           memory: 2G
 
-  minio:
+  localstack:
     env_file: ../.env.stage
     volumes:
       - type: bind
-        source: /srv/agente/minio
-        target: /data
+        source: /srv/agente/localstack
+        target: /var/lib/localstack
     deploy:
       resources:
         limits:
