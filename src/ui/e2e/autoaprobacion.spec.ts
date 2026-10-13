@@ -16,11 +16,21 @@ const ARCHIVO_RN02 = path.resolve(
 );
 const PERIODO_CIERRE = "2026-01";
 
+// P-14 (Bloque 3): el flujo ahora pasa por una pantalla extra (Chat en "/"
+// -> clic en "Nuevo análisis") antes de llegar al formulario de carga --
+// el timeout por defecto de Playwright (30s) ya no da margen suficiente
+// junto con el resto del flujo (carga, análisis, navegación al reporte).
+test.setTimeout(60_000);
+
 test.describe("SRS v0.9: autoaprobación configurable (RN-07, PP-09)", () => {
   test("el Administrador decide sobre su propio hallazgo y queda en el reporte de ajustes autoaprobados", async ({
     page,
   }) => {
     await iniciarSesion(page, USUARIOS.administrador);
+    // Navegación del cliente, no page.goto(): el token de sesión vive solo
+    // en memoria (ContextoAuth.tsx) -- una recarga completa de la SPA lo
+    // pierde y deja la página en /login.
+    await page.getByRole("link", { name: "Nuevo análisis" }).click();
 
     await page.locator('input[type="month"]').fill(PERIODO_CIERRE);
     await page.locator('input[type="file"]').setInputFiles(ARCHIVO_RN02);

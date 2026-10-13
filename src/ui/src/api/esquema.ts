@@ -893,6 +893,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/chat/conversaciones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Listar Conversaciones
+         * @description HU-34: solo las conversaciones del usuario autenticado, nunca las de
+         *     otro (RNF-19).
+         */
+        get: operations["listar_conversaciones_chat_conversaciones_get"];
+        put?: never;
+        /**
+         * Crear Conversacion
+         * @description HU-33/HU-34: una conversación vacía -- el título se completa con la
+         *     primera pregunta (ver enviar_mensaje_chat).
+         */
+        post: operations["crear_conversacion_chat_conversaciones_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chat/conversaciones/{conversacion_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Obtener Conversacion */
+        get: operations["obtener_conversacion_chat_conversaciones__conversacion_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chat/conversaciones/{conversacion_id}/mensajes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enviar Mensaje Chat
+         * @description HU-31/HU-32: busca fragmentos vigentes, arma el prompt (pregunta +
+         *     historial + fragmentos + texto del adjunto si lo hay), genera la
+         *     respuesta y guarda ambos mensajes. El adjunto nunca se agrega a la Base
+         *     de Conocimiento permanente (RF-24, R-18).
+         */
+        post: operations["enviar_mensaje_chat_chat_conversaciones__conversacion_id__mensajes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1008,6 +1074,13 @@ export interface components {
              */
             archivo: string;
         };
+        /** Body_enviar_mensaje_chat_chat_conversaciones__conversacion_id__mensajes_post */
+        Body_enviar_mensaje_chat_chat_conversaciones__conversacion_id__mensajes_post: {
+            /** Contenido */
+            contenido: string;
+            /** Adjunto */
+            adjunto?: string | null;
+        };
         /** Body_importar_plantilla_endpoint_curaduria_plantilla_importar_post */
         Body_importar_plantilla_endpoint_curaduria_plantilla_importar_post: {
             /**
@@ -1024,6 +1097,18 @@ export interface components {
              */
             archivo: string;
         };
+        /** ConversacionEsquema */
+        ConversacionEsquema: {
+            /** Id */
+            id: string;
+            /** Titulo */
+            titulo?: string | null;
+            /**
+             * Fecha Creacion
+             * Format: date-time
+             */
+            fecha_creacion: string;
+        };
         /** ErrorImportacionEsquema */
         ErrorImportacionEsquema: {
             /** Hoja */
@@ -1039,6 +1124,17 @@ export interface components {
         FragmentoVistaPreviaEsquema: {
             /** Contenido */
             contenido: string;
+            /** Seccion */
+            seccion?: string | null;
+            /** Pagina */
+            pagina?: number | null;
+        };
+        /** FuenteCitadaEsquema */
+        FuenteCitadaEsquema: {
+            /** Fuente Id */
+            fuente_id: string;
+            /** Version */
+            version: string;
             /** Seccion */
             seccion?: string | null;
             /** Pagina */
@@ -1202,6 +1298,22 @@ export interface components {
             /** Duracion Media Analisis Ms */
             duracion_media_analisis_ms?: number | null;
         };
+        /** MensajeEsquema */
+        MensajeEsquema: {
+            /** Id */
+            id: string;
+            /** Rol */
+            rol: string;
+            /** Contenido */
+            contenido: string;
+            /**
+             * Fecha Hora
+             * Format: date-time
+             */
+            fecha_hora: string;
+            /** Fuentes Citadas */
+            fuentes_citadas?: components["schemas"]["FuenteCitadaEsquema"][] | null;
+        };
         /** ParteSubidaEsquema */
         ParteSubidaEsquema: {
             /** Numero Parte */
@@ -1362,6 +1474,20 @@ export interface components {
             ranking_caso_uso: components["schemas"]["ItemRankingConsumoEsquema"][];
             /** Ranking Modelo */
             ranking_modelo: components["schemas"]["ItemRankingConsumoEsquema"][];
+        };
+        /** RespuestaConversacionDetalle */
+        RespuestaConversacionDetalle: {
+            /** Id */
+            id: string;
+            /** Titulo */
+            titulo?: string | null;
+            /**
+             * Fecha Creacion
+             * Format: date-time
+             */
+            fecha_creacion: string;
+            /** Mensajes */
+            mensajes: components["schemas"]["MensajeEsquema"][];
         };
         /** RespuestaCrearUsuario */
         RespuestaCrearUsuario: {
@@ -3069,6 +3195,112 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RespuestaImportarPlantilla"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listar_conversaciones_chat_conversaciones_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionEsquema"][];
+                };
+            };
+        };
+    };
+    crear_conversacion_chat_conversaciones_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionEsquema"];
+                };
+            };
+        };
+    };
+    obtener_conversacion_chat_conversaciones__conversacion_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversacion_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaConversacionDetalle"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enviar_mensaje_chat_chat_conversaciones__conversacion_id__mensajes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversacion_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_enviar_mensaje_chat_chat_conversaciones__conversacion_id__mensajes_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MensajeEsquema"];
                 };
             };
             /** @description Validation Error */

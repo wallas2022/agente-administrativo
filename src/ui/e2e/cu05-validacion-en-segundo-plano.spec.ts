@@ -18,6 +18,10 @@ test.describe("CU-05: validación de casos dudosos en segundo plano (RNF-04, Blo
     page,
   }) => {
     await iniciarSesion(page, USUARIOS.analista);
+    // Navegación del cliente, no page.goto(): el token de sesión vive solo
+    // en memoria (ContextoAuth.tsx) -- una recarga completa de la SPA lo
+    // pierde y deja la página en /login.
+    await page.getByRole("link", { name: "Nuevo análisis" }).click();
 
     await page.getByRole("radio", { name: "Revisión ortográfica" }).check();
     await page.getByRole("radio", { name: "Pegar texto directamente" }).check();

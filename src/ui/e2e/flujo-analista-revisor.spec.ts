@@ -14,6 +14,12 @@ const ARCHIVO_RN02 = path.resolve(
 );
 const PERIODO_CIERRE = "2026-01";
 
+// P-14 (Bloque 3): el flujo ahora pasa por una pantalla extra (Chat en "/"
+// -> clic en "Nuevo análisis"/"Historial") antes de llegar a cada
+// formulario -- el timeout por defecto de Playwright (30s) ya no da margen
+// suficiente junto con el resto del flujo (dos sesiones, carga, análisis).
+test.setTimeout(60_000);
+
 test.describe("CU-01: flujo Analista → Revisor", () => {
   test("el Analista sube un documento, ve el hallazgo, y el Revisor puede decidir sobre él", async ({
     browser,
@@ -25,6 +31,7 @@ test.describe("CU-01: flujo Analista → Revisor", () => {
 
     await expect(paginaAnalista.locator(".layout__logo")).toBeVisible();
 
+    await paginaAnalista.getByRole("link", { name: "Nuevo análisis" }).click();
     await paginaAnalista.locator('input[type="month"]').fill(PERIODO_CIERRE);
     await paginaAnalista.locator('input[type="file"]').setInputFiles(ARCHIVO_RN02);
     await paginaAnalista.getByRole("button", { name: "Iniciar análisis" }).click();
@@ -54,12 +61,18 @@ test.describe("CU-01: flujo Analista → Revisor", () => {
     // --- Revisor: encuentra el mismo análisis y decide sobre el hallazgo ---
     // El token de sesión vive solo en memoria (ContextoAuth.tsx, sin
     // localStorage/cookies por diseño), así que hay que llegar por
-    // navegación del cliente -- el panel "Análisis recientes" -- y no con
+    // navegación del cliente -- el menú, a Historial (HU-21) -- y no con
     // page.goto() a la URL directa, que recarga la SPA y cierra la sesión.
+    // P-14 (Bloque 3): "/" ahora es el Chat, no un panel de análisis
+    // recientes -- el Revisor (sin analisis:crear) llega por Historial.
     const contextoRevisor = await browser.newContext();
     const paginaRevisor = await contextoRevisor.newPage();
     await iniciarSesion(paginaRevisor, USUARIOS.revisor);
 
+    await paginaRevisor.getByRole("link", { name: "Historial" }).click();
+    // El Revisor nunca sube documentos -- el análisis del Analista está en
+    // "Mi área" (HU-21), no en "Mis análisis" (el alcance por defecto).
+    await paginaRevisor.getByRole("button", { name: "Mi área" }).click();
     await paginaRevisor
       .getByRole("link", { name: /cu01-03-cuenta-inexistente/ })
       .first()

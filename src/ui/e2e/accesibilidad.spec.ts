@@ -23,14 +23,25 @@ test.describe("Accesibilidad AA (axe-core)", () => {
     expect(resultados.violations, JSON.stringify(resultados.violations, null, 2)).toEqual([]);
   });
 
+  test("Pantalla de inicio · Chat de la base de conocimiento (P-14)", async ({ page }) => {
+    await iniciarSesion(page, USUARIOS.analista);
+    const resultados = await new AxeBuilder({ page }).withTags(ESTANDARES).analyze();
+    expect(resultados.violations, JSON.stringify(resultados.violations, null, 2)).toEqual([]);
+  });
+
   test("Pantalla 1 · Nuevo análisis", async ({ page }) => {
     await iniciarSesion(page, USUARIOS.analista);
+    // Navegación del cliente, no page.goto(): el token de sesión vive solo
+    // en memoria (ContextoAuth.tsx) -- una recarga completa de la SPA lo
+    // pierde y deja la página en /login.
+    await page.getByRole("link", { name: "Nuevo análisis" }).click();
     const resultados = await new AxeBuilder({ page }).withTags(ESTANDARES).analyze();
     expect(resultados.violations, JSON.stringify(resultados.violations, null, 2)).toEqual([]);
   });
 
   test("Pantalla 2 · Agente trabajando y Pantalla 3 · Hallazgos", async ({ page }) => {
     await iniciarSesion(page, USUARIOS.analista);
+    await page.getByRole("link", { name: "Nuevo análisis" }).click();
     await page.locator('input[type="month"]').fill("2026-01");
     await page.locator('input[type="file"]').setInputFiles(ARCHIVO_RN02);
     await page.getByRole("button", { name: "Iniciar análisis" }).click();

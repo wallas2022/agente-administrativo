@@ -8,7 +8,10 @@ import "./Layout.css";
 // rol". `permisos: undefined` significa "siempre visible con sesión
 // iniciada" (Historial: todos los roles tienen historial:propio).
 const OPCIONES_MENU: { a: string; etiqueta: string; permisos?: string[] }[] = [
-  { a: "/", etiqueta: "Nuevo análisis", permisos: ["analisis:crear"] },
+  // P-14 (Bloque 3, HU-33): el chat es la pantalla de inicio de todos los
+  // roles -- "Nuevo análisis" se movió a su propia ruta, mismo permiso.
+  { a: "/", etiqueta: "Chat" },
+  { a: "/nuevo-analisis", etiqueta: "Nuevo análisis", permisos: ["analisis:crear"] },
   { a: "/historial", etiqueta: "Historial" },
   { a: "/base-de-conocimiento", etiqueta: "Base de conocimiento", permisos: ["conocimiento:ver"] },
   {

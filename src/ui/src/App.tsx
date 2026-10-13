@@ -5,6 +5,7 @@ import { AgenteTrabajando } from "./paginas/AgenteTrabajando";
 import { BaseConocimiento } from "./paginas/BaseConocimiento";
 import { Bitacora } from "./paginas/Bitacora";
 import { CambiarPassword } from "./paginas/CambiarPassword";
+import { Chat } from "./paginas/Chat";
 import { Configuracion } from "./paginas/Configuracion";
 import { Dashboard } from "./paginas/Dashboard";
 import { Hallazgos } from "./paginas/Hallazgos";
@@ -32,12 +33,19 @@ export function App() {
           </RutaProtegida>
         }
       >
-        {/* "/" no se restringe por permiso: hoy también aloja el panel de
-            "Análisis recientes", la única forma de llegar a un análisis
-            propio/del área para Revisor/Curador/Auditor mientras el
-            Historial real (Bloque 3) no existe -- NuevoAnalisis.tsx oculta
-            el formulario de carga si el usuario no tiene analisis:crear. */}
-        <Route path="/" element={<NuevoAnalisis />} />
+        {/* P-14 (Bloque 3, HU-33): el chat es la pantalla de inicio para
+            todos los roles, sin gate de permiso (como Historial) -- "Nuevo
+            análisis" se movió a su propia ruta, con el mismo permiso que
+            ya tenía. */}
+        <Route path="/" element={<Chat />} />
+        <Route
+          path="/nuevo-analisis"
+          element={
+            <RutaProtegida permisoRequerido="analisis:crear">
+              <NuevoAnalisis />
+            </RutaProtegida>
+          }
+        />
         <Route path="/analisis/:analisisId" element={<AgenteTrabajando />} />
         <Route path="/analisis/:analisisId/hallazgos" element={<Hallazgos />} />
         <Route path="/historial" element={<Historial />} />
