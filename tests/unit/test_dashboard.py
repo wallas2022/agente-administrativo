@@ -24,6 +24,7 @@ from comun.dashboard import (
     _consultar_ollama,
     calcular_consumo,
     calcular_consumo_por_usuario,
+    consultar_recursos,
     obtener_configuracion_vigente,
 )
 from comun.modelos import Area, Base, Rol, Usuario
@@ -409,6 +410,52 @@ def test_consultar_ollama_devuelve_none_si_no_responde(monkeypatch) -> None:
 
     monkeypatch.setattr(httpx, "get", _get_que_falla)
     assert _consultar_ollama("http://ollama:11434") is None
+
+
+def test_consultar_recursos_corta_temprano_si_prometheus_no_responde(sesion, monkeypatch) -> None:
+    """Antes de este fix, con Prometheus apagado se intentaban igual las ~10
+    consultas PromQL de _consultar_host/_consultar_contenedores (cada una
+    con su propio timeout de 5 s) antes de darse por vencido -- contra un
+    servidor real que nunca responde, eso tardaba decenas de segundos
+    (medido en vivo: ~36 s). Una sola comprobación de disponibilidad evita
+    las demás consultas."""
+    llamadas_prometheus = []
+
+    def _get_que_falla(url, **kwargs):
+        if "9090" in url:
+            llamadas_prometheus.append(url)
+        raise httpx.ConnectError("no se pudo conectar")
+
+    monkeypatch.setattr(httpx, "get", _get_que_falla)
+
+    resultado = consultar_recursos(sesion)
+
+    assert resultado["prometheus_disponible"] is False
+    assert resultado["host"] is None
+    assert resultado["contenedores"] is None
+    assert len(llamadas_prometheus) == 1
+
+
+def test_consultar_recursos_consulta_host_y_contenedores_si_prometheus_responde(
+    sesion, monkeypatch
+) -> None:
+    def _get_falso(url, **kwargs):
+        class _Respuesta:
+            status_code = 200
+
+            def raise_for_status(self) -> None:
+                pass
+
+            def json(self) -> dict:
+                return {"status": "success", "data": {"result": []}}
+
+        return _Respuesta()
+
+    monkeypatch.setattr(httpx, "get", _get_falso)
+
+    resultado = consultar_recursos(sesion)
+
+    assert resultado["prometheus_disponible"] is True
 
 
 # --- Alertas -----------------------------------------------------------------

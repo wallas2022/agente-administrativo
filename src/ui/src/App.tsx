@@ -6,6 +6,7 @@ import { BaseConocimiento } from "./paginas/BaseConocimiento";
 import { Bitacora } from "./paginas/Bitacora";
 import { CambiarPassword } from "./paginas/CambiarPassword";
 import { Configuracion } from "./paginas/Configuracion";
+import { Dashboard } from "./paginas/Dashboard";
 import { Hallazgos } from "./paginas/Hallazgos";
 import { Historial } from "./paginas/Historial";
 import { Login } from "./paginas/Login";
@@ -61,6 +62,14 @@ export function App() {
           element={
             <RutaProtegida permisoRequerido="bitacora:ver">
               <Bitacora />
+            </RutaProtegida>
+          }
+        />
+        <Route
+          path="/dashboard"
+          element={
+            <RutaProtegida permisoRequerido="dashboard:ver">
+              <Dashboard />
             </RutaProtegida>
           }
         />

@@ -349,6 +349,19 @@ def _consultar_contenedores(prometheus_url: str) -> list[dict] | None:
     return contenedores
 
 
+def _prometheus_disponible(prometheus_url: str, *, timeout: float = 1.5) -> bool:
+    """Comprobación única y rápida antes de lanzar las ~10 consultas PromQL
+    de `_consultar_host`/`_consultar_contenedores` -- sin esto, con
+    Prometheus apagado (caso por defecto en local, ADR-009) cada una agota
+    su propio timeout de 5 s y la pantalla de Recursos tarda decenas de
+    segundos en responder (medido en el stack real: ~36 s)."""
+    try:
+        respuesta = httpx.get(f"{prometheus_url}/-/ready", timeout=timeout)
+        return respuesta.status_code == 200
+    except Exception:
+        return False
+
+
 def _consultar_ollama(ollama_url: str) -> dict | None:
     try:
         en_memoria = httpx.get(f"{ollama_url}/api/ps", timeout=5.0)
@@ -419,12 +432,13 @@ def consultar_recursos(sesion: Session) -> dict:
     prometheus_url = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090")
     ollama_url = os.environ.get("LLM_BASE_URL", "http://ollama:11434")
 
-    host = _consultar_host(prometheus_url)
-    contenedores = _consultar_contenedores(prometheus_url)
+    disponible = _prometheus_disponible(prometheus_url)
+    host = _consultar_host(prometheus_url) if disponible else None
+    contenedores = _consultar_contenedores(prometheus_url) if disponible else None
     ollama = _consultar_ollama(ollama_url)
 
     return {
-        "prometheus_disponible": host is not None,
+        "prometheus_disponible": disponible,
         "host": host,
         "contenedores": contenedores,
         "ollama": ollama,

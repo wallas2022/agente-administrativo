@@ -444,6 +444,94 @@ export interface paths {
         patch: operations["renombrar_area_areas__area_id__patch"];
         trace?: never;
     };
+    "/admin/dashboard/consumo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Dashboard Consumo
+         * @description HU-26 (tarjetas, serie diaria) + HU-28 (ranking por caso de uso y
+         *     por modelo), ambas sobre la misma consulta a `uso_llm`.
+         */
+        get: operations["dashboard_consumo_admin_dashboard_consumo_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/dashboard/usuarios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Dashboard Usuarios
+         * @description HU-27: tabla por usuario; `?formato=csv` exporta exactamente lo
+         *     mismo que se ve filtrado (sin `response_model`: esta ruta devuelve
+         *     JSON o CSV según `formato`, FastAPI no valida un `Response` ya armado).
+         */
+        get: operations["dashboard_usuarios_admin_dashboard_usuarios_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/dashboard/recursos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Dashboard Recursos
+         * @description HU-29: host + contenedores (vía Prometheus, `None` si no está
+         *     disponible -- apagado por defecto en local, ver ADR-009) + Ollama
+         *     (`/api/ps`, `/api/tags`). Alertas calculadas (disco, memoria de
+         *     Ollama, timeouts del LLM).
+         */
+        get: operations["dashboard_recursos_admin_dashboard_recursos_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/dashboard/configuracion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Dashboard Configuracion
+         * @description HU-30: solo variables de la lista blanca (RNF-17) -- nunca una
+         *     variable con PASSWORD/SECRET/KEY/TOKEN, sin importar lo que haya en
+         *     el entorno (ver comun.dashboard.VARIABLES_CONFIGURACION_VISIBLES).
+         */
+        get: operations["dashboard_configuracion_admin_dashboard_configuracion_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hallazgos/{hallazgo_id}/decision": {
         parameters: {
             query?: never;
@@ -842,6 +930,13 @@ export interface components {
             /** Comentario */
             comentario?: string | null;
         };
+        /** AlertaDashboardEsquema */
+        AlertaDashboardEsquema: {
+            /** Tipo */
+            tipo: string;
+            /** Mensaje */
+            mensaje: string;
+        };
         /** AreaEsquema */
         AreaEsquema: {
             /** Id */
@@ -1088,6 +1183,25 @@ export interface components {
             /** Numero Hallazgos */
             numero_hallazgos: number;
         };
+        /**
+         * ItemRankingConsumoEsquema
+         * @description Una fila del ranking por caso de uso o por modelo (HU-28) -- solo
+         *     uno de `caso_uso`/`modelo` viene lleno según cuál ranking es.
+         */
+        ItemRankingConsumoEsquema: {
+            /** Caso Uso */
+            caso_uso?: string | null;
+            /** Modelo */
+            modelo?: string | null;
+            /** Tokens Totales */
+            tokens_totales: number;
+            /** Duracion Llm Total Ms */
+            duracion_llm_total_ms: number;
+            /** Llamadas */
+            llamadas: number;
+            /** Duracion Media Analisis Ms */
+            duracion_media_analisis_ms?: number | null;
+        };
         /** ParteSubidaEsquema */
         ParteSubidaEsquema: {
             /** Numero Parte */
@@ -1110,6 +1224,58 @@ export interface components {
             otorgado: boolean;
             /** Protegido */
             protegido: boolean;
+        };
+        /** PuntoSerieDiariaEsquema */
+        PuntoSerieDiariaEsquema: {
+            /** Fecha */
+            fecha: string;
+            /** Tokens Entrada */
+            tokens_entrada: number;
+            /** Tokens Salida */
+            tokens_salida: number;
+            /** Llamadas */
+            llamadas: number;
+        };
+        /** RecursosContenedorEsquema */
+        RecursosContenedorEsquema: {
+            /** Nombre */
+            nombre: string;
+            /** Cpu Pct */
+            cpu_pct: number;
+            /** Memoria Usada Bytes */
+            memoria_usada_bytes?: number | null;
+            /** Memoria Limite Bytes */
+            memoria_limite_bytes?: number | null;
+            /** Memoria Pct Del Limite */
+            memoria_pct_del_limite?: number | null;
+        };
+        /** RecursosHostEsquema */
+        RecursosHostEsquema: {
+            /** Cpu Ocupado Pct */
+            cpu_ocupado_pct?: number | null;
+            /** Vcpus */
+            vcpus?: number | null;
+            /** Memoria Usada Bytes */
+            memoria_usada_bytes: number;
+            /** Memoria Total Bytes */
+            memoria_total_bytes: number;
+            /** Disco Usado Bytes */
+            disco_usado_bytes?: number | null;
+            /** Disco Total Bytes */
+            disco_total_bytes?: number | null;
+            /** Carga 1M */
+            carga_1m?: number | null;
+        };
+        /** RecursosOllamaEsquema */
+        RecursosOllamaEsquema: {
+            /** Modelos En Memoria */
+            modelos_en_memoria: {
+                [key: string]: unknown;
+            }[];
+            /** Modelos Instalados */
+            modelos_instalados: {
+                [key: string]: unknown;
+            }[];
         };
         /** RespuestaAnalisis */
         RespuestaAnalisis: {
@@ -1175,6 +1341,27 @@ export interface components {
             analisis_id: string;
             /** Estado */
             estado: string;
+        };
+        /** RespuestaConfiguracion */
+        RespuestaConfiguracion: {
+            /** Variables */
+            variables: {
+                [key: string]: string;
+            };
+            /** App Version */
+            app_version: string;
+            /** Git Commit */
+            git_commit: string;
+        };
+        /** RespuestaConsumo */
+        RespuestaConsumo: {
+            tarjetas: components["schemas"]["TarjetasConsumoEsquema"];
+            /** Serie Diaria */
+            serie_diaria: components["schemas"]["PuntoSerieDiariaEsquema"][];
+            /** Ranking Caso Uso */
+            ranking_caso_uso: components["schemas"]["ItemRankingConsumoEsquema"][];
+            /** Ranking Modelo */
+            ranking_modelo: components["schemas"]["ItemRankingConsumoEsquema"][];
         };
         /** RespuestaCrearUsuario */
         RespuestaCrearUsuario: {
@@ -1262,6 +1449,17 @@ export interface components {
         RespuestaPasswordTemporal: {
             /** Password Temporal */
             password_temporal: string;
+        };
+        /** RespuestaRecursos */
+        RespuestaRecursos: {
+            /** Prometheus Disponible */
+            prometheus_disponible: boolean;
+            host?: components["schemas"]["RecursosHostEsquema"] | null;
+            /** Contenedores */
+            contenedores?: components["schemas"]["RecursosContenedorEsquema"][] | null;
+            ollama?: components["schemas"]["RecursosOllamaEsquema"] | null;
+            /** Alertas */
+            alertas: components["schemas"]["AlertaDashboardEsquema"][];
         };
         /** RespuestaToken */
         RespuestaToken: {
@@ -1386,6 +1584,21 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /** TarjetasConsumoEsquema */
+        TarjetasConsumoEsquema: {
+            /** Tokens Entrada */
+            tokens_entrada: number;
+            /** Tokens Salida */
+            tokens_salida: number;
+            /** Tokens Totales */
+            tokens_totales: number;
+            /** Llamadas */
+            llamadas: number;
+            /** Tokens Por Segundo Promedio */
+            tokens_por_segundo_promedio?: number | null;
+            /** Pct Timeouts */
+            pct_timeouts: number;
         };
         /**
          * UsuarioAdminEsquema
@@ -2216,6 +2429,114 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dashboard_consumo_admin_dashboard_consumo_get: {
+        parameters: {
+            query?: {
+                desde?: string | null;
+                hasta?: string | null;
+                area_id?: string | null;
+                caso_uso?: string | null;
+                modelo?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaConsumo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dashboard_usuarios_admin_dashboard_usuarios_get: {
+        parameters: {
+            query?: {
+                desde?: string | null;
+                hasta?: string | null;
+                formato?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dashboard_recursos_admin_dashboard_recursos_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaRecursos"];
+                };
+            };
+        };
+    };
+    dashboard_configuracion_admin_dashboard_configuracion_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaConfiguracion"];
                 };
             };
         };

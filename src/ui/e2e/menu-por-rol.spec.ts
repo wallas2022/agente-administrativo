@@ -17,6 +17,7 @@ const MENU_ESPERADO_POR_ROL: Record<keyof typeof USUARIOS, string[]> = {
     "Base de conocimiento",
     "Ajustes autoaprobados",
     "Bitácora",
+    "Dashboard",
     "Configuración",
   ],
 };

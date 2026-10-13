@@ -17,6 +17,7 @@ const OPCIONES_MENU: { a: string; etiqueta: string; permisos?: string[] }[] = [
     permisos: ["reportes:autoaprobados"],
   },
   { a: "/bitacora", etiqueta: "Bitácora", permisos: ["bitacora:ver"] },
+  { a: "/dashboard", etiqueta: "Dashboard", permisos: ["dashboard:ver"] },
   {
     a: "/configuracion",
     etiqueta: "Configuración",
