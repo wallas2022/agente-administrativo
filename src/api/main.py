@@ -11,6 +11,7 @@ import csv
 import hashlib
 import io
 import json
+import logging
 import mimetypes
 import os
 import uuid
@@ -19,6 +20,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
 
+import httpx
 from fastapi import (
     Depends,
     FastAPI,
@@ -211,6 +213,63 @@ app.add_middleware(
     # corregido: el archivo llegaba bien, pero con un nombre genérico.
     expose_headers=["Content-Disposition"],
 )
+
+_MENSAJE_OBJETO_AUSENTE = "El archivo de la fuente no está en el almacenamiento; súbalo de nuevo"
+_MENSAJE_MODELOS_LENTOS = (
+    "El servicio de modelos tardó demasiado en responder; intente de nuevo en unos minutos"
+)
+
+
+@app.exception_handler(almacenamiento.ObjetoNoEncontradoError)
+async def _manejar_objeto_ausente(
+    _peticion: Request, _error: almacenamiento.ObjetoNoEncontradoError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={
+            "error": "objeto_no_encontrado",
+            "detalle": _MENSAJE_OBJETO_AUSENTE,
+            "detail": _MENSAJE_OBJETO_AUSENTE,
+        },
+    )
+
+
+@app.exception_handler(httpx.TimeoutException)
+async def _manejar_timeout_modelos(
+    _peticion: Request, _error: httpx.TimeoutException
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+        content={
+            "error": "servicio_modelos_tardo",
+            "detalle": _MENSAJE_MODELOS_LENTOS,
+            "detail": _MENSAJE_MODELOS_LENTOS,
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def _manejar_error_inesperado(peticion: Request, error: Exception) -> JSONResponse:
+    # Corre en ServerErrorMiddleware, por fuera de CORSMiddleware: sin las
+    # cabeceras a mano, el navegador reporta el 500 como error de CORS.
+    logging.getLogger(__name__).error(
+        "Error no controlado en %s %s", peticion.method, peticion.url.path, exc_info=error
+    )
+    detalle = f"Error interno del servidor ({type(error).__name__}); revise los registros de la API"
+    cabeceras: dict[str, str] = {}
+    origen = peticion.headers.get("origin")
+    if origen and origen in _origenes_ui:
+        cabeceras = {
+            "Access-Control-Allow-Origin": origen,
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin",
+        }
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"error": "error_interno", "detalle": detalle, "detail": detalle},
+        headers=cabeceras,
+    )
+
 
 _esquema_bearer = HTTPBearer()
 

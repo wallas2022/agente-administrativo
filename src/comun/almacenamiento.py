@@ -13,6 +13,7 @@ from typing import TypedDict
 import boto3
 from botocore.client import BaseClient
 from botocore.config import Config
+from botocore.exceptions import ClientError
 
 TAMANO_MAXIMO_BYTES = 1024 * 1024 * 1024  # 1 GB — RF-03, RN-09
 
@@ -104,8 +105,17 @@ def asegurar_bucket(cliente: BaseClient, bucket: str) -> None:
         cliente.create_bucket(Bucket=bucket)
 
 
+class ObjetoNoEncontradoError(Exception):
+    """El objeto no existe en el almacenamiento (p. ej. se perdió al reiniciar)."""
+
+
 def descargar_objeto(cliente: BaseClient, bucket: str, llave: str) -> bytes:
-    respuesta = cliente.get_object(Bucket=bucket, Key=llave)
+    try:
+        respuesta = cliente.get_object(Bucket=bucket, Key=llave)
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") in ("NoSuchKey", "404", "NotFound"):
+            raise ObjetoNoEncontradoError(f"{bucket}/{llave}") from error
+        raise
     return respuesta["Body"].read()
 
 

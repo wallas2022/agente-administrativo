@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { clienteApi, obtenerTokenActual, URL_BASE_API } from "../api/cliente";
 import { useAuth } from "../auth/ContextoAuth";
+import { MENSAJE_SIN_CONEXION, mensajeDeError } from "../utils/errores";
 import "./BaseConocimiento.css";
 
 type Fuente = {
@@ -116,15 +117,14 @@ export function BaseConocimiento() {
       cuerpo.append("archivo", archivoFuente);
       const { ok, datos } = await subirArchivo("/curaduria/fuentes", cuerpo);
       if (!ok) {
-        const detalle = (datos as { detail?: string } | null)?.detail;
-        setError(detalle ?? "No se pudo cargar la fuente");
+        setError(mensajeDeError(datos, "No se pudo cargar la fuente"));
         return;
       }
       setFormFuente(FORM_FUENTE_VACIO);
       setArchivoFuente(null);
       await cargarFuentes();
     } catch {
-      setError("No se pudo conectar con el servidor");
+      setError(MENSAJE_SIN_CONEXION);
     } finally {
       setSubiendoFuente(false);
     }
@@ -137,7 +137,7 @@ export function BaseConocimiento() {
       { params: { path: { fuente_id: fuente.id } } },
     );
     if (errorRespuesta || !data) {
-      setError("No se pudo generar la vista previa de esta fuente");
+      setError(mensajeDeError(errorRespuesta, "No se pudo generar la vista previa de esta fuente"));
       return;
     }
     setVistaPrevia({ fuenteId: fuente.fuente_id, fragmentos: data.fragmentos });
@@ -152,10 +152,12 @@ export function BaseConocimiento() {
         { params: { path: { fuente_id: fuente.id } } },
       );
       if (errorRespuesta) {
-        setError("No se pudo aprobar la fuente (revise que el archivo tenga texto extraíble)");
+        setError(mensajeDeError(errorRespuesta, "No se pudo aprobar la fuente"));
         return;
       }
       await cargarFuentes();
+    } catch {
+      setError(MENSAJE_SIN_CONEXION);
     } finally {
       setCargandoAccion(null);
     }
@@ -227,8 +229,7 @@ export function BaseConocimiento() {
       cuerpo.append("archivo", archivoPlantilla);
       const { ok, datos } = await subirArchivo(`/curaduria/plantilla/${accion}`, cuerpo);
       if (!ok) {
-        const detalle = (datos as { detail?: string } | null)?.detail;
-        setError(detalle ?? "No se pudo procesar la plantilla");
+        setError(mensajeDeError(datos, "No se pudo procesar la plantilla"));
         return;
       }
       const reporte = datos as ReportePlantilla;
@@ -238,7 +239,7 @@ export function BaseConocimiento() {
         await cargarGlosario();
       }
     } catch {
-      setError("No se pudo conectar con el servidor");
+      setError(MENSAJE_SIN_CONEXION);
     } finally {
       setProcesandoPlantilla(false);
     }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { clienteApi, obtenerTokenActual, URL_BASE_API } from "../api/cliente";
+import { MENSAJE_SIN_CONEXION, mensajeDeError } from "../utils/errores";
 import "./Chat.css";
 
 type FuenteCitada = {
@@ -144,14 +145,13 @@ export function Chat() {
 
       const { ok, datos } = await enviarMensajeMultipart(idConversacion, cuerpo);
       if (!ok) {
-        const detalle = (datos as { detail?: string } | null)?.detail;
-        setError(detalle ?? "No se pudo enviar el mensaje");
+        setError(mensajeDeError(datos, "No se pudo enviar el mensaje"));
         return;
       }
       await abrirConversacion(idConversacion);
       await cargarConversaciones();
     } catch {
-      setError("No se pudo conectar con el servidor");
+      setError(MENSAJE_SIN_CONEXION);
     } finally {
       setEnviando(false);
     }
