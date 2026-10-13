@@ -11,7 +11,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from comun.modelos import Area, Base, Rol, UsoLlm, Usuario
-from comun.uso_llm import envolver_generar_texto, envolver_obtener_embedding, registrar_uso_llm
+from comun.uso_llm import (
+    envolver_generar_texto,
+    envolver_obtener_embedding,
+    generar_respuesta_chat_con_registro,
+    registrar_uso_llm,
+)
 
 
 @pytest.fixture()
@@ -245,4 +250,69 @@ def test_envolver_obtener_embedding_registra_timeout(sesion, usuario_y_area, mon
     sesion.commit()
 
     fila = sesion.query(UsoLlm).one()
+    assert fila.resultado == "timeout"
+
+
+# --- generar_respuesta_chat_con_registro (P-14, Bloque 2, RF-23) ------------
+
+
+def test_generar_respuesta_chat_con_registro_devuelve_el_texto_y_registra_ok(
+    sesion, usuario_y_area, monkeypatch
+) -> None:
+    usuario, area = usuario_y_area
+
+    class _RespuestaFalsa:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return {
+                "message": {"content": "respuesta del chat"},
+                "prompt_eval_count": 50,
+                "eval_count": 30,
+                "total_duration": 2_000_000_000,
+            }
+
+    monkeypatch.setattr(httpx, "post", lambda url, *, json, timeout: _RespuestaFalsa())
+
+    resultado = generar_respuesta_chat_con_registro(
+        [{"role": "user", "content": "¿qué dice la política?"}],
+        sesion=sesion,
+        usuario_id=usuario.id,
+        area_id=area.id,
+        modelo="gpt-oss:20b",
+    )
+    sesion.commit()
+
+    assert resultado == "respuesta del chat"
+    fila = sesion.query(UsoLlm).one()
+    assert fila.caso_uso == "chat_kb"
+    assert fila.analisis_id is None
+    assert fila.resultado == "ok"
+    assert fila.tokens_entrada == 50
+    assert fila.tokens_salida == 30
+
+
+def test_generar_respuesta_chat_con_registro_registra_timeout_y_relanza(
+    sesion, usuario_y_area, monkeypatch
+) -> None:
+    usuario, area = usuario_y_area
+
+    def _post_que_expira(url, *, json, timeout):
+        raise httpx.TimeoutException("se agotó el tiempo")
+
+    monkeypatch.setattr(httpx, "post", _post_que_expira)
+
+    with pytest.raises(httpx.TimeoutException):
+        generar_respuesta_chat_con_registro(
+            [{"role": "user", "content": "hola"}],
+            sesion=sesion,
+            usuario_id=usuario.id,
+            area_id=area.id,
+            modelo="gpt-oss:20b",
+        )
+    sesion.commit()
+
+    fila = sesion.query(UsoLlm).one()
+    assert fila.caso_uso == "chat_kb"
     assert fila.resultado == "timeout"

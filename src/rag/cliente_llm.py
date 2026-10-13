@@ -179,18 +179,29 @@ def generar_respuesta_chat(
     *,
     modelo: str | None = None,
     timeout: float = 300.0,
+    pensamiento: str | None = None,
     num_ctx: int | None = None,
     num_predict: int | None = None,
 ) -> RespuestaTexto:
-    """P-14 (Bloque 1, RF-23): igual que `generar_texto_con_metricas`, pero
+    """P-14 (Bloque 1/2, RF-23): igual que `generar_texto_con_metricas`, pero
     acepta el historial completo de la conversación (mensajes con rol
     `system`/`user`/`assistant`) en vez de un único prompt -- para el chat
     de la Base de Conocimiento (CU-12), que es multi-turno. Mismo transporte
     (`/api/chat`) y el mismo registro de métricas que el resto del proyecto.
-    Sin `formato`/`pensamiento`: el chat siempre responde texto libre, no
-    JSON estructurado."""
+    Sin `formato`: el chat siempre responde texto libre, no JSON
+    estructurado -- pero sí acepta `pensamiento`/`num_ctx`/`num_predict`
+    (igual que CU-02, ver docs/04-pruebas/resultados/local-cu02-
+    rendimiento.md): medido en vivo contra gpt-oss:20b real en este
+    hardware sin GPU, un prompt de chat sin acotar superó el timeout de
+    300s -- el endpoint del chat (api/main.py) los usa para mantener la
+    respuesta dentro de un tiempo razonable."""
     return _generar_con_mensajes(
-        mensajes, modelo=modelo, timeout=timeout, num_ctx=num_ctx, num_predict=num_predict
+        mensajes,
+        modelo=modelo,
+        timeout=timeout,
+        pensamiento=pensamiento,
+        num_ctx=num_ctx,
+        num_predict=num_predict,
     )
 
 

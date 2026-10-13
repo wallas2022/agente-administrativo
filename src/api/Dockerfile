@@ -13,18 +13,39 @@ ARG GIT_COMMIT=sin-confirmar
 ENV APP_VERSION=${APP_VERSION}
 ENV GIT_COMMIT=${GIT_COMMIT}
 
+# P-14 (Bloque 2, RF-24): el chat de la Base de Conocimiento procesa un
+# adjunto de imagen de forma síncrona (OCR, dentro de la misma llamada
+# HTTP) -- antes de este bloque la API solo necesitaba `ocr.exportar_docx`
+# (python-docx puro); ahora también necesita el motor real. Mismo bloque de
+# instalación que orquestador/Dockerfile (Tesseract 5 + tessdata_best
+# spa/eng, ADR-007) -- ver ese archivo para el detalle de cada paso.
+ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr curl \
+    && test -f "$TESSDATA_PREFIX/osd.traineddata" \
+    && curl -fsSL -o "$TESSDATA_PREFIX/spa.traineddata" \
+        https://github.com/tesseract-ocr/tessdata_best/raw/main/spa.traineddata \
+    && curl -fsSL -o "$TESSDATA_PREFIX/eng.traineddata" \
+        https://github.com/tesseract-ocr/tessdata_best/raw/main/eng.traineddata \
+    && test -f "$TESSDATA_PREFIX/spa.traineddata" \
+    && apt-get purge -y curl \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY comun/requirements.txt ./comun/requirements.txt
 COPY api/requirements.txt ./api/requirements.txt
 COPY parsers/requirements.txt ./parsers/requirements.txt
 COPY ortografia/requirements.txt ./ortografia/requirements.txt
 COPY rag/requirements.txt ./rag/requirements.txt
 COPY curaduria/requirements.txt ./curaduria/requirements.txt
+COPY ocr/requirements.txt ./ocr/requirements.txt
 RUN pip install --no-cache-dir \
     -r api/requirements.txt \
     -r parsers/requirements.txt \
     -r ortografia/requirements.txt \
     -r rag/requirements.txt \
-    -r curaduria/requirements.txt
+    -r curaduria/requirements.txt \
+    -r ocr/requirements.txt
 
 COPY comun ./comun
 COPY api ./api
@@ -49,9 +70,10 @@ COPY validadores ./validadores
 # kb/ en absoluto (solo orquestador/worker la tenían, ver su Dockerfile).
 COPY --from=kb . ./kb
 # CU-06 (Bloque 3): GET /documentos/{id}/ocr-docx genera el .docx resaltado
-# de forma síncrona con `ocr.exportar_docx` (solo usa python-docx, ya
-# instalado vía parsers/requirements.txt) -- la API NO necesita el resto de
-# `ocr` (OpenCV/Tesseract viven solo en el worker, ver su Dockerfile).
+# de forma síncrona con `ocr.exportar_docx` (solo usa python-docx). P-14
+# (Bloque 2, RF-24) agrega el motor completo (`ocr.motor`/`ocr.documentos`):
+# ya no es cierto que "la API no necesita el resto de ocr" -- ver el bloque
+# de instalación de Tesseract arriba.
 COPY ocr ./ocr
 
 EXPOSE 8000

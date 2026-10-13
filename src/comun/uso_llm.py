@@ -6,9 +6,10 @@ sigue.
 
 Los "casos de uso" (ver docs/02-analisis/06-analisis-dashboard-
 administrador.md): "contable", "ortografia", "redaccion", "embeddings_kb"
-(indexación de la Base de Conocimiento, CU-08) y "embeddings_busqueda" (RAG
-en tiempo de análisis/redacción).
-"""
+(indexación de la Base de Conocimiento, CU-08), "embeddings_busqueda" (RAG
+en tiempo de análisis/redacción) y "chat_kb" (el chat de la Base de
+Conocimiento, CU-12, P-14 -- tanto su búsqueda de embeddings como la
+generación de la respuesta se registran con este mismo caso de uso)."""
 
 import logging
 import uuid
@@ -168,6 +169,60 @@ def envolver_obtener_embedding(
         return resultado.vector
 
     return _funcion
+
+
+def generar_respuesta_chat_con_registro(
+    mensajes: list[dict[str, str]],
+    *,
+    sesion: Session,
+    usuario_id: uuid.UUID,
+    area_id: uuid.UUID,
+    caso_uso: str = "chat_kb",
+    modelo: str | None = None,
+    timeout: float = 300.0,
+    pensamiento: str | None = None,
+    num_ctx: int | None = None,
+    num_predict: int | None = None,
+) -> str:
+    """P-14 (Bloque 2, RF-23): como `envolver_generar_texto`, pero para el
+    chat multi-turno (`rag.cliente_llm.generar_respuesta_chat`) -- llama una
+    sola vez en vez de construir un `Callable` reutilizable, porque el chat
+    genera una respuesta por pregunta, no muchas por análisis. `analisis_id`
+    siempre es `None`: el chat no corre dentro de un `Analisis`."""
+    from rag.cliente_llm import generar_respuesta_chat
+
+    try:
+        resultado = generar_respuesta_chat(
+            mensajes,
+            modelo=modelo,
+            timeout=timeout,
+            pensamiento=pensamiento,
+            num_ctx=num_ctx,
+            num_predict=num_predict,
+        )
+    except Exception as error:
+        registrar_uso_llm(
+            sesion,
+            usuario_id=usuario_id,
+            area_id=area_id,
+            analisis_id=None,
+            caso_uso=caso_uso,
+            modelo=modelo or "",
+            resultado=_clasificar_error(error),
+            metricas=None,
+        )
+        raise
+    registrar_uso_llm(
+        sesion,
+        usuario_id=usuario_id,
+        area_id=area_id,
+        analisis_id=None,
+        caso_uso=caso_uso,
+        modelo=resultado.metricas.modelo,
+        resultado=RESULTADO_OK,
+        metricas=resultado.metricas,
+    )
+    return resultado.texto
 
 
 def envolver_funcion_llm_inyectada(

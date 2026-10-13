@@ -44,14 +44,17 @@ from api.esquemas import (
     AreaEsquema,
     BitacoraEsquema,
     BitacoraGlobalEsquema,
+    ConversacionEsquema,
     ErrorImportacionEsquema,
     FilaConsumoUsuarioEsquema,
     FragmentoVistaPreviaEsquema,
+    FuenteCitadaEsquema,
     FuenteConocimientoEsquema,
     FuenteCuraduriaEsquema,
     GlosarioEsquema,
     HallazgoEsquema,
     HistorialItemEsquema,
+    MensajeEsquema,
     ParteSubidaEsquema,
     PermisoMatrizEsquema,
     RespuestaAnalisis,
@@ -60,6 +63,7 @@ from api.esquemas import (
     RespuestaCompletarCarga,
     RespuestaConfiguracion,
     RespuestaConsumo,
+    RespuestaConversacionDetalle,
     RespuestaCrearUsuario,
     RespuestaDecision,
     RespuestaEditarTextoOcr,
@@ -87,6 +91,12 @@ from api.esquemas import (
     UsuarioAdminEsquema,
 )
 from comun import almacenamiento
+from comun.chat import (
+    TipoArchivoNoSoportadoError,
+    construir_mensajes,
+    extraer_texto_adjunto,
+    fuentes_citadas,
+)
 from comun.cola import encolar_analisis
 from comun.dashboard import (
     calcular_consumo,
@@ -101,11 +111,13 @@ from comun.modelos import (
     Analisis,
     Area,
     Bitacora,
+    Conversacion,
     Decision,
     Documento,
     FuenteConocimiento,
     Glosario,
     Hallazgo,
+    Mensaje,
     Permiso,
     Rol,
     TipoRevision,
@@ -129,7 +141,11 @@ from comun.seguridad import (
     verificar_password,
 )
 from comun.semillas import sembrar_datos_de_prueba
-from comun.uso_llm import envolver_funcion_embedding_inyectada, envolver_funcion_llm_inyectada
+from comun.uso_llm import (
+    envolver_funcion_embedding_inyectada,
+    envolver_funcion_llm_inyectada,
+    generar_respuesta_chat_con_registro,
+)
 from curaduria.extraccion import PdfSinTextoError, extraer_fragmentos
 from curaduria.fuentes import aprobar_fuente, clasificar_tipo_fuente, prioridad_de_tipo
 from curaduria.indexacion import (
@@ -139,8 +155,10 @@ from curaduria.indexacion import (
 )
 from curaduria.plantilla import ResultadoImportacion, cargar_plantilla, leer_plantilla
 from ocr.exportar_docx import construir_docx_resaltado
+from ocr.motor import FuncionOcr, ocr_imagen_tesseract
 from ortografia.cliente_languagetool import CoincidenciaLT, revisar_texto
 from ortografia.generar_corregido import generar_documento_corregido
+from rag.busqueda import buscar_fragmentos
 from rag.cliente_embeddings import DIMENSION_BGE_M3, obtener_embedding
 from rag.cliente_llm import generar_texto
 from validadores.redaccion.extraccion import extraer_parrafos
@@ -223,6 +241,13 @@ def obtener_cliente_qdrant() -> QdrantClient:  # pragma: no cover - override en 
 
 def obtener_funcion_embedding() -> Callable[[str], list[float]]:  # pragma: no cover
     return obtener_embedding
+
+
+def obtener_funcion_ocr() -> FuncionOcr:  # pragma: no cover - override en pruebas
+    """P-14 (Bloque 2, RF-24): usada al adjuntar una imagen en el chat --
+    mismo patrón de inyección que el resto del proyecto (las pruebas
+    sobreescriben esto con un fake, nunca invocan el binario de Tesseract)."""
+    return ocr_imagen_tesseract
 
 
 def obtener_coleccion_kb() -> str:
@@ -2649,3 +2674,204 @@ async def importar_plantilla_endpoint(
     )
     sesion.commit()
     return RespuestaImportarPlantilla(es_valido=True, errores=[], cargado=resumen)
+
+
+# --- Chat de la Base de Conocimiento (P-14, Bloque 2: HU-31, HU-32, CU-12) --
+
+
+def _conversacion_propia(sesion: Session, usuario: Usuario, conversacion_id: str) -> Conversacion:
+    try:
+        id_uuid = uuid.UUID(conversacion_id)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Conversación no encontrada"
+        ) from error
+    conversacion = sesion.get(Conversacion, id_uuid)
+    # 404 (no 403) para no revelar si la conversación existe para otro
+    # usuario -- cada quien solo ve la suya (RNF-19).
+    if conversacion is None or conversacion.usuario_id != usuario.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Conversación no encontrada"
+        )
+    return conversacion
+
+
+def _a_esquema_mensaje(m: Mensaje) -> MensajeEsquema:
+    return MensajeEsquema(
+        id=str(m.id),
+        rol=m.rol,
+        contenido=m.contenido,
+        fecha_hora=m.fecha_hora,
+        fuentes_citadas=(
+            [FuenteCitadaEsquema(**f) for f in m.fuentes_citadas] if m.fuentes_citadas else None
+        ),
+    )
+
+
+_LONGITUD_MAXIMA_TITULO = 80
+
+
+def _titulo_desde_pregunta(pregunta: str) -> str:
+    texto = pregunta.strip().splitlines()[0] if pregunta.strip() else pregunta
+    if len(texto) <= _LONGITUD_MAXIMA_TITULO:
+        return texto
+    return texto[: _LONGITUD_MAXIMA_TITULO - 1] + "…"
+
+
+@app.post("/chat/conversaciones", response_model=ConversacionEsquema)
+def crear_conversacion(
+    usuario: Annotated[Usuario, Depends(usuario_actual)],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> ConversacionEsquema:
+    """HU-33/HU-34: una conversación vacía -- el título se completa con la
+    primera pregunta (ver enviar_mensaje_chat)."""
+    conversacion = Conversacion(usuario_id=usuario.id, fecha_creacion=datetime.now(UTC))
+    sesion.add(conversacion)
+    sesion.commit()
+    return ConversacionEsquema(
+        id=str(conversacion.id),
+        titulo=conversacion.titulo,
+        fecha_creacion=conversacion.fecha_creacion,
+    )
+
+
+@app.get("/chat/conversaciones", response_model=list[ConversacionEsquema])
+def listar_conversaciones(
+    usuario: Annotated[Usuario, Depends(usuario_actual)],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> list[ConversacionEsquema]:
+    """HU-34: solo las conversaciones del usuario autenticado, nunca las de
+    otro (RNF-19)."""
+    conversaciones = (
+        sesion.query(Conversacion)
+        .filter(Conversacion.usuario_id == usuario.id)
+        .order_by(Conversacion.fecha_creacion.desc())
+        .all()
+    )
+    return [
+        ConversacionEsquema(id=str(c.id), titulo=c.titulo, fecha_creacion=c.fecha_creacion)
+        for c in conversaciones
+    ]
+
+
+@app.get("/chat/conversaciones/{conversacion_id}", response_model=RespuestaConversacionDetalle)
+def obtener_conversacion(
+    conversacion_id: str,
+    usuario: Annotated[Usuario, Depends(usuario_actual)],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> RespuestaConversacionDetalle:
+    conversacion = _conversacion_propia(sesion, usuario, conversacion_id)
+    mensajes = (
+        sesion.query(Mensaje)
+        .filter(Mensaje.conversacion_id == conversacion.id)
+        .order_by(Mensaje.fecha_hora)
+        .all()
+    )
+    return RespuestaConversacionDetalle(
+        id=str(conversacion.id),
+        titulo=conversacion.titulo,
+        fecha_creacion=conversacion.fecha_creacion,
+        mensajes=[_a_esquema_mensaje(m) for m in mensajes],
+    )
+
+
+@app.post("/chat/conversaciones/{conversacion_id}/mensajes", response_model=MensajeEsquema)
+async def enviar_mensaje_chat(
+    conversacion_id: str,
+    usuario: Annotated[Usuario, Depends(usuario_actual)],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+    cliente_qdrant: Annotated[QdrantClient, Depends(obtener_cliente_qdrant)],
+    funcion_embedding: Annotated[
+        Callable[[str], list[float]], Depends(obtener_funcion_embedding)
+    ],
+    coleccion: Annotated[str, Depends(obtener_coleccion_kb)],
+    funcion_ocr: Annotated[FuncionOcr, Depends(obtener_funcion_ocr)],
+    contenido: Annotated[str, Form()],
+    adjunto: Annotated[UploadFile | None, File()] = None,
+) -> MensajeEsquema:
+    """HU-31/HU-32: busca fragmentos vigentes, arma el prompt (pregunta +
+    historial + fragmentos + texto del adjunto si lo hay), genera la
+    respuesta y guarda ambos mensajes. El adjunto nunca se agrega a la Base
+    de Conocimiento permanente (RF-24, R-18)."""
+    conversacion = _conversacion_propia(sesion, usuario, conversacion_id)
+
+    texto_adjunto: str | None = None
+    if adjunto is not None:
+        contenido_adjunto = await adjunto.read()
+        if contenido_adjunto:
+            try:
+                texto_adjunto = extraer_texto_adjunto(
+                    contenido_adjunto,
+                    nombre_archivo=adjunto.filename or "",
+                    funcion_ocr=funcion_ocr,
+                )
+            except TipoArchivoNoSoportadoError as error:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
+                ) from error
+
+    mensajes_previos = (
+        sesion.query(Mensaje)
+        .filter(Mensaje.conversacion_id == conversacion.id)
+        .order_by(Mensaje.fecha_hora)
+        .all()
+    )
+    historial = [(m.rol, m.contenido) for m in mensajes_previos]
+
+    # P-13 (Bloque 1, RF-21): envuelve la función de embeddings inyectada
+    # (mismo patrón que aprobar_fuente_endpoint) para registrar el uso --
+    # sin analisis_id, el chat no corre dentro de un Analisis.
+    funcion_embedding_instrumentada = envolver_funcion_embedding_inyectada(
+        funcion_embedding,
+        sesion=sesion,
+        usuario_id=usuario.id,
+        area_id=usuario.area_id,
+        analisis_id=None,
+        caso_uso="chat_kb",
+    )
+    fragmentos = buscar_fragmentos(
+        cliente_qdrant,
+        coleccion=coleccion,
+        texto_consulta=contenido,
+        funcion_embedding=funcion_embedding_instrumentada,
+    )
+
+    mensajes_llm = construir_mensajes(
+        historial=historial,
+        pregunta=contenido,
+        fragmentos=fragmentos,
+        texto_adjunto=texto_adjunto,
+    )
+    # CU-02 (docs/04-pruebas/resultados/local-cu02-rendimiento.md): medido
+    # contra gpt-oss:20b real en hardware sin GPU, un prompt sin acotar
+    # (pensamiento normal, sin límite de salida) superó el timeout de 300s
+    # -- mismo ajuste que ya usa obtener_funcion_llm() para mejorar_redaccion.
+    respuesta_texto = generar_respuesta_chat_con_registro(
+        mensajes_llm,
+        sesion=sesion,
+        usuario_id=usuario.id,
+        area_id=usuario.area_id,
+        pensamiento="low",
+        num_ctx=4096,
+        num_predict=800,
+    )
+
+    ahora = datetime.now(UTC)
+    mensaje_usuario = Mensaje(
+        conversacion_id=conversacion.id, rol="user", contenido=contenido, fecha_hora=ahora
+    )
+    mensaje_asistente = Mensaje(
+        conversacion_id=conversacion.id,
+        rol="assistant",
+        contenido=respuesta_texto,
+        fecha_hora=datetime.now(UTC),
+        fuentes_citadas=fuentes_citadas(fragmentos),
+    )
+    sesion.add(mensaje_usuario)
+    sesion.add(mensaje_asistente)
+
+    if conversacion.titulo is None:
+        conversacion.titulo = _titulo_desde_pregunta(contenido)
+
+    sesion.commit()
+    return _a_esquema_mensaje(mensaje_asistente)

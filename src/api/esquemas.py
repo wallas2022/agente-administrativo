@@ -447,3 +447,34 @@ class RespuestaConfiguracion(BaseModel):
     variables: dict[str, str]
     app_version: str
     git_commit: str
+
+
+# --- Chat de la Base de Conocimiento (P-14, Bloque 2, CU-12) ----------------
+
+
+class ConversacionEsquema(BaseModel):
+    id: str
+    titulo: str | None = None
+    fecha_creacion: datetime
+
+
+class FuenteCitadaEsquema(BaseModel):
+    fuente_id: str
+    version: str
+    seccion: str | None = None
+    pagina: int | None = None
+
+
+class MensajeEsquema(BaseModel):
+    id: str
+    rol: str
+    contenido: str
+    fecha_hora: datetime
+    fuentes_citadas: list[FuenteCitadaEsquema] | None = None
+
+
+class RespuestaConversacionDetalle(BaseModel):
+    id: str
+    titulo: str | None = None
+    fecha_creacion: datetime
+    mensajes: list[MensajeEsquema]

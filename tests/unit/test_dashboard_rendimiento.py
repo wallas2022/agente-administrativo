@@ -40,7 +40,9 @@ def usuario_y_area(sesion: Session) -> tuple[Usuario, Area]:
     return usuario, area
 
 
-def _sembrar_filas_sinteticas(sesion: Session, *, usuario_id: uuid.UUID, area_id: uuid.UUID) -> None:
+def _sembrar_filas_sinteticas(
+    sesion: Session, *, usuario_id: uuid.UUID, area_id: uuid.UUID
+) -> None:
     """Inserción masiva vía Core (no ORM uno por uno) -- es preparación del
     escenario, no lo que miden las pruebas de este archivo."""
     ahora = datetime.now(UTC)

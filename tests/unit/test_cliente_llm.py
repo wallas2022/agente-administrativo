@@ -339,3 +339,28 @@ def test_generar_respuesta_chat_respeta_keep_alive_y_temperatura_fija(monkeypatc
     assert llamada["json"]["keep_alive"] == "10m"
     assert llamada["json"]["options"]["temperature"] == 0
     assert llamada["json"]["options"]["seed"] == cliente_llm.SEMILLA_POR_DEFECTO
+
+
+def test_generar_respuesta_chat_acepta_pensamiento_y_limites_de_contexto(monkeypatch) -> None:
+    """Medido en vivo contra gpt-oss:20b real (ver api/main.py,
+    enviar_mensaje_chat): sin acotar pensamiento/num_predict, un prompt de
+    chat superó el timeout de 300s -- mismo ajuste que ya usa CU-02."""
+    llamada: dict = {}
+
+    def _post_falso(url: str, *, json: dict, timeout: float):
+        llamada["json"] = json
+        return _respuesta_de_chat()
+
+    monkeypatch.setattr(httpx, "post", _post_falso)
+
+    cliente_llm.generar_respuesta_chat(
+        [{"role": "user", "content": "hola"}],
+        modelo="modelo-x",
+        pensamiento="low",
+        num_ctx=4096,
+        num_predict=800,
+    )
+
+    assert llamada["json"]["think"] == "low"
+    assert llamada["json"]["options"]["num_ctx"] == 4096
+    assert llamada["json"]["options"]["num_predict"] == 800
