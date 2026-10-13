@@ -17,3 +17,14 @@
 Métricas: pytest 715 pasan (cobertura 94 %), mypy sin errores, vitest 127 pasan, tsc sin errores, oxlint solo advertencias preexistentes.
 
 Nota: la respuesta incluye `detail` además de `detalle` para que la UI existente (que leía `detail`) siga funcionando.
+
+## Bloque 2 — Fragmentación
+
+| Ruta | Cambio | Pruebas |
+| --- | --- | --- |
+| `src/curaduria/extraccion.py` | Dentro de cada sección/página se divide por párrafos (luego oraciones y, en último caso, palabras) con tope `FRAGMENTO_MAX_TOKENS`=450 y solapamiento `FRAGMENTO_SOLAPE_TOKENS`=60, ambos configurables por variable de entorno. Un cambio de página en PDF abre un fragmento nuevo con su `pagina` y conserva la `seccion`. Se limpian líneas de índice con puntos guía, encabezados/pies repetidos (texto corto en 3 o más páginas, ignorando números) y caracteres de control. | ok |
+| `tests/unit/test_curaduria_fragmentacion.py` | 13 pruebas: tope, solapamiento, sin pérdida de contenido, párrafo gigante, palabra sin espacios, configuración por entorno, páginas, limpieza y PDF de 300 páginas. | ok |
+
+- `fuente_id` y `version` los agrega `indexar_fuente` al payload de cada fragmento; `seccion` y `pagina` se conservan desde la extracción. El contenido que va a embeddings es exactamente `fragmento.contenido`, ya acotado.
+- Los tokens se estiman a ~3 caracteres por token, sin tokenizador (conservador, sobrestima el español con bge-m3). [POR CONFIRMAR] contra el tokenizador real de bge-m3 en stage.
+- Métricas: pytest 728 pasan (cobertura 94 %), mypy sin errores.
