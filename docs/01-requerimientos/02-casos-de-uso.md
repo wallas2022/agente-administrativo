@@ -1,7 +1,7 @@
 # Casos de uso — Agente Administrativo
 
-**Versión:** 0.7
-**Fecha:** 2026-09-30
+**Versión:** 0.8
+**Fecha:** 2026-10-13
 **Relacionado con:** RG-01 a RG-08 (ver 01-requerimiento-formal.md §8 y §12)
 
 Actores: **Analista** (carga documentos y ejecuta el análisis), **Revisor/Aprobador** (acepta o rechaza hallazgos y libera documentos), **Curador de conocimiento** (gobierna la base de conocimiento), **Administrador** (usuarios, roles, infraestructura), **Auditor** (consulta de solo lectura).
@@ -200,3 +200,25 @@ Actores: **Analista** (carga documentos y ejecuta el análisis), **Revisor/Aprob
 3. El Auditor no puede modificar ningún registro (solo lectura).
 
 **Postcondición:** Consulta de auditoría entregada sin alteración del historial.
+
+---
+
+## CU-12 — Consultar la base de conocimiento por chat
+
+**Entrega:** 2 (transversal, P-14, en análisis). **Actor principal:** Cualquier usuario autenticado.
+**RF relacionados:** RF-23, RF-24.
+
+**Precondición:** La Base de Conocimiento tiene al menos una fuente vigente indexada (CU-08).
+
+**Flujo principal:**
+1. El usuario escribe una pregunta en lenguaje natural en el chat (RF-23).
+2. El sistema busca fragmentos vigentes relevantes en la Base de Conocimiento (mismo RAG que CU-01 a CU-05) y responde citando fuente, versión y sección/página.
+3. El usuario puede seguir preguntando en la misma conversación; el sistema usa el historial como contexto.
+4. El usuario puede adjuntar una imagen o un documento a una pregunta puntual (RF-24); el sistema extrae su texto (OCR o parser según el tipo) y lo usa solo para esa respuesta.
+
+**Flujos alternos:**
+- 2a. Ningún fragmento vigente supera el umbral de similitud: el sistema responde que no tiene información sobre eso en la base de conocimiento, sin inventar (RNF-03).
+
+**Postcondición:** Respuesta entregada con sus citas (si las hay); el adjunto, si lo hubo, no queda agregado a la Base de Conocimiento permanente -- eso sigue siendo exclusivo de CU-08.
+
+[POR CONFIRMAR] Este caso de uso está en análisis (ver docs/02-analisis/07-analisis-chat-base-conocimiento.md); CU-11 ("estructura de hojas de cálculo") sigue reservado y sin aprobar para otra iniciativa -- no se reutiliza ese número.

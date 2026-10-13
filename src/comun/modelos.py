@@ -9,6 +9,7 @@ import uuid
 from datetime import date, datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     Date,
     DateTime,
@@ -431,3 +432,43 @@ class UsoLlm(Base):
     # "ok" | "timeout" | "error" -- una llamada que falla también se
     # registra (RF-21), sin tokens/duraciones (se desconocen).
     resultado: Mapped[str] = mapped_column(String(20), nullable=False)
+
+
+class Conversacion(Base):
+    """P-14 (Bloque 1, RF-23, CU-12): una conversación del chat de la Base
+    de Conocimiento -- agrupa los `Mensaje` de un usuario. Cada usuario solo
+    ve las suyas (RNF-19), igual que `historial:propio`."""
+
+    __tablename__ = "conversacion"
+    __table_args__ = (Index("ix_conversacion_usuario_id", "usuario_id"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    usuario_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("usuario.id"), nullable=False)
+    titulo: Mapped[str | None] = mapped_column(String(200))
+    fecha_creacion: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    mensajes: Mapped[list["Mensaje"]] = relationship(back_populates="conversacion")
+
+
+class Mensaje(Base):
+    """P-14 (Bloque 1, RF-23/RF-24): un mensaje de usuario o de asistente
+    dentro de una `Conversacion`. `fuentes_citadas` guarda qué fragmentos de
+    la Base de Conocimiento (fuente_id/versión/sección/página) respaldan una
+    respuesta del asistente -- nulo en los mensajes de usuario y en las
+    respuestas sin fragmentos relevantes (criterio de "no inventar", R-17)."""
+
+    __tablename__ = "mensaje"
+    __table_args__ = (Index("ix_mensaje_conversacion_id", "conversacion_id"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    conversacion_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversacion.id"), nullable=False
+    )
+    # "user" | "assistant" -- mismo vocabulario que el campo "role" de
+    # Ollama (ver rag/cliente_llm.py), no se traduce.
+    rol: Mapped[str] = mapped_column(String(20), nullable=False)
+    contenido: Mapped[str] = mapped_column(Text, nullable=False)
+    fecha_hora: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    fuentes_citadas: Mapped[list[dict] | None] = mapped_column(JSON)
+
+    conversacion: Mapped["Conversacion"] = relationship(back_populates="mensajes")

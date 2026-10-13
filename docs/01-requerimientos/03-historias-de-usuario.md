@@ -1,8 +1,8 @@
 # Historias de usuario — Agente Administrativo
 
-**Versión:** 0.9
-**Fecha:** 2026-10-12
-**Relacionado con:** docs/01-requerimientos/02-casos-de-uso.md, docs/01-requerimientos/01-requerimiento-formal.md, docs/04-pruebas/plan-pruebas-prototipo.md, docs/05-prompts/P-12-usuarios-roles-menu-historial.md, docs/05-prompts/P-13-dashboard-administrador-consumo.md
+**Versión:** 0.10
+**Fecha:** 2026-10-13
+**Relacionado con:** docs/01-requerimientos/02-casos-de-uso.md, docs/01-requerimientos/01-requerimiento-formal.md, docs/04-pruebas/plan-pruebas-prototipo.md, docs/05-prompts/P-12-usuarios-roles-menu-historial.md, docs/05-prompts/P-13-dashboard-administrador-consumo.md, docs/05-prompts/P-14-chat-base-conocimiento.md
 
 Formato: Como / quiero / para, con criterios de aceptación en Gherkin (Dado/Cuando/Entonces). La numeración HU-01 a HU-14 se fijó para que coincida con las referencias del plan de pruebas ([docs/04-pruebas/plan-pruebas-prototipo.md](../04-pruebas/plan-pruebas-prototipo.md) §2).
 
@@ -565,4 +565,88 @@ Característica: Configuración vigente (solo lectura)
   Escenario: Ningún secreto visible
     Dado que estoy viendo la configuración
     Entonces ninguna variable con contraseña, llave o token aparece, ni siquiera parcialmente
+```
+
+## HU-31 — Preguntar en lenguaje natural sobre la base de conocimiento
+
+**RF:** RF-23 · **Entrega:** 2 (P-14, en análisis)
+
+Como **cualquier usuario autenticado**, quiero escribirle una pregunta al agente en lenguaje natural y recibir una respuesta basada en la base de conocimiento vigente, con su fuente citada, para no tener que buscar manualmente en los documentos.
+
+```gherkin
+Característica: Chat sobre la base de conocimiento
+
+  Escenario: Pregunta con respuesta en la base de conocimiento
+    Dado que escribo una pregunta en el chat
+    Cuando el agente encuentra fragmentos vigentes relevantes
+    Entonces responde citando la fuente, versión y sección/página, igual que un hallazgo de CU-01/CU-02/CU-05
+
+  Escenario: Pregunta sin respuesta en la base de conocimiento
+    Dado que escribo una pregunta sobre un tema que no está en ningún fragmento vigente
+    Entonces el agente responde que no tiene información sobre eso en la base de conocimiento, sin inventar una respuesta
+
+  Escenario: Pregunta de seguimiento
+    Dado que ya hice una pregunta y recibí respuesta
+    Cuando hago una pregunta de seguimiento relacionada
+    Entonces el agente usa el contexto de la conversación para entenderla
+```
+
+## HU-32 — Adjuntar una imagen o documento a mi pregunta
+
+**RF:** RF-24 · **Entrega:** 2 (P-14, en análisis)
+
+Como **usuario del chat**, quiero adjuntar una imagen o un documento (Word, PDF, Excel) a mi pregunta, para que el agente considere su contenido al responder sin tener que pasarlo por el flujo formal de la base de conocimiento.
+
+```gherkin
+Característica: Adjuntar un archivo a una pregunta del chat
+
+  Escenario: Adjuntar una imagen
+    Dado que adjunto una imagen a mi pregunta
+    Entonces el agente extrae su texto (mismo motor de CU-06) y lo usa para responder esa pregunta
+
+  Escenario: Adjuntar un documento
+    Dado que adjunto un Word, PDF o Excel a mi pregunta
+    Entonces el agente extrae su texto y lo usa para responder esa pregunta
+
+  Escenario: El adjunto no se vuelve parte de la base de conocimiento
+    Dado que adjunté un archivo en una conversación
+    Cuando reviso la Base de Conocimiento (CU-08) después
+    Entonces ese archivo no aparece ahí -- sigue siendo efímero, solo de esa conversación
+```
+
+## HU-33 — Usar el chat como pantalla de inicio
+
+**RF:** RF-23 · **Entrega:** 2 (P-14, en análisis)
+
+Como **cualquier usuario**, quiero que el chat sea lo primero que veo al iniciar sesión, para empezar a consultar de inmediato sin tener que navegar a otra pantalla.
+
+```gherkin
+Característica: Chat como pantalla de inicio
+
+  Escenario: Pantalla de inicio
+    Dado que inicio sesión con cualquier rol
+    Entonces llego al chat
+
+  Escenario: Nuevo análisis sigue disponible
+    Dado que tengo el permiso analisis:crear
+    Entonces veo "Nuevo análisis" en el menú, en una pantalla propia distinta del chat
+```
+
+## HU-34 — Ver mi historial de conversaciones
+
+**RF:** RF-23 · **Entrega:** 2 (P-14, en análisis)
+
+Como **usuario del chat**, quiero ver mis conversaciones anteriores, para retomarlas sin perder el contexto ni repetir preguntas ya respondidas.
+
+```gherkin
+Característica: Historial de conversaciones
+
+  Escenario: Ver mis conversaciones
+    Dado que ya tuve conversaciones anteriores con el chat
+    Cuando abro el chat
+    Entonces veo la lista de mis conversaciones, no las de otro usuario
+
+  Escenario: Retomar una conversación
+    Dado que elijo una conversación anterior de la lista
+    Entonces veo sus mensajes y puedo seguir preguntando con ese contexto
 ```

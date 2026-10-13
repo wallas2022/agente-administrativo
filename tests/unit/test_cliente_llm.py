@@ -265,3 +265,77 @@ def test_generar_texto_sigue_devolviendo_solo_el_texto(monkeypatch) -> None:
 def test_ns_a_ms_convierte_nanosegundos_a_milisegundos() -> None:
     assert cliente_llm.ns_a_ms(5_000_000_000) == 5000
     assert cliente_llm.ns_a_ms(None) is None
+
+
+# --- generar_respuesta_chat (P-14, Bloque 1, RF-23) ------------------------
+
+
+def test_generar_respuesta_chat_manda_el_historial_completo(monkeypatch) -> None:
+    llamada: dict = {}
+    historial = [
+        {"role": "system", "content": "Responde solo con la base de conocimiento."},
+        {"role": "user", "content": "¿Qué dice la política de viáticos?"},
+        {"role": "assistant", "content": "Según POL-001 §3, el límite diario es Q300."},
+        {"role": "user", "content": "¿Y para viajes internacionales?"},
+    ]
+
+    def _post_falso(url: str, *, json: dict, timeout: float):
+        llamada["url"] = url
+        llamada["json"] = json
+        return _respuesta_de_chat("Para viajes internacionales, ver POL-001 §4.")
+
+    monkeypatch.setattr(httpx, "post", _post_falso)
+
+    resultado = cliente_llm.generar_respuesta_chat(historial, modelo="modelo-x")
+
+    assert llamada["url"].endswith("/api/chat")
+    assert llamada["json"]["messages"] == historial
+    assert resultado.texto == "Para viajes internacionales, ver POL-001 §4."
+
+
+def test_generar_respuesta_chat_expone_metricas_igual_que_generar_texto_con_metricas(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        httpx, "post", lambda url, *, json, timeout: _respuesta_de_chat_con_metricas()
+    )
+
+    resultado = cliente_llm.generar_respuesta_chat(
+        [{"role": "user", "content": "hola"}], modelo="modelo-x"
+    )
+
+    assert resultado.metricas.modelo == "modelo-x"
+    assert resultado.metricas.tokens_entrada == 120
+    assert resultado.metricas.tokens_salida == 45
+
+
+def test_generar_respuesta_chat_no_manda_formato_ni_pensamiento(monkeypatch) -> None:
+    llamada: dict = {}
+
+    def _post_falso(url: str, *, json: dict, timeout: float):
+        llamada["json"] = json
+        return _respuesta_de_chat()
+
+    monkeypatch.setattr(httpx, "post", _post_falso)
+
+    cliente_llm.generar_respuesta_chat([{"role": "user", "content": "hola"}], modelo="modelo-x")
+
+    assert "format" not in llamada["json"]
+    assert "think" not in llamada["json"]
+
+
+def test_generar_respuesta_chat_respeta_keep_alive_y_temperatura_fija(monkeypatch) -> None:
+    llamada: dict = {}
+
+    def _post_falso(url: str, *, json: dict, timeout: float):
+        llamada["json"] = json
+        return _respuesta_de_chat()
+
+    monkeypatch.setenv("OLLAMA_KEEP_ALIVE", "10m")
+    monkeypatch.setattr(httpx, "post", _post_falso)
+
+    cliente_llm.generar_respuesta_chat([{"role": "user", "content": "hola"}], modelo="modelo-x")
+
+    assert llamada["json"]["keep_alive"] == "10m"
+    assert llamada["json"]["options"]["temperature"] == 0
+    assert llamada["json"]["options"]["seed"] == cliente_llm.SEMILLA_POR_DEFECTO

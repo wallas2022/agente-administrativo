@@ -1,10 +1,10 @@
 # Registro de riesgos — Agente Administrativo
 
-**Versión:** 0.8
-**Fecha:** 2026-10-12
-**Relacionado con:** [docs/01-requerimientos/01-requerimiento-formal.md](../01-requerimientos/01-requerimiento-formal.md) §15, [docs/02-analisis/02-reglas-de-negocio.md](02-reglas-de-negocio.md), docs/05-prompts/P-13-dashboard-administrador-consumo.md, ADR-009
+**Versión:** 0.9
+**Fecha:** 2026-10-13
+**Relacionado con:** [docs/01-requerimientos/01-requerimiento-formal.md](../01-requerimientos/01-requerimiento-formal.md) §15, [docs/02-analisis/02-reglas-de-negocio.md](02-reglas-de-negocio.md), docs/05-prompts/P-13-dashboard-administrador-consumo.md, ADR-009, docs/02-analisis/07-analisis-chat-base-conocimiento.md
 
-Registro completo de riesgos (R-01 a R-16), fuente: requerimiento formal v0.10. El resumen embebido en el SRS ([01-requerimiento-formal.md](../01-requerimientos/01-requerimiento-formal.md) §15) enlaza aquí para el detalle y seguimiento.
+Registro completo de riesgos (R-01 a R-19), fuente: requerimiento formal v0.11. El resumen embebido en el SRS ([01-requerimiento-formal.md](../01-requerimientos/01-requerimiento-formal.md) §15) enlaza aquí para el detalle y seguimiento.
 
 | ID | Riesgo | Probabilidad | Impacto | Mitigación | Responsable | Estado |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -24,17 +24,21 @@ Registro completo de riesgos (R-01 a R-16), fuente: requerimiento formal v0.10. 
 | R-14 | El registro de uso del LLM (`uso_llm`) frena o rompe un análisis (P-13) | Baja | Alto | Inserción fuera de la ruta crítica, con manejo de errores que nunca propaga a quien llama (RNF-15) | Líder técnico | Abierto |
 | R-15 | Cifras de tokens de embeddings no disponibles según la versión de Ollama (P-13) | Media | Bajo | Registrar `NULL`/"no informado" en vez de estimar | Líder técnico | Abierto |
 | R-16 | Más carga en la VM de stage por el scraping de métricas de `node-exporter`/`cAdvisor` (P-13) | Baja | Bajo | Intervalo de scraping 30 s, retención de Prometheus 15 días | TI | Abierto |
+| R-17 | El chat de la base de conocimiento responde sin fundamento cuando no hay fragmentos relevantes recuperados (P-14) | Media | Alto | Mismo criterio de "no inventar" ya usado en CU-01/CU-02/CU-05 (RNF-03): responder explícitamente que no hay información en la base de conocimiento si ningún fragmento supera el umbral de similitud | Líder técnico | Abierto |
+| R-18 | Un archivo adjunto efímero del chat (imagen/documento) se mezcla por error con la base de conocimiento permanente (P-14) | Baja | Alto | El texto extraído del adjunto nunca se indexa en Qdrant; solo vive en el contexto de esa conversación puntual | Líder técnico | Abierto |
+| R-19 | El historial de conversaciones del chat crece sin control o expone información entre usuarios (P-14) | Media | Medio | Cada usuario solo ve su propio historial (igual que `historial:propio`); misma política de retención que el resto de datos del sistema | Líder técnico | Abierto |
 
 ## Riesgos por categoría
 
 | Categoría | Riesgos |
 | --- | --- |
-| Calidad del modelo / resultados | R-01, R-05, R-06, R-15 |
+| Calidad del modelo / resultados | R-01, R-05, R-06, R-15, R-17 |
 | Infraestructura / rendimiento | R-02, R-07, R-10, R-13, R-16 |
-| Gobierno de datos | R-03, R-08 |
-| Seguridad | R-04, R-11, R-12 |
+| Gobierno de datos | R-03, R-08, R-18 |
+| Seguridad | R-04, R-11, R-12, R-19 |
 | Adopción / negocio | R-09 |
 | Observabilidad / dashboard (P-13) | R-12, R-13, R-14, R-15, R-16 |
+| Chat de la base de conocimiento (P-14) | R-17, R-18, R-19 |
 
 ## Supuestos
 
@@ -43,3 +47,4 @@ Registro completo de riesgos (R-01 a R-16), fuente: requerimiento formal v0.10. 
 3. Revisión de este registro sugerida junto con cada actualización del SRS o al cierre de cada fase del piloto (ver §16 del SRS).
 4. R-11 (2026-09-30, SRS v0.9): decisión del responsable del proyecto de volver configurable la segregación de funciones (antes bloqueada sin excepción, RN-07) -- no existía como riesgo en versiones anteriores del registro porque la autoaprobación estaba prohibida por diseño.
 5. R-12 a R-16 (2026-10-12, P-13): agregados al iniciar el Dashboard del Administrador -- ver [docs/02-analisis/06-analisis-dashboard-administrador.md](06-analisis-dashboard-administrador.md) y [ADR-009](../03-diseno/adr/ADR-009-observabilidad-dashboard-administrador.md).
+6. R-17 a R-19 (2026-10-13, P-14): agregados al iniciar el chat de la base de conocimiento -- ver [docs/02-analisis/07-analisis-chat-base-conocimiento.md](07-analisis-chat-base-conocimiento.md).

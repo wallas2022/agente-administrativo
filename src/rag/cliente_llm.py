@@ -34,6 +34,14 @@ respuesta de `/api/chat` -- `generar_texto_con_metricas` las expone para que
 `comun.uso_llm` las registre; `generar_texto` (el contrato que ya usa todo
 el proyecto, `Callable[[str], str]`) sigue devolviendo solo el texto, sin
 romper a ningún llamador existente.
+
+P-14 (Bloque 1, RF-23): `generar_texto_con_metricas` siempre envolvía el
+`prompt` en un único mensaje `role: user` -- el chat de la Base de
+Conocimiento necesita mandar el historial completo de la conversación
+(varios mensajes `user`/`assistant`). `_generar_con_mensajes` concentra el
+transporte HTTP y el armado de métricas; `generar_texto_con_metricas` y la
+nueva `generar_respuesta_chat` son wrappers delgados sobre ella, sin romper
+la firma de ninguna función ya existente.
 """
 
 import os
@@ -94,8 +102,8 @@ def ns_a_ms(valor: object) -> int | None:
     return int(valor) // 1_000_000 if isinstance(valor, int | float) else None
 
 
-def generar_texto_con_metricas(
-    prompt: str,
+def _generar_con_mensajes(
+    mensajes: list[dict[str, str]],
     *,
     modelo: str | None = None,
     timeout: float = 300.0,
@@ -104,9 +112,6 @@ def generar_texto_con_metricas(
     num_ctx: int | None = None,
     num_predict: int | None = None,
 ) -> RespuestaTexto:
-    """Mismo comportamiento que `generar_texto` (ver sus parámetros), pero
-    devuelve también `MetricasOllama` -- usada por `comun.uso_llm` para
-    registrar el uso sin tener que repetir la llamada HTTP."""
     base_url = os.environ.get("LLM_BASE_URL", "http://ollama:11434")
     modelo_principal = modelo if modelo is not None else os.environ.get("LLM_MODEL_PRINCIPAL", "")
     keep_alive = os.environ.get("OLLAMA_KEEP_ALIVE", "24h")
@@ -121,7 +126,7 @@ def generar_texto_con_metricas(
 
     cuerpo: dict[str, object] = {
         "model": modelo_principal,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": mensajes,
         "stream": False,
         "keep_alive": keep_alive,
         "options": opciones,
@@ -143,6 +148,50 @@ def generar_texto_con_metricas(
         duracion_generacion_ms=ns_a_ms(cuerpo_respuesta.get("eval_duration")),
     )
     return RespuestaTexto(texto=cuerpo_respuesta["message"]["content"], metricas=metricas)
+
+
+def generar_texto_con_metricas(
+    prompt: str,
+    *,
+    modelo: str | None = None,
+    timeout: float = 300.0,
+    formato: str | dict | None = None,
+    pensamiento: str | None = None,
+    num_ctx: int | None = None,
+    num_predict: int | None = None,
+) -> RespuestaTexto:
+    """Mismo comportamiento que `generar_texto` (ver sus parámetros), pero
+    devuelve también `MetricasOllama` -- usada por `comun.uso_llm` para
+    registrar el uso sin tener que repetir la llamada HTTP."""
+    return _generar_con_mensajes(
+        [{"role": "user", "content": prompt}],
+        modelo=modelo,
+        timeout=timeout,
+        formato=formato,
+        pensamiento=pensamiento,
+        num_ctx=num_ctx,
+        num_predict=num_predict,
+    )
+
+
+def generar_respuesta_chat(
+    mensajes: list[dict[str, str]],
+    *,
+    modelo: str | None = None,
+    timeout: float = 300.0,
+    num_ctx: int | None = None,
+    num_predict: int | None = None,
+) -> RespuestaTexto:
+    """P-14 (Bloque 1, RF-23): igual que `generar_texto_con_metricas`, pero
+    acepta el historial completo de la conversación (mensajes con rol
+    `system`/`user`/`assistant`) en vez de un único prompt -- para el chat
+    de la Base de Conocimiento (CU-12), que es multi-turno. Mismo transporte
+    (`/api/chat`) y el mismo registro de métricas que el resto del proyecto.
+    Sin `formato`/`pensamiento`: el chat siempre responde texto libre, no
+    JSON estructurado."""
+    return _generar_con_mensajes(
+        mensajes, modelo=modelo, timeout=timeout, num_ctx=num_ctx, num_predict=num_predict
+    )
 
 
 def generar_texto(

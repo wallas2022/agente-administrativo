@@ -1,7 +1,7 @@
 # Requerimiento formal (SRS) — Agente Administrativo
 
-**Versión:** 0.10 (borrador para validación)
-**Fecha:** 2026-10-12
+**Versión:** 0.11 (borrador para validación)
+**Fecha:** 2026-10-13
 **Relacionado con:** docs/00-rol-y-lineamientos.md
 
 | Campo | Valor |
@@ -147,6 +147,8 @@ Prioridad MoSCoW: M = debe, S = debería, C = podría.
 | RF-20 | Enviar un análisis a un revisor y notificarlo | C |
 | RF-21 | Registrar el uso de cada llamada al LLM y a embeddings (tokens, duración, modelo, usuario, caso de uso, resultado) (P-13, 2026-10-12) | S |
 | RF-22 | Dashboard de consumo y recursos para el Administrador, tras el permiso `dashboard:ver` (P-13, 2026-10-12) | S |
+| RF-23 | Permitir consultas conversacionales en lenguaje natural sobre la Base de Conocimiento vigente, citando la fuente (P-14, 2026-10-13, en análisis) | S |
+| RF-24 | Permitir adjuntar una imagen o documento a una consulta del chat para que el agente considere su contenido en esa conversación, sin agregarlo a la Base de Conocimiento permanente (P-14, 2026-10-13, en análisis) | C |
 
 ## 11. Requerimientos no funcionales
 | ID | Categoría | Requerimiento |
@@ -169,6 +171,7 @@ Prioridad MoSCoW: M = debe, S = debería, C = podría.
 | RNF-16 | Rendimiento del dashboard | El Dashboard del Administrador carga en ≤ 2 s con 100,000 registros de uso (P-13, 2026-10-12) |
 | RNF-17 | Seguridad de la configuración visible | Ninguna variable con `PASSWORD`, `SECRET`, `KEY`, `TOKEN` o credenciales aparece en la vista de configuración del dashboard; lista blanca, no lista negra (P-13, 2026-10-12) |
 | RNF-18 | Aislamiento de los exportadores de métricas | `node-exporter`/`cAdvisor` sin acceso de escritura al host, solo red interna, sin internet en ejecución (P-13, 2026-10-12) |
+| RNF-19 | Aislamiento del chat de la base de conocimiento | El chat (RF-23/RF-24) no origina ninguna llamada externa ni a internet (reafirma RNF-01); cada usuario solo ve su propio historial de conversaciones (P-14, 2026-10-13, en análisis) |
 
 ## 12. Casos de uso (resumen)
 Detalle en [docs/01-requerimientos/02-casos-de-uso.md](02-casos-de-uso.md). **Entrega 1: CU-01, CU-02, CU-05.**
@@ -185,6 +188,7 @@ Detalle en [docs/01-requerimientos/02-casos-de-uso.md](02-casos-de-uso.md). **En
 | CU-08 | Gestionar base de conocimiento | Curador | RF-16, 17 | 1 (transversal) |
 | CU-09 | Administrar usuarios y roles | Administrador | RF-01, 02 | 1 (transversal) |
 | CU-10 | Consultar auditoría | Auditor | RF-18, 19 | 1 (transversal) |
+| CU-12 | Consultar la base de conocimiento por chat (P-14, 2026-10-13, en análisis) | Cualquier usuario autenticado | RF-23, 24 | 2 (transversal) |
 
 ```mermaid
 flowchart LR
@@ -223,6 +227,9 @@ Detalle y seguimiento en [docs/02-analisis/03-riesgos.md](../02-analisis/03-ries
 | R-14 | El registro de uso del LLM frena o rompe un análisis (P-13) | Baja | Alto | Inserción fuera de la ruta crítica, con manejo de errores que nunca propaga (RNF-15) | Líder técnico |
 | R-15 | Cifras de tokens de embeddings no disponibles según la versión de Ollama (P-13) | Media | Bajo | Registrar `NULL`/"no informado" en vez de estimar | Líder técnico |
 | R-16 | Más carga en la VM de stage por el scraping de métricas (P-13) | Baja | Bajo | Intervalo de 30 s, retención de Prometheus 15 días | TI |
+| R-17 | El chat responde sin fundamento cuando no hay fragmentos relevantes en la base de conocimiento (P-14) | Media | Alto | Mismo criterio de "no inventar" ya usado en CU-01/02/05 (RNF-03): responder explícitamente que no hay información si ningún fragmento supera el umbral de similitud | Líder técnico |
+| R-18 | Un archivo adjunto efímero del chat (imagen/documento) se mezcla por error con la base de conocimiento permanente (P-14) | Baja | Alto | Nunca se indexa en Qdrant; su texto solo vive en el contexto de esa conversación | Líder técnico |
+| R-19 | El historial de conversaciones del chat crece sin control o expone información entre usuarios (P-14) | Media | Medio | Cada usuario solo ve su propio historial; misma política de retención que el resto de datos del sistema | Líder técnico |
 
 ## 16. Plan del piloto
 ```mermaid
