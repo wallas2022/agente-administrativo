@@ -263,9 +263,16 @@ class FuenteConocimiento(Base):
     prioridad: Mapped[int] = mapped_column(nullable=False)
     version: Mapped[str] = mapped_column(String(50), nullable=False)
     vigente_desde: Mapped[date] = mapped_column(Date, nullable=False)
-    # borrador | vigente | obsoleta (RF-16): toda fuente nueva entra como
+    # borrador | indexando | error_indexacion | vigente | obsoleta (RF-16): toda
+    # fuente nueva entra como
     # "borrador" -- pasa a "vigente" solo cuando el Curador la aprueba.
+    # P-15 (ADR-010): aprobar encola la indexación -> "indexando"; al terminar
+    # pasa a "vigente", o a "error_indexacion" con `motivo_error` (se puede reintentar).
     estado: Mapped[str] = mapped_column(String(20), nullable=False, default="borrador")
+    # Progreso de la indexación ("fragmento N de M"); nulos fuera de ella.
+    fragmentos_total: Mapped[int | None] = mapped_column()
+    fragmentos_procesados: Mapped[int | None] = mapped_column()
+    motivo_error: Mapped[str | None] = mapped_column(String(500))
     area_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("area.id"), nullable=False)
     # Dueño de negocio del contenido (p. ej. "Jefatura de Contabilidad") --
     # texto libre, distinto de `cargado_por`/`aprobado_por` (usuarios reales

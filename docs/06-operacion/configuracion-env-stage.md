@@ -64,6 +64,7 @@ Cada contraseña es distinta (el script genera una por marcador). Guardar copia 
 | 4 | `red_interna` es `internal: true` | El contenedor `ollama` no tiene internet: `ollama pull` falla | Descargar modelos con un contenedor temporal (guía de modelos §5) |
 | 5 | LocalStack como almacenamiento de stage | **Confirmado: perdió objetos al reiniciar** pese a `PERSISTENCE=1` | Resuelto con Garage (ADR-006 v2): persistencia tras reinicio y multiparte de 1 GB probadas |
 | 6 | Permisos de `/srv/agente` | Prometheus (uid 65534) y Grafana (uid 472) no pueden escribir y el contenedor se reinicia | `sudo chown -R 65534:65534 /srv/agente/prometheus` y `sudo chown -R 472:472 /srv/agente/grafana` |
+| 7 | Indexación de fuentes (P-15, ADR-010): aprobar encola la tarea en la cola `indexacion` | Sin un consumidor, la fuente se queda en "indexando" | Servicio `worker_indexacion` (concurrencia 1, misma imagen que `worker`); reconstruir la imagen (ahora incluye `curaduria`) y aplicar la migración `d41a9b7c5e20` con `alembic upgrade head` |
 
 ### Garage (almacenamiento de objetos en stage)
 

@@ -119,5 +119,15 @@ def descargar_objeto(cliente: BaseClient, bucket: str, llave: str) -> bytes:
     return respuesta["Body"].read()
 
 
+def existe_objeto(cliente: BaseClient, bucket: str, llave: str) -> bool:
+    try:
+        cliente.head_object(Bucket=bucket, Key=llave)
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") in ("NoSuchKey", "404", "NotFound"):
+            return False
+        raise
+    return True
+
+
 def subir_objeto(cliente: BaseClient, bucket: str, llave: str, contenido: bytes) -> None:
     cliente.put_object(Bucket=bucket, Key=llave, Body=contenido)

@@ -6,7 +6,7 @@
 
 ## Estado
 
-Propuesta.
+Aceptada (implementación: bloques 1 a 3 de P-15; bloque 4 pendiente).
 
 ## Contexto
 
@@ -32,6 +32,9 @@ stateDiagram-v2
 ```
 
    El progreso "fragmento N de M" se guarda en la fuente y es consultable; cada transición se registra en la bitácora.
+
+5. **Cola y worker dedicados:** la tarea `orquestador.tareas.indexar_fuente_conocimiento` va a la cola `indexacion`, que consume el servicio `worker_indexacion` (concurrencia 1). Así una indexación larga no ocupa los workers de CU-01, CU-02 y CU-05.
+6. **Orden de la transición:** los puntos se indexan en Qdrant con `estado="indexando"`; al terminar, en una sola transacción de Postgres la versión anterior pasa a obsoleta y la nueva a vigente, y se actualizan los payloads (primero lo nuevo, después lo viejo). Mientras indexa, la versión anterior sigue vigente y buscable. Reintentar borra los fragmentos y puntos del intento previo (idempotente).
 
 ## Alternativas consideradas
 

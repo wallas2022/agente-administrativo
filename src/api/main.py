@@ -148,12 +148,12 @@ from comun.uso_llm import (
     envolver_funcion_llm_inyectada,
     generar_respuesta_chat_con_registro,
 )
+from curaduria.aprobacion import ESTADOS_INICIABLES, iniciar_indexacion
 from curaduria.extraccion import PdfSinTextoError, extraer_fragmentos
-from curaduria.fuentes import aprobar_fuente, clasificar_tipo_fuente, prioridad_de_tipo
+from curaduria.fuentes import clasificar_tipo_fuente, prioridad_de_tipo
 from curaduria.indexacion import (
     COLECCION_KB,
     desactivar_fragmentos_de_fuente,
-    indexar_fuente,
 )
 from curaduria.plantilla import ResultadoImportacion, cargar_plantilla, leer_plantilla
 from ocr.exportar_docx import construir_docx_resaltado
@@ -161,7 +161,7 @@ from ocr.motor import FuncionOcr, ocr_imagen_tesseract
 from ortografia.cliente_languagetool import CoincidenciaLT, revisar_texto
 from ortografia.generar_corregido import generar_documento_corregido
 from rag.busqueda import buscar_fragmentos
-from rag.cliente_embeddings import DIMENSION_BGE_M3, obtener_embedding
+from rag.cliente_embeddings import obtener_embedding
 from rag.cliente_llm import generar_texto
 from validadores.redaccion.extraccion import extraer_parrafos
 from validadores.redaccion.mejora import (
@@ -296,6 +296,13 @@ def obtener_cliente_qdrant() -> QdrantClient:  # pragma: no cover - override en 
     host = os.environ.get("QDRANT_HOST", "qdrant")
     puerto = os.environ.get("QDRANT_PORT", "6333")
     return QdrantClient(url=f"http://{host}:{puerto}")
+
+
+def obtener_encolador_indexacion() -> Callable[[str, str], str]:  # pragma: no cover
+    """P-15: override en pruebas (ejecutan la indexación en el mismo proceso)."""
+    from comun.cola import encolar_indexacion_fuente
+
+    return encolar_indexacion_fuente
 
 
 def obtener_funcion_embedding() -> Callable[[str], list[float]]:  # pragma: no cover
@@ -2309,6 +2316,9 @@ def _a_esquema_fuente(f: FuenteConocimiento) -> FuenteCuraduriaEsquema:
         aprobado_por=str(f.aprobado_por) if f.aprobado_por else None,
         fecha_carga=f.fecha_carga,
         fecha_aprobacion=f.fecha_aprobacion,
+        fragmentos_total=f.fragmentos_total,
+        fragmentos_procesados=f.fragmentos_procesados,
+        motivo_error=f.motivo_error,
     )
 
 
@@ -2446,29 +2456,31 @@ def vista_previa_fuente(
     )
 
 
-@app.post("/curaduria/fuentes/{fuente_id}/aprobar", response_model=RespuestaAprobarFuente)
+@app.post(
+    "/curaduria/fuentes/{fuente_id}/aprobar",
+    response_model=RespuestaAprobarFuente,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def aprobar_fuente_endpoint(
     fuente_id: str,
     usuario: Annotated[Usuario, Depends(requiere_permiso("conocimiento:aprobar"))],
     sesion: Annotated[Session, Depends(obtener_sesion)],
     cliente_s3: Annotated[object, Depends(obtener_cliente_almacenamiento)],
-    cliente_qdrant: Annotated[QdrantClient, Depends(obtener_cliente_qdrant)],
-    funcion_embedding: Annotated[
-        Callable[[str], list[float]], Depends(obtener_funcion_embedding)
-    ],
-    coleccion: Annotated[str, Depends(obtener_coleccion_kb)],
+    encolar: Annotated[Callable[[str, str], str], Depends(obtener_encolador_indexacion)],
 ) -> RespuestaAprobarFuente:
-    """Aprueba la fuente como vigente (curaduria.fuentes.aprobar_fuente --
-    obsoletea automáticamente cualquier versión vigente anterior del mismo
-    fuente_id) y la indexa (curaduria.indexacion.indexar_fuente: extrae,
-    calcula embeddings, guarda en Qdrant, mide y registra el tiempo). Todo
-    en una sola transacción: si la indexación falla (p. ej. PDF sin
-    texto), la aprobación tampoco queda."""
+    """Inicia la aprobación (P-15, ADR-010): responde de inmediato con la fuente
+    en "indexando" y encola la indexación en el worker. Al terminar queda
+    "vigente" (la versión anterior pasa a "obsoleta") o "error_indexacion"
+    con el motivo; desde ese estado el mismo endpoint sirve para reintentar."""
     fuente = _fuente_curaduria(sesion, usuario, fuente_id)
-    if fuente.estado != "borrador":
+    if fuente.estado == "indexando":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="La fuente ya se está indexando"
+        )
+    if fuente.estado not in ESTADOS_INICIABLES:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"La fuente está en estado '{fuente.estado}', no 'borrador'",
+            detail=f"La fuente está en estado '{fuente.estado}'; no se puede aprobar",
         )
     if fuente.archivo.lower().startswith(_ES_HOJA_EMBEBIDA):
         raise HTTPException(
@@ -2478,68 +2490,33 @@ def aprobar_fuente_endpoint(
                 "propio que indexar"
             ),
         )
+    if not almacenamiento.existe_objeto(cliente_s3, BUCKET_CONOCIMIENTO, fuente.archivo):
+        raise almacenamiento.ObjetoNoEncontradoError(f"{BUCKET_CONOCIMIENTO}/{fuente.archivo}")
 
-    area = sesion.get(Area, fuente.area_id)
-    contenido = almacenamiento.descargar_objeto(cliente_s3, BUCKET_CONOCIMIENTO, fuente.archivo)
-    extension = fuente.archivo.rsplit(".", 1)[-1] if "." in fuente.archivo else ""
-
-    anterior = aprobar_fuente(sesion, fuente, aprobado_por=usuario.id, ahora=datetime.now(UTC))
-    _bitacora_curaduria(
-        sesion,
-        usuario=usuario,
-        accion="fuente_aprobada",
-        entidad_id=fuente.id,
-        detalle=f"{fuente.fuente_id} v{fuente.version} -> vigente",
-    )
-    sesion.flush()
-
-    # v1 y v2 comparten fuente_id de negocio (p. ej. "POL-001") --
-    # desactivar_fragmentos_de_fuente filtra por ese campo, así que hay que
-    # desactivar los puntos de la versión anterior ANTES de indexar los de
-    # la nueva. Si se hiciera después (como antes de este fix), el filtro
-    # también apagaría los puntos recién indexados de la nueva versión,
-    # dejándola sin fragmentos buscables pese a estar "vigente" (RF-16/PP-08).
-    if anterior is not None:
-        desactivar_fragmentos_de_fuente(
-            cliente_qdrant, coleccion=coleccion, fuente_id_negocio=fuente.fuente_id
-        )
-
-    # P-13 (Bloque 1, RF-21): envuelve la función inyectada (ver
-    # comun/uso_llm.envolver_funcion_embedding_inyectada) -- no hay
-    # analisis_id acá, es indexación de la Base de Conocimiento (CU-08).
-    funcion_embedding_instrumentada = envolver_funcion_embedding_inyectada(
-        funcion_embedding,
-        sesion=sesion,
-        usuario_id=usuario.id,
-        area_id=fuente.area_id,
-        analisis_id=None,
-        caso_uso="embeddings_kb",
-    )
+    iniciar_indexacion(sesion, fuente, usuario_id=usuario.id)
+    sesion.commit()
     try:
-        resultado = indexar_fuente(
+        encolar(str(fuente.id), str(usuario.id))
+    except Exception as error:
+        logging.getLogger(__name__).error("No se pudo encolar la indexación", exc_info=error)
+        fuente.estado = "error_indexacion"
+        fuente.motivo_error = "No se pudo encolar la indexación (cola no disponible); reintente"
+        _bitacora_curaduria(
             sesion,
-            cliente_qdrant,
-            fuente=fuente,
-            contenido_archivo=contenido,
-            tipo_archivo=extension,
-            area_nombre=area.nombre if area else "",
-            funcion_embedding=funcion_embedding_instrumentada,
-            dimension=DIMENSION_BGE_M3,
-            usuario_id=usuario.id,
-            coleccion=coleccion,
+            usuario=usuario,
+            accion="fuente_indexacion_fallida",
+            entidad_id=fuente.id,
+            detalle=(
+                f"{fuente.fuente_id} v{fuente.version} -> error_indexacion: "
+                f"{fuente.motivo_error}"
+            ),
         )
-    except PdfSinTextoError as error:
-        sesion.rollback()
+        sesion.commit()
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=fuente.motivo_error
         ) from error
-
     return RespuestaAprobarFuente(
-        fuente_id=fuente.fuente_id,
-        version=fuente.version,
-        fragmentos_indexados=resultado.fragmentos_indexados,
-        duracion_segundos=resultado.duracion_segundos,
-        version_anterior_obsoleta=anterior is not None,
+        fuente_id=fuente.fuente_id, version=fuente.version, estado="indexando"
     )
 
 

@@ -45,6 +45,14 @@ services:
           memory: 2G
       replicas: 2   # RNF-05: ≥ 2 workers en paralelo para procesar ~50 documentos/día en jornada
 
+  worker_indexacion:
+    env_file: ../.env.stage
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 2G
+
   redis:
     env_file: ../.env.stage
     volumes:

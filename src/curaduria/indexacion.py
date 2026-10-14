@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -60,12 +61,18 @@ def indexar_fragmentos(
     funcion_embedding: FuncionEmbedding,
     dimension: int,
     coleccion: str = COLECCION_KB,
+    estado_payload: str | None = None,
+    exigir_vigente: bool = True,
+    al_progresar: Callable[[int, int], None] | None = None,
 ) -> ResultadoIndexacion:
     """Persiste un `Fragmento` por fragmento extraído y lo indexa en Qdrant
-    con el payload completo. `fuente.estado` debe ser "vigente" -- indexar
-    contenido de un borrador no tiene sentido (todavía puede cambiar o no
-    aprobarse nunca)."""
-    if fuente.estado != "vigente":
+    con el payload completo. Por defecto `fuente.estado` debe ser "vigente"
+    -- indexar contenido de un borrador no tiene sentido (todavía puede
+    cambiar o no aprobarse nunca). La aprobación asíncrona (P-15, ADR-010)
+    indexa antes de aprobar: pasa `exigir_vigente=False` y
+    `estado_payload="indexando"`, y recién al final marca los puntos
+    "vigente". `al_progresar(procesados, total)` se llama tras cada fragmento."""
+    if exigir_vigente and fuente.estado != "vigente":
         raise ValueError(
             f"solo se indexan fuentes 'vigente' (fuente_id={fuente.fuente_id!r} "
             f"está en estado '{fuente.estado}')"
@@ -101,12 +108,14 @@ def indexar_fragmentos(
                     "tipo": fuente.tipo,
                     "prioridad": fuente.prioridad,
                     "area": area_nombre,
-                    "estado": fuente.estado,
+                    "estado": estado_payload or fuente.estado,
                     "seccion": fragmento.seccion,
                     "pagina": fragmento.pagina,
                 },
             )
         )
+        if al_progresar is not None:
+            al_progresar(indice + 1, len(fragmentos))
 
     if puntos:
         cliente_qdrant.upsert(collection_name=coleccion, points=puntos)

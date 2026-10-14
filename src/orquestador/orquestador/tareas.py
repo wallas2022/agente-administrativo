@@ -514,3 +514,48 @@ def validar_dudosos_ortografia(analisis_id: str) -> None:
         )
     finally:
         sesion.close()
+
+
+@app.task(name="orquestador.tareas.indexar_fuente_conocimiento")
+def indexar_fuente_conocimiento(fuente_id: str, usuario_id: str) -> str:
+    """P-15 (ADR-010): indexa en segundo plano una fuente en "indexando" y la
+    deja "vigente" o "error_indexacion". Corre en la cola `indexacion`."""
+    from qdrant_client import QdrantClient
+
+    from comun.modelos import FuenteConocimiento
+    from comun.uso_llm import envolver_funcion_embedding_inyectada
+    from curaduria.aprobacion import procesar_indexacion
+    from curaduria.indexacion import COLECCION_KB
+    from rag.cliente_embeddings import DIMENSION_BGE_M3, obtener_embedding
+
+    sesion = obtener_fabrica_sesion()()
+    try:
+        fuente = sesion.get(FuenteConocimiento, uuid.UUID(fuente_id))
+        if fuente is None:
+            return "inexistente"
+        archivo = fuente.archivo
+        cliente_s3 = almacenamiento.obtener_cliente_s3()
+        bucket = os.environ.get("MINIO_BUCKET_CONOCIMIENTO", "conocimiento")
+        qdrant_host = os.environ.get("QDRANT_HOST", "qdrant")
+        qdrant_port = os.environ.get("QDRANT_PORT", "6333")
+        funcion_embedding = envolver_funcion_embedding_inyectada(
+            obtener_embedding,
+            sesion=sesion,
+            usuario_id=uuid.UUID(usuario_id),
+            area_id=fuente.area_id,
+            analisis_id=None,
+            caso_uso="embeddings_kb",
+        )
+        resultado = procesar_indexacion(
+            sesion,
+            QdrantClient(url=f"http://{qdrant_host}:{qdrant_port}"),
+            fuente_id=fuente.id,
+            usuario_id=uuid.UUID(usuario_id),
+            obtener_contenido=lambda: almacenamiento.descargar_objeto(cliente_s3, bucket, archivo),
+            funcion_embedding=funcion_embedding,
+            dimension=DIMENSION_BGE_M3,
+            coleccion=os.environ.get("QDRANT_COLECCION", COLECCION_KB),
+        )
+        return resultado.estado
+    finally:
+        sesion.close()

@@ -17,7 +17,10 @@ from qdrant_client import QdrantClient
 os.environ.setdefault("API_SECRET_KEY", "clave-de-prueba")
 
 from api import main  # noqa: E402
+from comun.almacenamiento import descargar_objeto  # noqa: E402
 from comun.modelos import Bitacora, FuenteConocimiento, Glosario, UsoLlm  # noqa: E402
+from comun.uso_llm import envolver_funcion_embedding_inyectada  # noqa: E402
+from curaduria.aprobacion import procesar_indexacion  # noqa: E402
 from rag.cliente_embeddings import DIMENSION_BGE_M3  # noqa: E402
 
 RAIZ = Path(__file__).resolve().parents[2]
@@ -48,6 +51,34 @@ def cliente(sesion_bd):
         main.app.dependency_overrides[main.obtener_cliente_qdrant] = lambda: cliente_qdrant
         main.app.dependency_overrides[main.obtener_funcion_embedding] = lambda: _embedding_falso
         main.app.dependency_overrides[main.obtener_coleccion_kb] = lambda: COLECCION_PRUEBA
+
+        def _encolador_sincrono(fuente_id: str, usuario_id: str) -> str:
+            # En producción corre en el worker (cola "indexacion"); acá, en el mismo proceso.
+            fuente = sesion_bd.get(FuenteConocimiento, uuid.UUID(fuente_id))
+            procesar_indexacion(
+                sesion_bd,
+                cliente_qdrant,
+                fuente_id=fuente.id,
+                usuario_id=uuid.UUID(usuario_id),
+                obtener_contenido=lambda: descargar_objeto(
+                    cliente_s3, "conocimiento", fuente.archivo
+                ),
+                funcion_embedding=envolver_funcion_embedding_inyectada(
+                    _embedding_falso,
+                    sesion=sesion_bd,
+                    usuario_id=uuid.UUID(usuario_id),
+                    area_id=fuente.area_id,
+                    analisis_id=None,
+                    caso_uso="embeddings_kb",
+                ),
+                dimension=DIMENSION_BGE_M3,
+                coleccion=COLECCION_PRUEBA,
+            )
+            return "tarea-falsa"
+
+        main.app.dependency_overrides[main.obtener_encolador_indexacion] = (
+            lambda: _encolador_sincrono
+        )
 
         with TestClient(main.app) as test_client:
             yield test_client, cliente_qdrant
@@ -178,10 +209,8 @@ def test_aprobar_fuente_indexa_y_la_deja_vigente(cliente, sesion_bd) -> None:
     respuesta = test_client.post(
         f"/curaduria/fuentes/{fuente['id']}/aprobar", headers=encabezados
     )
-    assert respuesta.status_code == 200, respuesta.text
-    cuerpo = respuesta.json()
-    assert cuerpo["fragmentos_indexados"] == 7  # título + 6 secciones (§1..§6)
-    assert cuerpo["version_anterior_obsoleta"] is False
+    assert respuesta.status_code == 202, respuesta.text
+    assert respuesta.json()["estado"] == "indexando"  # responde antes de indexar
 
     fuente_bd = sesion_bd.get(FuenteConocimiento, uuid.UUID(fuente["id"]))
     assert fuente_bd.estado == "vigente"
@@ -227,8 +256,7 @@ def test_aprobar_una_segunda_version_obsoletea_la_primera(cliente, sesion_bd) ->
     v2 = respuesta_v2.json()
 
     respuesta = test_client.post(f"/curaduria/fuentes/{v2['id']}/aprobar", headers=encabezados)
-    assert respuesta.status_code == 200
-    assert respuesta.json()["version_anterior_obsoleta"] is True
+    assert respuesta.status_code == 202
 
     assert sesion_bd.get(FuenteConocimiento, uuid.UUID(v1["id"])).estado == "obsoleta"
     assert sesion_bd.get(FuenteConocimiento, uuid.UUID(v2["id"])).estado == "vigente"
@@ -502,3 +530,67 @@ def test_importar_plantilla_con_errores_no_persiste_nada(cliente, sesion_bd) -> 
         "Checklist de cierre",
     }
     assert sesion_bd.query(FuenteConocimiento).count() == 0
+
+
+def test_si_la_cola_no_responde_la_fuente_queda_en_error_indexacion_y_se_puede_reintentar(
+    cliente, sesion_bd
+) -> None:
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+    fuente = _crear_fuente(test_client, encabezados)
+    encolador_sincrono = main.app.dependency_overrides[main.obtener_encolador_indexacion]
+
+    def _cola_caida():
+        def _encolar(_fuente_id: str, _usuario_id: str) -> str:
+            raise ConnectionError("redis caído")
+
+        return _encolar
+
+    main.app.dependency_overrides[main.obtener_encolador_indexacion] = _cola_caida
+    respuesta = test_client.post(f"/curaduria/fuentes/{fuente['id']}/aprobar", headers=encabezados)
+    assert respuesta.status_code == 503
+    assert "reintente" in respuesta.json()["detail"]
+
+    listado = test_client.get("/curaduria/fuentes", headers=encabezados).json()
+    fila = next(f for f in listado if f["id"] == fuente["id"])
+    assert fila["estado"] == "error_indexacion"
+    assert "cola no disponible" in fila["motivo_error"]
+    assert sesion_bd.query(Bitacora).filter_by(accion="fuente_indexacion_fallida").count() == 1
+
+    main.app.dependency_overrides[main.obtener_encolador_indexacion] = encolador_sincrono
+    reintento = test_client.post(f"/curaduria/fuentes/{fuente['id']}/aprobar", headers=encabezados)
+    assert reintento.status_code == 202
+    assert sesion_bd.get(FuenteConocimiento, uuid.UUID(fuente["id"])).estado == "vigente"
+    assert sesion_bd.query(Bitacora).filter_by(accion="fuente_indexacion_reintentada").count() == 1
+
+
+def test_aprobar_una_fuente_que_ya_se_esta_indexando_da_409(cliente, sesion_bd) -> None:
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+    fuente = _crear_fuente(test_client, encabezados)
+    sesion_bd.get(FuenteConocimiento, uuid.UUID(fuente["id"])).estado = "indexando"
+    sesion_bd.commit()
+
+    respuesta = test_client.post(f"/curaduria/fuentes/{fuente['id']}/aprobar", headers=encabezados)
+
+    assert respuesta.status_code == 409
+    assert "ya se está indexando" in respuesta.json()["detail"]
+
+
+def test_el_listado_expone_el_progreso_de_la_indexacion(cliente, sesion_bd) -> None:
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+    fuente = _crear_fuente(test_client, encabezados)
+    fila = sesion_bd.get(FuenteConocimiento, uuid.UUID(fuente["id"]))
+    fila.estado, fila.fragmentos_total, fila.fragmentos_procesados = "indexando", 40, 12
+    sesion_bd.commit()
+
+    listado = test_client.get("/curaduria/fuentes", headers=encabezados).json()
+
+    item = next(f for f in listado if f["id"] == fuente["id"])
+    assert (item["estado"], item["fragmentos_procesados"], item["fragmentos_total"]) == (
+        "indexando",
+        12,
+        40,
+    )
+

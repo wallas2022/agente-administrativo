@@ -298,14 +298,15 @@ class FuenteCuraduriaEsquema(BaseModel):
     aprobado_por: str | None = None
     fecha_carga: datetime
     fecha_aprobacion: datetime | None = None
+    fragmentos_total: int | None = None
+    fragmentos_procesados: int | None = None
+    motivo_error: str | None = None
 
 
 class RespuestaAprobarFuente(BaseModel):
     fuente_id: str
     version: str
-    fragmentos_indexados: int
-    duracion_segundos: float
-    version_anterior_obsoleta: bool
+    estado: str
 
 
 class FragmentoVistaPreviaEsquema(BaseModel):

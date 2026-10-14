@@ -52,6 +52,8 @@ COPY rag ./rag
 COPY validadores ./validadores
 COPY ortografia ./ortografia
 COPY ocr ./ocr
+# P-15 (ADR-010): la indexación de fuentes (cola `indexacion`) corre en el worker.
+COPY curaduria ./curaduria
 COPY --from=kb . ./kb
 # El paquete real está anidado (src/orquestador/orquestador/) para que
 # `python -m orquestador` funcione igual aquí que en un entorno local con

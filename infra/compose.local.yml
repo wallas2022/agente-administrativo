@@ -72,6 +72,14 @@ services:
           cpus: "1.00"
           memory: 1G
 
+  worker_indexacion:
+    env_file: ../.env.local
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 2G
+
   redis:
     env_file: ../.env.local
     ports:

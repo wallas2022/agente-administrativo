@@ -19,6 +19,9 @@ app = Celery("orquestador", broker=construir_url_redis(), backend=construir_url_
 
 NOMBRE_TAREA_ANALIZAR_DOCUMENTO = "orquestador.tareas.analizar_documento"
 NOMBRE_TAREA_VALIDAR_DUDOSOS_ORTOGRAFIA = "orquestador.tareas.validar_dudosos_ortografia"
+NOMBRE_TAREA_INDEXAR_FUENTE = "orquestador.tareas.indexar_fuente_conocimiento"
+# Cola propia (ADR-010): una indexación larga no debe ocupar los workers de CU-01/CU-05.
+COLA_INDEXACION = "indexacion"
 
 
 def encolar_analisis(documento_id: str, analisis_id: str) -> str:
@@ -38,5 +41,16 @@ def encolar_validacion_dudosos_ortografia(analisis_id: str) -> str:
     resultado = app.send_task(
         NOMBRE_TAREA_VALIDAR_DUDOSOS_ORTOGRAFIA,
         args=[analisis_id],
+    )
+    return resultado.id
+
+
+def encolar_indexacion_fuente(fuente_id: str, usuario_id: str) -> str:
+    """P-15 (ADR-010): la aprobación de una fuente encola su indexación en la
+    cola `indexacion`, que consume el servicio `worker_indexacion`."""
+    resultado = app.send_task(
+        NOMBRE_TAREA_INDEXAR_FUENTE,
+        args=[fuente_id, usuario_id],
+        queue=COLA_INDEXACION,
     )
     return resultado.id

@@ -778,12 +778,10 @@ export interface paths {
         put?: never;
         /**
          * Aprobar Fuente Endpoint
-         * @description Aprueba la fuente como vigente (curaduria.fuentes.aprobar_fuente --
-         *     obsoletea automáticamente cualquier versión vigente anterior del mismo
-         *     fuente_id) y la indexa (curaduria.indexacion.indexar_fuente: extrae,
-         *     calcula embeddings, guarda en Qdrant, mide y registra el tiempo). Todo
-         *     en una sola transacción: si la indexación falla (p. ej. PDF sin
-         *     texto), la aprobación tampoco queda.
+         * @description Inicia la aprobación (P-15, ADR-010): responde de inmediato con la fuente
+         *     en "indexando" y encola la indexación en el worker. Al terminar queda
+         *     "vigente" (la versión anterior pasa a "obsoleta") o "error_indexacion"
+         *     con el motivo; desde ese estado el mismo endpoint sirve para reintentar.
          */
         post: operations["aprobar_fuente_endpoint_curaduria_fuentes__fuente_id__aprobar_post"];
         delete?: never;
@@ -1198,6 +1196,12 @@ export interface components {
             fecha_carga: string;
             /** Fecha Aprobacion */
             fecha_aprobacion?: string | null;
+            /** Fragmentos Total */
+            fragmentos_total?: number | null;
+            /** Fragmentos Procesados */
+            fragmentos_procesados?: number | null;
+            /** Motivo Error */
+            motivo_error?: string | null;
         };
         /** GlosarioEsquema */
         GlosarioEsquema: {
@@ -1433,12 +1437,8 @@ export interface components {
             fuente_id: string;
             /** Version */
             version: string;
-            /** Fragmentos Indexados */
-            fragmentos_indexados: number;
-            /** Duracion Segundos */
-            duracion_segundos: number;
-            /** Version Anterior Obsoleta */
-            version_anterior_obsoleta: boolean;
+            /** Estado */
+            estado: string;
         };
         /** RespuestaCambiarPassword */
         RespuestaCambiarPassword: {
@@ -3010,7 +3010,7 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };

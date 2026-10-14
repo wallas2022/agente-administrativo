@@ -14,6 +14,9 @@ type Fuente = {
   vigente_desde: string;
   estado: string;
   dueno: string;
+  fragmentos_total?: number | null;
+  fragmentos_procesados?: number | null;
+  motivo_error?: string | null;
 };
 
 type Termino = {
@@ -66,6 +69,15 @@ async function subirArchivo(
   return { ok: respuesta.ok, datos };
 }
 
+function textoEstado(f: Fuente): string {
+  if (f.estado === "indexando") {
+    const total = f.fragmentos_total;
+    return total ? `indexando: fragmento ${f.fragmentos_procesados ?? 0} de ${total}` : "indexando…";
+  }
+  if (f.estado === "error_indexacion") return "error de indexación";
+  return f.estado;
+}
+
 export function BaseConocimiento() {
   const { usuario } = useAuth();
   const puedeEscribir = usuario?.rol === "curador";
@@ -89,6 +101,14 @@ export function BaseConocimiento() {
     const { data, error: errorRespuesta } = await clienteApi.GET("/curaduria/glosario");
     if (!errorRespuesta && data) setGlosario(data);
   }
+
+  const hayIndexando = fuentes?.some((f) => f.estado === "indexando") ?? false;
+  useEffect(() => {
+    if (!tieneAcceso || !hayIndexando) return;
+    const temporizador = setInterval(() => void cargarFuentes(), 3000);
+    return () => clearInterval(temporizador);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tieneAcceso, hayIndexando]);
 
   useEffect(() => {
     if (!tieneAcceso) return;
@@ -153,6 +173,7 @@ export function BaseConocimiento() {
       );
       if (errorRespuesta) {
         setError(mensajeDeError(errorRespuesta, "No se pudo aprobar la fuente"));
+        await cargarFuentes();
         return;
       }
       await cargarFuentes();
@@ -349,21 +370,30 @@ export function BaseConocimiento() {
                     <span
                       className={`base-conocimiento__estado base-conocimiento__estado--${f.estado}`}
                     >
-                      {f.estado}
+                      {textoEstado(f)}
                     </span>
+                    {f.estado === "error_indexacion" && f.motivo_error && (
+                      <p className="base-conocimiento__motivo-error" role="alert">
+                        {f.motivo_error}
+                      </p>
+                    )}
                   </td>
                   <td>{f.dueno}</td>
                   <td className="base-conocimiento__acciones">
                     <button type="button" onClick={() => verVistaPrevia(f)}>
                       Vista previa
                     </button>
-                    {puedeEscribir && f.estado === "borrador" && (
+                    {puedeEscribir && (f.estado === "borrador" || f.estado === "error_indexacion") && (
                       <button
                         type="button"
                         disabled={cargandoAccion === f.id}
                         onClick={() => aprobar(f)}
                       >
-                        {cargandoAccion === f.id ? "Aprobando…" : "Aprobar"}
+                        {cargandoAccion === f.id
+                          ? "Enviando…"
+                          : f.estado === "error_indexacion"
+                            ? "Reintentar"
+                            : "Aprobar"}
                       </button>
                     )}
                     {puedeEscribir && f.estado === "vigente" && (

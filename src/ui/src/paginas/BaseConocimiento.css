@@ -92,6 +92,22 @@
   color: var(--color-acento);
 }
 
+.base-conocimiento__estado--indexando {
+  background: var(--color-borde);
+  color: var(--color-texto);
+}
+
+.base-conocimiento__estado--error_indexacion {
+  background: var(--color-alto-fondo);
+  color: var(--color-alto-texto);
+}
+
+.base-conocimiento__motivo-error {
+  margin: 4px 0 0;
+  font-size: 0.85em;
+  color: var(--color-alto-texto);
+}
+
 .base-conocimiento__estado--obsoleta {
   background: var(--color-alto-fondo);
   color: var(--color-alto-texto);
