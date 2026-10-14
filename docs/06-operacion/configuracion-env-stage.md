@@ -61,7 +61,8 @@ Cada contraseña es distinta (el script genera una por marcador). Guardar copia 
 | --- | --- | --- | --- |
 | 1 | El overlay define el servicio `minio`, pero `compose.yml` ya no lo tiene | `docker compose config` falla: servicio sin imagen | Reemplazar por el servicio `garage` (`dxflrs/garage:v1.0.1`, binds `/srv/agente/garage/{meta,data}`, `garage.toml` de solo lectura, sin puertos) y quitar `localstack` de stage (P-15 Bloque 5) |
 | 2 | `ollama` limitado a `cpus: "1.50"` | El LLM usa 1.5 núcleos: muy lento | `cpus` = núcleos de la VM − 4 (ej. `"20"`) [POR CONFIRMAR con `nproc`] |
-| 3 | `ollama` con `memory: 200G` | Mayor que la RAM de la VM (96–100 GB) | `memory: 70G` (3 modelos ≈ 40–45 GB + contexto) |
+| 3 | `ollama` con `memory: 200G` y luego `64G` | Mayor o igual que la RAM de la VM (60 GB): el kernel mata procesos por OOM | `memory: 44G` (3 modelos y contexto; deja ~16 GB al resto) [POR CONFIRMAR con `docker stats` bajo carga] |
+| 3b | `proxy` con `memory: 64G` | Límite desproporcionado para un proxy | `memory: 256M` |
 | 4 | `red_interna` es `internal: true` | El contenedor `ollama` no tiene internet: `ollama pull` falla | Descargar modelos con un contenedor temporal (guía de modelos §5) |
 | 5 | LocalStack como almacenamiento de stage | **Confirmado: perdió objetos al reiniciar** pese a `PERSISTENCE=1` | Resuelto con Garage (ADR-006 v2): persistencia tras reinicio y multiparte de 1 GB probadas |
 | 6 | Permisos de `/srv/agente` | Prometheus (uid 65534) y Grafana (uid 472) no pueden escribir y el contenedor se reinicia | `sudo chown -R 65534:65534 /srv/agente/prometheus` y `sudo chown -R 472:472 /srv/agente/grafana` |

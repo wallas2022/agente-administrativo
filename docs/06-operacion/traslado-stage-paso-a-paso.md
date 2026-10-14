@@ -132,6 +132,10 @@ srv$ git clone git@github.com:wallas2022/agente-administrativo.git /opt/agente/a
 srv$ cd /opt/agente/app && git checkout v0.1.0-stage
 srv$ cp .env.stage.example .env.stage                 # en la RAÍZ del repo
 srv$ chmod 600 .env.stage   # generar secretos y completar: configuracion-env-stage.md §1
+# Garage (ADR-006 v2): configuración propia con su rpc_secret (nunca en Git)
+srv$ cp infra/garage/garage.toml.example /srv/agente/garage/garage.toml
+srv$ sed -i "s/^rpc_secret = .*/rpc_secret = \"$(openssl rand -hex 32)\"/" /srv/agente/garage/garage.toml
+srv$ chmod 600 /srv/agente/garage/garage.toml
 ```
 Llenar en `.env.stage`: contraseñas nuevas de PostgreSQL/MinIO/JWT (no reutilizar las de local; generar con `openssl rand -base64 32`), `LLM_MODEL_PRINCIPAL`, URL de Ollama (paso 6), rutas de volúmenes bajo `/srv/agente/`. Si prefieres copiar tu archivo desde la PC: `PC$ scp .\.env.stage <usuario>@<ip-stage>:/opt/agente/app/`.
 
@@ -150,6 +154,8 @@ srv$ dcs up -d
 srv$ dcs ps
 srv$ dcs logs -f --tail=100 api
 ```
+- Garage (primera vez): `infra/scripts/inicializar-garage.sh` crea el layout, la llave y los buckets `conocimiento` y `documentos`; copie la llave que imprime a `MINIO_ACCESS_KEY` y `MINIO_SECRET_KEY` de `.env.stage` y reinicie `api` y los workers (`dcs up -d`). Es idempotente.
+- Indexación de fuentes: `worker_indexacion` (cola `indexacion`) debe estar arriba; aplicar `alembic upgrade head` para la migración `d41a9b7c5e20`.
 - Todos los servicios con `restart: unless-stopped` para que arranquen solos tras reinicio.
 - Con `APP_ENV=stage` la API **no** siembra usuarios ni crea buckets: ejecutar una vez migraciones, buckets y semillas (`configuracion-env-stage.md` §4).
 

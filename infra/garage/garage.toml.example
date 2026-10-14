@@ -1,0 +1,29 @@
+# Plantilla de configuración de Garage v1.0.1 para STAGE (ADR-006 v2).
+#
+# Uso en la VM de stage (el archivo real NO se versiona; está en .gitignore):
+#   sudo mkdir -p /srv/agente/garage/meta /srv/agente/garage/data
+#   sudo cp infra/garage/garage.toml.example /srv/agente/garage/garage.toml
+#   sudo chmod 600 /srv/agente/garage/garage.toml
+#   # reemplazar rpc_secret por el resultado de:  openssl rand -hex 32
+#
+# compose.stage.yml lo monta en solo lectura como /etc/garage.toml.
+
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "lmdb"
+
+# Un solo nodo (piloto). Si se escala a varios nodos, ver la alternativa SeaweedFS en ADR-006.
+replication_factor = 1
+
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+# Secreto compartido del clúster: 64 caracteres hexadecimales generados por ambiente.
+rpc_secret = "REEMPLAZAR-generar-con-openssl-rand-hex-32"
+
+[s3_api]
+# Debe coincidir con la región que usa comun/almacenamiento.py (s3v4, path-style).
+s3_region = "us-east-1"
+api_bind_addr = "[::]:3900"
+
+[admin]
+api_bind_addr = "[::]:3903"

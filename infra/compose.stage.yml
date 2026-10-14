@@ -18,10 +18,21 @@ services:
       resources:
         limits:
           cpus: "0.50"
-          memory: 64G
+          memory: 256M
 
   api:
     env_file: ../.env.stage
+    # En stage el almacenamiento es Garage (ADR-006 v2): se reemplaza la lista de
+    # dependencias del compose base, que incluye localstack (solo ambiente local).
+    depends_on: !override
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      garage:
+        condition: service_started
     deploy:
       resources:
         limits:
@@ -75,7 +86,9 @@ services:
       resources:
         limits:
           cpus: "8"   # todos los vCPU de la VM
-          memory: 64G   # [POR CONFIRMAR] mayoría de la RAM de la VM para el modelo
+          # VM de 60 GB: 64G superaba la RAM. 44G cubre los 3 modelos y su contexto y deja
+          # ~16 GB al resto de servicios [POR CONFIRMAR con `docker stats` bajo carga].
+          memory: 44G
 
   qdrant:
     volumes:
@@ -100,17 +113,41 @@ services:
           cpus: "1.00"
           memory: 2G
 
+  # LocalStack solo existe en el ambiente local: perdió objetos al reiniciar en stage
+  # (ADR-006 v2). El perfil lo deja fuera de `up -d` en stage.
   localstack:
-    env_file: ../.env.stage
+    profiles: ["solo-local"]
+
+  # Almacenamiento de objetos S3 de stage (ADR-006 v2). Sin puertos publicados: la API
+  # lo alcanza por red_interna en garage:3900. Configuración: infra/garage/garage.toml.example;
+  # inicialización: infra/scripts/inicializar-garage.sh.
+  garage:
+    image: dxflrs/garage:v1.0.1
+    networks:
+      - red_interna
     volumes:
       - type: bind
-        source: /srv/agente/localstack
-        target: /var/lib/localstack
+        source: /srv/agente/garage/meta
+        target: /var/lib/garage/meta
+      - type: bind
+        source: /srv/agente/garage/data
+        target: /var/lib/garage/data
+      - type: bind
+        source: /srv/agente/garage/garage.toml
+        target: /etc/garage.toml
+        read_only: true
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
     deploy:
       resources:
         limits:
           cpus: "0.50"
-          memory: 1G
+          memory: 512M
 
   languagetool:
     deploy:

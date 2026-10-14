@@ -5,6 +5,9 @@
 !.env.local.example
 !.env.stage.example
 
+# Garage (stage): el garage.toml real lleva el rpc_secret; solo se versiona la plantilla
+infra/garage/garage.toml
+
 # Python
 __pycache__/
 *.py[cod]

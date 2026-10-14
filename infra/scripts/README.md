@@ -13,6 +13,7 @@ Scripts operativos de la infraestructura (arranque por ambiente, empaquetado/car
 | `levantar-local.sh` | Levanta el ambiente local con `compose.yml` + `compose.local.yml`. Ver [docs/03-diseno/despliegue/estrategia-ambientes.md](../../docs/03-diseno/despliegue/estrategia-ambientes.md) §4. |
 | `empaquetar-offline.sh vX.Y.Z` | Construye y empaqueta imágenes + modelos para transferir a stage sin internet. Ver [docs/06-operacion/despliegue-stage-proxmox.md](../../docs/06-operacion/despliegue-stage-proxmox.md) §5. |
 | `cargar-en-stage.sh vX.Y.Z` | Carga el paquete offline y levanta el ambiente stage en la VM. Ver [docs/06-operacion/despliegue-stage-proxmox.md](../../docs/06-operacion/despliegue-stage-proxmox.md) §5-6. |
+| `inicializar-garage.sh [--mostrar-credenciales]` | Inicializa Garage en stage de forma idempotente: layout, llave de acceso y buckets `conocimiento` y `documentos`. Ver [ADR-006](../../docs/03-diseno/adr/ADR-006-almacenamiento-objetos.md) y `infra/garage/garage.toml.example`. |
 
 ## Contenido previsto (F5)
 

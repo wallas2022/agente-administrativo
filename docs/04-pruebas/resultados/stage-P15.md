@@ -58,3 +58,20 @@ Nota: la respuesta incluye `detail` además de `detalle` para que la UI existent
 - Con los valores por defecto, el peor caso de un lote que no responde es 4 intentos de 300 s más 14 s de esperas. Se puede acotar con `EMBEDDINGS_TIMEOUT_S` y `EMBEDDINGS_REINTENTOS`.
 - El tiempo por lote en stage queda [POR CONFIRMAR]: se mide en el Bloque 6 con CONT-006 y CONT-007.
 - Métricas: pytest 752 pasan (cobertura 94 %), mypy y ruff sin errores.
+
+## Bloque 5 — Infraestructura
+
+| Ruta | Cambio | Pruebas |
+| --- | --- | --- |
+| `infra/compose.stage.yml` | Servicio `garage` (`dxflrs/garage:v1.0.1`, binds `/srv/agente/garage/{meta,data}`, `garage.toml` de solo lectura, `red_interna`, sin puertos, 0.5 CPU y 512M). `localstack` queda con el perfil `solo-local`, así que no se levanta en stage. La `api` de stage depende de `garage` (`depends_on: !override`). | ok |
+| `infra/garage/garage.toml.example` | Plantilla con `replication_factor = 1`, `s3_region = "us-east-1"` y `rpc_secret` de relleno (`openssl rand -hex 32`). | ok |
+| `infra/scripts/inicializar-garage.sh` | Idempotente: layout (solo si el nodo no tiene rol), llave `agente-app` (se imprime solo al crearla o con `--mostrar-credenciales`) y buckets `conocimiento` y `documentos` con permisos. | ok (sintaxis `bash -n`); [POR CONFIRMAR] ejecución real en stage |
+| `.env.stage.example`, `.gitignore` | `MINIO_ENDPOINT=garage:3900`; `infra/garage/garage.toml` ignorado por Git. | ok |
+| `src/api/requirements.txt` | `alembic==1.14.0` ya estaba (una sola línea); queda cubierto por una prueba. | ok |
+| Límites de memoria | `ollama` 64G → 44G (VM de 60 GB) y `proxy` 64G → 256M. Quedan [POR CONFIRMAR] con `docker stats` bajo carga. | ok |
+| `tests/unit/test_infra_stage.py` (nuevo) | 13 pruebas sobre la configuración renderizada de Compose (stage y local), la plantilla, el script, `.gitignore` y la ausencia de `rpc_secret` reales en el repositorio. | ok |
+| `docs/06-operacion` | Pasos de `garage.toml`, inicialización de Garage, `worker_indexacion` y límites de memoria. | n/a |
+
+- No se pudo ejecutar Garage en esta máquina (el servicio de Docker no está activo); el script se validó estáticamente y debe probarse en stage. La suma de límites de memoria de los servicios (≈ 67 GB) supera los 60 GB de la VM, pero son límites y no reservas.
+- El `docker-compose` local no cambia: LocalStack sigue siendo su almacenamiento y la prueba lo verifica.
+- Métricas: pytest 765 pasan (cobertura 94 %), mypy y ruff sin errores.
