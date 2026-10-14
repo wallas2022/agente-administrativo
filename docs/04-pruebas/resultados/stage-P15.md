@@ -92,6 +92,8 @@ Métricas: pytest 769 pasan (cobertura 94 %), mypy y ruff sin errores, vitest 13
 
 ### Procedimiento para CONT-006 y CONT-007 (en stage)
 
+> Guía detallada y completa del despliegue en stage (respaldo, Garage, migración, verificación y reindexado): [guia-despliegue-p15-stage.md](../../06-operacion/guia-despliegue-p15-stage.md).
+
 1. Desplegar: `git pull`, `dcs build`, `alembic upgrade head` (migración `d41a9b7c5e20`), preparar `garage.toml`, `dcs up -d` e `infra/scripts/inicializar-garage.sh`; confirmar `worker_indexacion` arriba (`dcs ps`).
 2. Si el archivo se perdió con LocalStack, la pantalla avisará "El archivo de la fuente no está en el almacenamiento; súbalo de nuevo": volver a subir el archivo.
 3. Si la fuente quedó en `borrador` (el 500 anterior revirtió la transacción): pulsar **Aprobar**. Si quedó en `error_indexacion`: pulsar **Reintentar**.
