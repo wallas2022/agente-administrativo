@@ -75,3 +75,26 @@ Nota: la respuesta incluye `detail` además de `detalle` para que la UI existent
 - No se pudo ejecutar Garage en esta máquina (el servicio de Docker no está activo); el script se validó estáticamente y debe probarse en stage. La suma de límites de memoria de los servicios (≈ 67 GB) supera los 60 GB de la VM, pero son límites y no reservas.
 - El `docker-compose` local no cambia: LocalStack sigue siendo su almacenamiento y la prueba lo verifica.
 - Métricas: pytest 765 pasan (cobertura 94 %), mypy y ruff sin errores.
+
+## Bloque 6 — Pruebas de cierre
+
+| Prueba | Resultado |
+| --- | --- |
+| PDF de 300 páginas (una sola sección que las abarca): `POST /aprobar` responde 202 `indexando` solo encolando; el worker indexa en lotes de 16 | ok: 2,391 fragmentos, máximo estimado 450 tokens (tope), ninguno cerca del límite de 2,048 de Ollama, sin truncado. API: 16 ms. Worker: 3.5 s con embeddings falsos (la cifra real depende del Ollama de stage: [POR CONFIRMAR]). |
+| `ReadTimeout` simulado en `httpx.post` de embeddings | ok: 1 intento y 2 reintentos, y la fuente queda en `error_indexacion` con "El servicio de embeddings tardó demasiado en responder…" visible en el listado. Sin fragmentos huérfanos. Bitácora `fuente_indexacion_fallida`. Al volver Ollama, el mismo endpoint (Reintentar) la deja `vigente` y la bitácora registra `fuente_indexacion_reintentada`. |
+| Objeto ausente en el almacenamiento | ok: 409 con el mensaje al aprobar; si desaparece entre el encolado y el worker, queda `error_indexacion` con el mismo mensaje. |
+| Mensaje en la UI (aprobar, error de indexación con Reintentar, sondeo del progreso) | ok (vitest, Bloques 1 y 3). |
+| Regresión: la búsqueda (chat, CU-01) mientras se reindexa | ok: durante la indexación de la versión 2 la búsqueda solo devuelve la versión 1; al terminar, solo la versión 2 (la 1 queda `obsoleta`). |
+| Regresión CU-01, CU-05, chat y registro de uso P-13 | ok: suite completa. |
+| Reindexar CONT-006 y CONT-007 | **Pendiente en stage**: son fuentes reales de stage y no existen en el repositorio ni en el ambiente local. Procedimiento abajo. |
+
+Métricas: pytest 769 pasan (cobertura 94 %), mypy y ruff sin errores, vitest 131 pasan, tsc sin errores.
+
+### Procedimiento para CONT-006 y CONT-007 (en stage)
+
+1. Desplegar: `git pull`, `dcs build`, `alembic upgrade head` (migración `d41a9b7c5e20`), preparar `garage.toml`, `dcs up -d` e `infra/scripts/inicializar-garage.sh`; confirmar `worker_indexacion` arriba (`dcs ps`).
+2. Si el archivo se perdió con LocalStack, la pantalla avisará "El archivo de la fuente no está en el almacenamiento; súbalo de nuevo": volver a subir el archivo.
+3. Si la fuente quedó en `borrador` (el 500 anterior revirtió la transacción): pulsar **Aprobar**. Si quedó en `error_indexacion`: pulsar **Reintentar**.
+4. Si alguna ya está `vigente` con fragmentos grandes: subir el mismo archivo como versión nueva del mismo `fuente_id` y aprobarla; la anterior pasa a `obsoleta` al terminar.
+5. Seguimiento: el estado muestra "indexando: fragmento N de M"; `dcs logs -f worker_indexacion`; las filas `embeddings_kb` de `uso_llm` (una por lote) dan el tiempo real por lote en el dashboard de P-13.
+6. Anotar aquí fragmentos, duración total y tiempo por lote medidos, y verificar con el chat que ambas fuentes responden con citas.

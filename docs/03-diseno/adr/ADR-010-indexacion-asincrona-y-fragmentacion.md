@@ -6,7 +6,7 @@
 
 ## Estado
 
-Aceptada (implementación: bloques 1 a 3 de P-15; bloque 4 pendiente).
+Aceptada. Implementada en los bloques 1 a 6 de P-15; pendiente la validación con datos reales en stage (reindexar CONT-006 y CONT-007).
 
 ## Contexto
 
