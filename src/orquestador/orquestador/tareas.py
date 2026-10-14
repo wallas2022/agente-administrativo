@@ -523,10 +523,15 @@ def indexar_fuente_conocimiento(fuente_id: str, usuario_id: str) -> str:
     from qdrant_client import QdrantClient
 
     from comun.modelos import FuenteConocimiento
-    from comun.uso_llm import envolver_funcion_embedding_inyectada
+    from comun.uso_llm import envolver_funcion_embedding_inyectada, envolver_funcion_embedding_lote
     from curaduria.aprobacion import procesar_indexacion
     from curaduria.indexacion import COLECCION_KB
-    from rag.cliente_embeddings import DIMENSION_BGE_M3, obtener_embedding
+    from rag.cliente_embeddings import (
+        DIMENSION_BGE_M3,
+        obtener_embedding,
+        obtener_embeddings_lote,
+        tamano_de_lote,
+    )
 
     sesion = obtener_fabrica_sesion()()
     try:
@@ -555,6 +560,15 @@ def indexar_fuente_conocimiento(fuente_id: str, usuario_id: str) -> str:
             funcion_embedding=funcion_embedding,
             dimension=DIMENSION_BGE_M3,
             coleccion=os.environ.get("QDRANT_COLECCION", COLECCION_KB),
+            funcion_embedding_lote=envolver_funcion_embedding_lote(
+                obtener_embeddings_lote,
+                sesion=sesion,
+                usuario_id=uuid.UUID(usuario_id),
+                area_id=fuente.area_id,
+                analisis_id=None,
+                caso_uso="embeddings_kb",
+            ),
+            tamano_lote=tamano_de_lote(),
         )
         return resultado.estado
     finally:

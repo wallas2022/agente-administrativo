@@ -316,3 +316,68 @@ def test_generar_respuesta_chat_con_registro_registra_timeout_y_relanza(
     fila = sesion.query(UsoLlm).one()
     assert fila.caso_uso == "chat_kb"
     assert fila.resultado == "timeout"
+
+
+def test_envolver_funcion_embedding_lote_registra_una_fila_por_lote(sesion, usuario_y_area) -> None:
+    from comun.uso_llm import envolver_funcion_embedding_lote
+    from rag.cliente_embeddings import ULTIMAS_METRICAS_EMBEDDING
+    from rag.cliente_llm import MetricasOllama
+
+    usuario, area = usuario_y_area
+
+    def lote_falso(textos: list[str]) -> list[list[float]]:
+        ULTIMAS_METRICAS_EMBEDDING.set(
+            MetricasOllama(
+                modelo="bge-m3",
+                tokens_entrada=10 * len(textos),
+                tokens_salida=None,
+                duracion_total_ms=100,
+                duracion_carga_ms=None,
+                duracion_lectura_ms=None,
+                duracion_generacion_ms=None,
+            )
+        )
+        return [[0.0] for _ in textos]
+
+    funcion = envolver_funcion_embedding_lote(
+        lote_falso,
+        sesion=sesion,
+        usuario_id=usuario.id,
+        area_id=area.id,
+        analisis_id=None,
+        caso_uso="embeddings_kb",
+    )
+
+    assert len(funcion(["a", "b", "c"])) == 3
+    assert len(funcion(["d"])) == 1
+
+    filas = sesion.query(UsoLlm).filter_by(caso_uso="embeddings_kb").all()
+    assert len(filas) == 2
+    assert sorted(f.tokens_entrada for f in filas) == [10, 30]
+    assert all(f.resultado == "ok" and f.modelo == "bge-m3" for f in filas)
+
+
+def test_envolver_funcion_embedding_lote_registra_el_timeout_y_lo_propaga(
+    sesion, usuario_y_area
+) -> None:
+    from comun.uso_llm import envolver_funcion_embedding_lote
+
+    usuario, area = usuario_y_area
+
+    def lote_que_falla(_textos: list[str]) -> list[list[float]]:
+        raise httpx.ReadTimeout("t")
+
+    funcion = envolver_funcion_embedding_lote(
+        lote_que_falla,
+        sesion=sesion,
+        usuario_id=usuario.id,
+        area_id=area.id,
+        analisis_id=None,
+        caso_uso="embeddings_kb",
+    )
+
+    with pytest.raises(httpx.ReadTimeout):
+        funcion(["a"])
+
+    fila = sesion.query(UsoLlm).one()
+    assert fila.resultado != "ok"

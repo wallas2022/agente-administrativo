@@ -241,3 +241,33 @@ def test_reintentar_tras_un_error_indexa_sin_duplicar_fragmentos(entorno) -> Non
         entorno.sesion.query(Fragmento).filter_by(fuente_id=fuente.id).count() == FRAGMENTOS_DEL_PDF
     )
     assert entorno.qdrant.count(COLECCION).count == FRAGMENTOS_DEL_PDF
+
+
+def test_con_funcion_por_lotes_embebe_de_a_lotes_y_conserva_el_resultado(entorno) -> None:
+    fuente = entorno.fuente(version="1")
+    iniciar_indexacion(entorno.sesion, fuente, usuario_id=entorno.usuario.id)
+    lotes: list[int] = []
+
+    def por_lote(textos: list[str]) -> list[list[float]]:
+        lotes.append(len(textos))
+        return [_embedding_falso(t) for t in textos]
+
+    def no_debe_usarse(_texto: str) -> list[float]:
+        raise AssertionError("no debe usarse la función por texto")
+
+    resultado = procesar_indexacion(
+        entorno.sesion,
+        entorno.qdrant,
+        fuente_id=fuente.id,
+        usuario_id=entorno.usuario.id,
+        obtener_contenido=PDF.read_bytes,
+        funcion_embedding=no_debe_usarse,
+        funcion_embedding_lote=por_lote,
+        tamano_lote=3,
+        dimension=DIMENSION,
+        coleccion=COLECCION,
+    )
+
+    assert resultado.estado == "vigente"
+    assert lotes == [3, 3, 1]  # 7 fragmentos en lotes de 3
+    assert entorno.qdrant.count(COLECCION).count == FRAGMENTOS_DEL_PDF

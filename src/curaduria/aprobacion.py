@@ -152,6 +152,8 @@ def procesar_indexacion(
     funcion_embedding: FuncionEmbedding,
     dimension: int,
     coleccion: str,
+    funcion_embedding_lote: Callable[[list[str]], list[list[float]]] | None = None,
+    tamano_lote: int = 16,
 ) -> ResultadoProcesamiento:
     """Extrae, embebe e indexa la fuente (en "indexando") y la deja vigente.
     Nunca lanza por fallas de indexación: las registra como "error_indexacion"."""
@@ -189,6 +191,8 @@ def procesar_indexacion(
             estado_payload="indexando",
             exigir_vigente=False,
             al_progresar=_progreso,
+            funcion_embedding_lote=funcion_embedding_lote,
+            tamano_lote=tamano_lote,
         )
 
         ids: list[int | str] = [

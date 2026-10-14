@@ -135,7 +135,7 @@ def envolver_obtener_embedding(
     analisis_id: uuid.UUID | None,
     caso_uso: str,
     modelo: str | None = None,
-    timeout: float = 30.0,
+    timeout: float | None = None,
 ):
     """Igual que `envolver_generar_texto`, para `Callable[[str], list[float]]`
     (`FuncionEmbedding`)."""
@@ -318,5 +318,50 @@ def envolver_funcion_embedding_inyectada(
             metricas=metricas,
         )
         return vector
+
+    return _funcion
+
+
+def envolver_funcion_embedding_lote(
+    funcion_lote: Callable[[list[str]], list[list[float]]],
+    *,
+    sesion: Session,
+    usuario_id: uuid.UUID,
+    area_id: uuid.UUID,
+    analisis_id: uuid.UUID | None,
+    caso_uso: str,
+) -> Callable[[list[str]], list[list[float]]]:
+    """P-15 (Bloque 4): registra una fila de `uso_llm` por LOTE (no por texto);
+    `tokens_entrada` es el del lote completo."""
+    from rag.cliente_embeddings import ULTIMAS_METRICAS_EMBEDDING
+
+    def _funcion(textos: list[str]) -> list[list[float]]:
+        ULTIMAS_METRICAS_EMBEDDING.set(None)
+        try:
+            vectores = funcion_lote(textos)
+        except Exception as error:
+            registrar_uso_llm(
+                sesion,
+                usuario_id=usuario_id,
+                area_id=area_id,
+                analisis_id=analisis_id,
+                caso_uso=caso_uso,
+                modelo="desconocido",
+                resultado=_clasificar_error(error),
+                metricas=None,
+            )
+            raise
+        metricas = ULTIMAS_METRICAS_EMBEDDING.get()
+        registrar_uso_llm(
+            sesion,
+            usuario_id=usuario_id,
+            area_id=area_id,
+            analisis_id=analisis_id,
+            caso_uso=caso_uso,
+            modelo=metricas.modelo if metricas else "desconocido",
+            resultado=RESULTADO_OK,
+            metricas=metricas,
+        )
+        return vectores
 
     return _funcion

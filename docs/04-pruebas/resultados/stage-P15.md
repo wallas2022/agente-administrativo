@@ -44,3 +44,17 @@ Nota: la respuesta incluye `detail` además de `detalle` para que la UI existent
 - Riesgo evaluado antes de implementar: CU-01, CU-05 y el chat leen Qdrant con `estado == "vigente"`, así que no se ven afectados. La versión anterior sigue buscable mientras la nueva indexa.
 - Pendiente en stage: reconstruir la imagen del worker, aplicar `alembic upgrade head` y levantar `worker_indexacion`.
 - Métricas: pytest 739 pasan (cobertura 94 %), mypy y ruff sin errores, vitest 131 pasan, tsc sin errores.
+
+## Bloque 4 — Embeddings robustos
+
+| Ruta | Cambio | Pruebas |
+| --- | --- | --- |
+| `src/rag/cliente_embeddings.py` | `EMBEDDINGS_TIMEOUT_S` (300 por defecto) reemplaza el 30.0 fijo. Nuevo `obtener_embeddings_lote_con_metricas` con `input` como lista en `/api/embed` (`EMBEDDINGS_LOTE`=16). 3 reintentos (`EMBEDDINGS_REINTENTOS`) con espera creciente 2, 4, 8 s ante timeout, error de conexión o 5xx; un 4xx no se reintenta. `EMBEDDINGS_KEEP_ALIVE` (cae a `OLLAMA_KEEP_ALIVE`, luego 24h). Valida que el número de vectores coincida con el de textos. | ok (+11) |
+| `src/comun/uso_llm.py` | `envolver_funcion_embedding_lote`: una fila de `uso_llm` por lote (tokens del lote completo; el error también queda registrado). `envolver_obtener_embedding` ya no fija 30 s. | ok (+2) |
+| `src/curaduria/indexacion.py`, `aprobacion.py`, `tareas.py` | La indexación embebe por lotes; el worker pasa la función por lote con registro de uso. La ruta por texto se conserva para los demás llamadores. | ok (+1) |
+| Búsqueda del chat y CU-01 | Heredan el timeout configurable porque `obtener_embedding` ya no tiene 30 s fijos. | ok (suite) |
+| `.env*.example`, `configuracion-env-stage.md` | Variables `EMBEDDINGS_*` documentadas. | n/a |
+
+- Con los valores por defecto, el peor caso de un lote que no responde es 4 intentos de 300 s más 14 s de esperas. Se puede acotar con `EMBEDDINGS_TIMEOUT_S` y `EMBEDDINGS_REINTENTOS`.
+- El tiempo por lote en stage queda [POR CONFIRMAR]: se mide en el Bloque 6 con CONT-006 y CONT-007.
+- Métricas: pytest 752 pasan (cobertura 94 %), mypy y ruff sin errores.

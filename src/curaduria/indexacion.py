@@ -64,6 +64,8 @@ def indexar_fragmentos(
     estado_payload: str | None = None,
     exigir_vigente: bool = True,
     al_progresar: Callable[[int, int], None] | None = None,
+    funcion_embedding_lote: Callable[[list[str]], list[list[float]]] | None = None,
+    tamano_lote: int = 16,
 ) -> ResultadoIndexacion:
     """Persiste un `Fragmento` por fragmento extraído y lo indexa en Qdrant
     con el payload completo. Por defecto `fuente.estado` debe ser "vigente"
@@ -82,7 +84,12 @@ def indexar_fragmentos(
     asegurar_coleccion(cliente_qdrant, coleccion, dimension)
 
     puntos: list[qmodels.PointStruct] = []
+    tamano_lote = max(1, tamano_lote)
+    vectores_del_lote: list[list[float]] = []
     for indice, fragmento in enumerate(fragmentos):
+        if funcion_embedding_lote is not None and indice % tamano_lote == 0:
+            textos = [f.contenido for f in fragmentos[indice : indice + tamano_lote]]
+            vectores_del_lote = funcion_embedding_lote(textos)
         ubicacion = fragmento.seccion
         if ubicacion is None and fragmento.pagina is not None:
             ubicacion = f"Página {fragmento.pagina}"
@@ -99,7 +106,11 @@ def indexar_fragmentos(
         puntos.append(
             qmodels.PointStruct(
                 id=referencia_vector,
-                vector=funcion_embedding(fragmento.contenido),
+                vector=(
+                    vectores_del_lote[indice % tamano_lote]
+                    if funcion_embedding_lote is not None
+                    else funcion_embedding(fragmento.contenido)
+                ),
                 payload={
                     "fragmento_id": str(fila.id),
                     "fuente_id": fuente.fuente_id,
