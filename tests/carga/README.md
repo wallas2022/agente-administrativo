@@ -48,3 +48,23 @@ Repita con `--escenario ortografia`, `--escenario chat` y `--escenario mixto`.
 - **Total p50 / p90:** tiempo típico y del 90 % de los casos. Compárelos con el objetivo de RNF-04 (documento complejo en 10 minutos como máximo).
 - **Docs/hora:** documentos terminados por hora con ese nivel de usuarios; contrástelo con la meta de unos 50 documentos al día (RNF-05).
 - **Fallos:** cualquier fallo o tiempo excedido marca el límite de usuarios que la plataforma soporta hoy.
+
+## Si hay fallos: cómo saber por qué
+
+La tabla ahora incluye los **estados finales** y los **errores** de cada nivel. Para ver el motivo exacto de los análisis que fallaron en las últimas horas (en stage):
+
+```bash
+srv$ dcs exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
+  select a.fecha_inicio, t.nombre as tipo, d.nombre_original, d.estado,
+         (select left(b.detalle, 160) from bitacora b
+           where b.entidad_id = a.id and b.accion = '"'"'analisis_fallido'"'"'
+           order by b.fecha_hora desc limit 1) as motivo
+  from analisis a
+  join documento d on d.id = a.documento_id
+  join tipo_revision t on t.id = a.tipo_revision_id
+  where a.fecha_inicio > now() - interval '"'"'4 hours'"'"' and d.estado = '"'"'fallido'"'"'
+  order by a.fecha_inicio;"'
+srv$ dcs logs --since 4h worker | grep -iE "error|timeout|traceback|raised" | tail -40
+```
+
+Por defecto el script hace una **petición de calentamiento** (sin medir) para que los modelos estén cargados en memoria antes de medir; se desactiva con `--sin-calentamiento`.

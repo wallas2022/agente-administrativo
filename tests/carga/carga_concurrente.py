@@ -91,20 +91,25 @@ def resumir(mediciones: list[Medicion], duracion_s: float, usuarios: int, escena
     }
 
 
+def estados_texto(r: dict) -> str:
+    return ", ".join(f"{e}: {n}" for e, n in r.get("estados", {}).items()) or "—"
+
+
 def tabla_markdown(resumenes: list[dict]) -> str:
     def f(v: float | None) -> str:
         return "—" if v is None else f"{v:.1f}"
 
     lineas = [
         "| Escenario | Usuarios | OK / total | 1ros. hallazgos p50 (s) | Total p50 (s) | Total p90 (s) "
-        "| Total máx. (s) | Duración (s) | Docs/hora |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Total máx. (s) | Duración (s) | Docs/hora | Estados finales | Errores |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for r in resumenes:
         lineas.append(
             f"| {r['escenario']} | {r['usuarios']} | {r['ok']} / {r['peticiones']} "
             f"| {f(r['t_primeros_p50_s'])} | {f(r['t_total_p50_s'])} | {f(r['t_total_p90_s'])} "
-            f"| {f(r['t_total_max_s'])} | {r['duracion_s']} | {f(r['docs_por_hora'])} |"
+            f"| {f(r['t_total_max_s'])} | {r['duracion_s']} | {f(r['docs_por_hora'])} "
+            f"| {estados_texto(r)} | {'; '.join(r['errores']) or '—'} |"
         )
     return "\n".join(lineas)
 
@@ -272,6 +277,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--timeout-peticion-s", type=float, default=900)
     p.add_argument("--sondeo-s", type=float, default=3)
     p.add_argument("--pausa-entre-niveles-s", type=float, default=30)
+    p.add_argument(
+        "--sin-calentamiento",
+        action="store_true",
+        help="no hacer una petición previa (sin medir) que cargue los modelos en memoria",
+    )
     p.add_argument("--salida", type=Path, help="archivo JSON de resultados")
     p.add_argument("--md", type=Path, help="archivo Markdown con la tabla de resultados")
     args = p.parse_args(argv)
@@ -288,6 +298,12 @@ def main(argv: list[str] | None = None) -> int:
     base = args.base.rstrip("/")
     print(f"Probando {base} · escenario {args.escenario} · niveles {niveles}", file=sys.stderr)
     token = iniciar_sesion(base, args.email, password)
+
+    if not args.sin_calentamiento:
+        print("-> calentamiento (1 petición, no se mide)...", file=sys.stderr)
+        calentamiento = ejecutar_nivel(args, base, token, 1, args.escenario)
+        print(json.dumps(calentamiento, ensure_ascii=False), file=sys.stderr)
+        time.sleep(args.pausa_entre_niveles_s)
 
     resumenes = []
     for indice, usuarios in enumerate(niveles):

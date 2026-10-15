@@ -57,3 +57,13 @@ def test_tabla_markdown_tiene_una_fila_por_nivel() -> None:
 
 def test_el_excel_por_defecto_existe_en_el_repositorio() -> None:
     assert carga.EXCEL_POR_DEFECTO.exists()
+
+
+def test_la_tabla_muestra_los_estados_finales_y_los_errores() -> None:
+    fallida = carga.Medicion("contable", False, None, None, "fallido", "TimeoutError")
+    r = carga.resumir([fallida], 327.0, 1, "contable")
+
+    tabla = carga.tabla_markdown([r])
+
+    assert "fallido: 1" in tabla and "TimeoutError" in tabla
+
