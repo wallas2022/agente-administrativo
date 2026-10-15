@@ -62,8 +62,8 @@ def _bitacora(
 def iniciar_indexacion(
     sesion: Session, fuente: FuenteConocimiento, *, usuario_id: uuid.UUID
 ) -> None:
-    """borrador | error_indexacion -> indexando. No hace commit: el llamador
-    confirma la transición antes de encolar la tarea."""
+    """borrador | error_indexacion -> indexando, confirmada en la base antes de encolar la
+    tarea (así sobrevive a un rollback posterior y el worker siempre la encuentra)."""
     if fuente.estado not in ESTADOS_INICIABLES:
         raise ValueError(
             f"La fuente está en estado '{fuente.estado}'; solo se aprueba desde 'borrador' "
@@ -81,7 +81,7 @@ def iniciar_indexacion(
         fuente=fuente,
         detalle=f"{fuente.fuente_id} v{fuente.version} -> indexando",
     )
-    sesion.flush()
+    sesion.commit()
 
 
 def _motivo_legible(error: Exception) -> str:
@@ -111,24 +111,17 @@ def _borrar_intento_previo(
     sesion.flush()
 
 
-def _registrar_fallo(
-    sesion: Session,
-    cliente_qdrant: QdrantClient,
-    coleccion: str,
-    fuente_id: uuid.UUID,
-    usuario_id: uuid.UUID,
-    error: Exception,
-) -> ResultadoProcesamiento:
+def marcar_error_indexacion(
+    sesion: Session, fuente_id: uuid.UUID, usuario_id: uuid.UUID, error: Exception
+) -> ResultadoProcesamiento | None:
+    """Deja la fuente en "error_indexacion" con el motivo, para que no quede en "indexando"
+    para siempre cuando la tarea falla de forma inesperada (p. ej. un import que falla en el
+    worker). No hace nada si la fuente ya no está "indexando"."""
     sesion.rollback()
     fuente = sesion.get(FuenteConocimiento, fuente_id)
-    assert fuente is not None
+    if fuente is None or fuente.estado != "indexando":
+        return None
     motivo = _motivo_legible(error)
-    try:
-        _borrar_intento_previo(sesion, cliente_qdrant, coleccion, fuente)
-    except Exception:  # noqa: BLE001 - la limpieza no debe ocultar el error original
-        sesion.rollback()
-        fuente = sesion.get(FuenteConocimiento, fuente_id)
-        assert fuente is not None
     fuente.estado = "error_indexacion"
     fuente.motivo_error = motivo
     _bitacora(
@@ -140,6 +133,27 @@ def _registrar_fallo(
     )
     sesion.commit()
     return ResultadoProcesamiento(estado="error_indexacion", motivo=motivo)
+
+
+def _registrar_fallo(
+    sesion: Session,
+    cliente_qdrant: QdrantClient,
+    coleccion: str,
+    fuente_id: uuid.UUID,
+    usuario_id: uuid.UUID,
+    error: Exception,
+) -> ResultadoProcesamiento:
+    sesion.rollback()
+    fuente = sesion.get(FuenteConocimiento, fuente_id)
+    assert fuente is not None
+    try:
+        _borrar_intento_previo(sesion, cliente_qdrant, coleccion, fuente)
+        sesion.commit()
+    except Exception:  # noqa: BLE001 - la limpieza no debe ocultar el error original
+        sesion.rollback()
+    resultado = marcar_error_indexacion(sesion, fuente_id, usuario_id, error)
+    assert resultado is not None
+    return resultado
 
 
 def procesar_indexacion(

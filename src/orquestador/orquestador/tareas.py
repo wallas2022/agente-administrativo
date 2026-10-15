@@ -19,13 +19,25 @@ import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
 
+from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
 
 from comun import almacenamiento
 from comun.cola import app
 from comun.db import obtener_fabrica_sesion
 from comun.estados import EstadoAnalisis, EstadoDocumento
-from comun.modelos import Analisis, Bitacora, Documento, Hallazgo, TipoRevision, VersionDocumento
+from comun.modelos import (
+    Analisis,
+    Bitacora,
+    Documento,
+    FuenteConocimiento,
+    Hallazgo,
+    TipoRevision,
+    VersionDocumento,
+)
+from comun.uso_llm import envolver_funcion_embedding_inyectada, envolver_funcion_embedding_lote
+from curaduria.aprobacion import marcar_error_indexacion, procesar_indexacion
+from curaduria.indexacion import COLECCION_KB
 from orquestador.pipeline_contable import FuncionEmbedding, FuncionLLM, procesar_documento_contable
 from orquestador.pipeline_ocr import (
     FuncionOcr,
@@ -41,6 +53,12 @@ from orquestador.pipeline_ortografia import (
 )
 from orquestador.pipeline_redaccion import procesar_documento_redaccion
 from parsers.pdf import PdfSinTextoError
+from rag.cliente_embeddings import (
+    DIMENSION_BGE_M3,
+    obtener_embedding,
+    obtener_embeddings_lote,
+    tamano_de_lote,
+)
 
 FuncionEncolarValidacionDudosos = Callable[[str], str]
 
@@ -519,26 +537,19 @@ def validar_dudosos_ortografia(analisis_id: str) -> None:
 @app.task(name="orquestador.tareas.indexar_fuente_conocimiento")
 def indexar_fuente_conocimiento(fuente_id: str, usuario_id: str) -> str:
     """P-15 (ADR-010): indexa en segundo plano una fuente en "indexando" y la
-    deja "vigente" o "error_indexacion". Corre en la cola `indexacion`."""
-    from qdrant_client import QdrantClient
+    deja "vigente" o "error_indexacion". Corre en la cola `indexacion`.
 
-    from comun.modelos import FuenteConocimiento
-    from comun.uso_llm import envolver_funcion_embedding_inyectada, envolver_funcion_embedding_lote
-    from curaduria.aprobacion import procesar_indexacion
-    from curaduria.indexacion import COLECCION_KB
-    from rag.cliente_embeddings import (
-        DIMENSION_BGE_M3,
-        obtener_embedding,
-        obtener_embeddings_lote,
-        tamano_de_lote,
-    )
-
+    Los imports van al inicio del módulo y no dentro de la función: Celery quita el
+    directorio de trabajo de sys.path después de cargar la app, así que un paquete no
+    importado al arrancar (curaduria) fallaría aquí con ModuleNotFoundError."""
     sesion = obtener_fabrica_sesion()()
     try:
         fuente = sesion.get(FuenteConocimiento, uuid.UUID(fuente_id))
         if fuente is None:
             return "inexistente"
         archivo = fuente.archivo
+        area_id = fuente.area_id
+        usuario = uuid.UUID(usuario_id)
         cliente_s3 = almacenamiento.obtener_cliente_s3()
         bucket = os.environ.get("MINIO_BUCKET_CONOCIMIENTO", "conocimiento")
         qdrant_host = os.environ.get("QDRANT_HOST", "qdrant")
@@ -546,16 +557,16 @@ def indexar_fuente_conocimiento(fuente_id: str, usuario_id: str) -> str:
         funcion_embedding = envolver_funcion_embedding_inyectada(
             obtener_embedding,
             sesion=sesion,
-            usuario_id=uuid.UUID(usuario_id),
-            area_id=fuente.area_id,
+            usuario_id=usuario,
+            area_id=area_id,
             analisis_id=None,
             caso_uso="embeddings_kb",
         )
         resultado = procesar_indexacion(
             sesion,
             QdrantClient(url=f"http://{qdrant_host}:{qdrant_port}"),
-            fuente_id=fuente.id,
-            usuario_id=uuid.UUID(usuario_id),
+            fuente_id=uuid.UUID(fuente_id),
+            usuario_id=usuario,
             obtener_contenido=lambda: almacenamiento.descargar_objeto(cliente_s3, bucket, archivo),
             funcion_embedding=funcion_embedding,
             dimension=DIMENSION_BGE_M3,
@@ -563,13 +574,16 @@ def indexar_fuente_conocimiento(fuente_id: str, usuario_id: str) -> str:
             funcion_embedding_lote=envolver_funcion_embedding_lote(
                 obtener_embeddings_lote,
                 sesion=sesion,
-                usuario_id=uuid.UUID(usuario_id),
-                area_id=fuente.area_id,
+                usuario_id=usuario,
+                area_id=area_id,
                 analisis_id=None,
                 caso_uso="embeddings_kb",
             ),
             tamano_lote=tamano_de_lote(),
         )
         return resultado.estado
+    except Exception as error:
+        marcar_error_indexacion(sesion, uuid.UUID(fuente_id), uuid.UUID(usuario_id), error)
+        raise
     finally:
         sesion.close()
