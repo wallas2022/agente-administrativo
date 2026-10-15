@@ -95,11 +95,13 @@ def test_stage_solo_publica_el_puerto_443_del_proxy(stage) -> None:
     assert [p["published"] for p in publicados["proxy"]] == ["443"]
 
 
-def test_limites_de_memoria_caben_en_la_vm_de_60_gb(stage) -> None:
+def test_limites_de_ollama_acompanan_los_recursos_de_la_vm(stage) -> None:
     servicios = stage["services"]
 
     ollama = _bytes(servicios["ollama"]["deploy"]["resources"]["limits"]["memory"])
-    assert 40 * 1024**3 <= ollama <= 48 * 1024**3  # antes 64G en una VM de 60 GB
+    assert 40 * 1024**3 <= ollama <= 96 * 1024**3  # la VM tiene hoy 121 GB
+    # Ollama lanza un hilo por vCPU de la VM (hoy 20): un límite menor lo ralentiza muchísimo.
+    assert float(servicios["ollama"]["deploy"]["resources"]["limits"]["cpus"]) >= 20
 
     proxy = _bytes(servicios["proxy"]["deploy"]["resources"]["limits"]["memory"])
     assert proxy <= 1024**3  # antes 64G para un proxy

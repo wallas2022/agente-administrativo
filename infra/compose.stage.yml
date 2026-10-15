@@ -85,10 +85,13 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "8"   # todos los vCPU de la VM
-          # VM de 60 GB: 64G superaba la RAM. 44G cubre los 3 modelos y su contexto y deja
-          # ~16 GB al resto de servicios [POR CONFIRMAR con `docker stats` bajo carga].
-          memory: 44G
+          # Debe coincidir con los vCPU de la VM (hoy 20): Ollama lanza un hilo por vCPU y,
+          # si este límite es menor, Docker los pausa en cada ciclo de 100 ms y la IA se
+          # vuelve muchas veces más lenta (hallazgo de la prueba de carga del 15/10).
+          # Si TI cambia los vCPU de la VM, cambie también este valor.
+          cpus: "20"
+          # VM de 121 GB: 3 modelos con su contexto caben de sobra; deja memoria al resto.
+          memory: 80G
 
   qdrant:
     volumes:

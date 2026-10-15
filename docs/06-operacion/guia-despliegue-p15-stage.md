@@ -18,7 +18,7 @@ Para quien opera stage. Esta guía despliega los cambios de P-15 sobre un stage 
 | Fragmentos de hasta 4,089 tokens (truncados a 2,048) | Fragmentos de máximo 450 tokens, con solapamiento de 60 |
 | Embeddings: un texto por llamada, timeout fijo de 30 s | Lotes de 16, timeout de 300 s, 3 reintentos |
 | LocalStack (perdió objetos) o `compose.garage.yml` sin versionar | Garage versionado en `compose.stage.yml` |
-| `ollama` con 64G en una VM de 60 GB; `proxy` con 64G | `ollama` 44G; `proxy` 256M |
+| `ollama` con 64G en una VM de 60 GB; `proxy` con 64G | `ollama` 80G y 20 CPU (VM actual de 20 vCPU y 121 GB); `proxy` 256M |
 
 ```mermaid
 flowchart TD
@@ -349,7 +349,7 @@ Comprueba que los errores se ven y se recuperan.
    srv$ free -h
    srv$ docker stats --no-stream
    ```
-   Anota: memoria usada por `ollama` `[ ]`, total usado `[ ]`. Si `ollama` pasa de 44G o la VM usa swap de forma sostenida, ajusta `memory` en `infra/compose.stage.yml` y repórtalo.
+   Anota: memoria usada por `ollama` `[ ]`, total usado `[ ]`. Si `ollama` pasa de 80G o la VM usa swap de forma sostenida, ajusta `memory` en `infra/compose.stage.yml` y repórtalo.
 5. **Reinicio completo** (prueba de persistencia de todo el ambiente): `dcs restart` y comprobar que las fuentes siguen respondiendo en el chat y que descargar un documento sigue funcionando.
 6. Anota los resultados reales en `docs/04-pruebas/resultados/stage-P15.md` (Bloque 6: fragmentos, duración total, ms por lote, memoria) y toma un **snapshot de Proxmox** `p15-validado`.
 
@@ -390,5 +390,5 @@ Comprueba que los errores se ven y se recuperan.
 - [ ] Falla simulada: `error_indexacion` con motivo legible → **Reintentar** → `vigente`
 - [ ] CONT-006 y CONT-007 `vigentes`; `max_caracteres` ≤ ~1,350; ms por lote anotados
 - [ ] Chat cita CONT-006 y CONT-007; CU-01 y CU-05 siguen funcionando
-- [ ] Memoria de `ollama` ≤ 44G y sin swap sostenido; resultados anotados en `stage-P15.md`
+- [ ] Memoria de `ollama` ≤ 80G y sin swap sostenido; resultados anotados en `stage-P15.md`
 - [ ] Snapshot `p15-validado`
