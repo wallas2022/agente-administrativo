@@ -30,14 +30,29 @@ def _url_base() -> str:
     return f"http://{host}:{puerto}"
 
 
+TIMEOUT_POR_DEFECTO_S = 60.0
+
+
+def _timeout_efectivo(timeout: float | None) -> float:
+    """`LANGUAGETOOL_TIMEOUT_S` (60 s por defecto): la primera petición tras un rato sin uso
+    tarda más (arranque en frío de la JVM) y 20 s fijos la hacían fallar."""
+    if timeout is not None:
+        return timeout
+    try:
+        valor = float(os.environ.get("LANGUAGETOOL_TIMEOUT_S", ""))
+    except ValueError:
+        return TIMEOUT_POR_DEFECTO_S
+    return valor if valor > 0 else TIMEOUT_POR_DEFECTO_S
+
+
 def revisar_texto(
-    texto: str, *, idioma: str | None = None, timeout: float = 20.0
+    texto: str, *, idioma: str | None = None, timeout: float | None = None
 ) -> list[CoincidenciaLT]:
     idioma_efectivo = idioma or os.environ.get("LANGUAGETOOL_LOCALE", "es")
     respuesta = httpx.post(
         f"{_url_base()}/v2/check",
         data={"language": idioma_efectivo, "text": texto},
-        timeout=timeout,
+        timeout=_timeout_efectivo(timeout),
     )
     respuesta.raise_for_status()
     datos = respuesta.json()

@@ -51,6 +51,7 @@ Cada contraseña es distinta (el script genera una por marcador). Guardar copia 
 | Objetos S3 | `MINIO_ENDPOINT` | `garage:3900` | Sí (`comun/almacenamiento.py`) | Garage v1.0.1 en stage (ADR-006 v2); región `us-east-1`, path-style. `localstack:4566` solo en local |
 | Objetos S3 | `MINIO_BUCKET_CONOCIMIENTO` | `conocimiento` | Sí | Faltaba en v1 |
 | Ortografía | `LANGUAGETOOL_LOCALE` | `es` | Sí | v1 decía `es-GT` → **error 400** |
+| Ortografía | `LANGUAGETOOL_TIMEOUT_S` | `60` | Sí | Antes 20 s fijos: la primera petición tras un rato sin uso (arranque en frío de LanguageTool) vencía |
 | Auth | `LDAP_*` | vacías | No | LDAP no implementado |
 | Otras | `ORQUESTADOR_MAX_CONCURRENCIA`, `LLM_CONTEXT_WINDOW`, `OCR_DPI_MINIMO`, `DOCUMENTO_*` | 2, 8192, 300, 1024/90 | No | Documentales; el código usa valores fijos |
 | Langfuse | `LANGFUSE_*` | secretos | Compose | Solo con `--profile observabilidad` |
