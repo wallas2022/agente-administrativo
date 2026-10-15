@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { clienteApi, obtenerTokenActual, URL_BASE_API } from "../api/cliente";
 import { MENSAJE_SIN_CONEXION, mensajeDeError } from "../utils/errores";
+import { TextoConNegritas } from "../componentes/TextoConNegritas";
 import "./Chat.css";
 
 type FuenteCitada = {
@@ -199,7 +200,9 @@ export function Chat() {
             mensajes.map((m) => (
               <div key={m.id} className={"chat__mensaje chat__mensaje--" + m.rol}>
                 <span className="chat__mensaje-rol">{m.rol === "user" ? "Tú" : "Asistente"}</span>
-                <p className="chat__mensaje-contenido">{m.contenido}</p>
+                <p className="chat__mensaje-contenido">
+                  <TextoConNegritas texto={m.contenido} />
+                </p>
                 {m.fuentes_citadas && m.fuentes_citadas.length > 0 && (
                   <ul className="chat__fuentes">
                     {m.fuentes_citadas.map((f, i) => (

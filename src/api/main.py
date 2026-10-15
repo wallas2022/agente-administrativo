@@ -33,6 +33,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -2808,6 +2809,10 @@ def _a_esquema_mensaje(m: Mensaje) -> MensajeEsquema:
     )
 
 
+_MENSAJE_RESPUESTA_VACIA = (
+    "No pude redactar una respuesta con la información disponible. Reformule la pregunta o "
+    "hágala más específica e inténtelo de nuevo."
+)
 _LONGITUD_MAXIMA_TITULO = 80
 
 
@@ -2900,7 +2905,8 @@ async def enviar_mensaje_chat(
         contenido_adjunto = await adjunto.read()
         if contenido_adjunto:
             try:
-                texto_adjunto = extraer_texto_adjunto(
+                texto_adjunto = await run_in_threadpool(
+                    extraer_texto_adjunto,
                     contenido_adjunto,
                     nombre_archivo=adjunto.filename or "",
                     funcion_ocr=funcion_ocr,
@@ -2929,7 +2935,10 @@ async def enviar_mensaje_chat(
         analisis_id=None,
         caso_uso="chat_kb",
     )
-    fragmentos = buscar_fragmentos(
+    # Búsqueda y generación bloquean (HTTP a Ollama, minutos en CPU): van a un hilo aparte para
+    # no congelar el servidor (este endpoint es async) mientras otros usuarios trabajan.
+    fragmentos = await run_in_threadpool(
+        buscar_fragmentos,
         cliente_qdrant,
         coleccion=coleccion,
         texto_consulta=contenido,
@@ -2946,7 +2955,8 @@ async def enviar_mensaje_chat(
     # contra gpt-oss:20b real en hardware sin GPU, un prompt sin acotar
     # (pensamiento normal, sin límite de salida) superó el timeout de 300s
     # -- mismo ajuste que ya usa obtener_funcion_llm() para mejorar_redaccion.
-    respuesta_texto = generar_respuesta_chat_con_registro(
+    respuesta_texto = await run_in_threadpool(
+        generar_respuesta_chat_con_registro,
         mensajes_llm,
         sesion=sesion,
         usuario_id=usuario.id,
@@ -2955,6 +2965,11 @@ async def enviar_mensaje_chat(
         num_ctx=4096,
         num_predict=800,
     )
+
+    if not respuesta_texto.strip():
+        # gpt-oss puede gastar todos los tokens permitidos razonando y no redactar nada.
+        logging.getLogger(__name__).warning("El modelo devolvió una respuesta vacía en el chat")
+        respuesta_texto = _MENSAJE_RESPUESTA_VACIA
 
     ahora = datetime.now(UTC)
     mensaje_usuario = Mensaje(

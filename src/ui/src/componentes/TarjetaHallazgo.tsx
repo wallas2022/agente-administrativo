@@ -2,6 +2,7 @@ import { useState } from "react";
 import { clienteApi } from "../api/cliente";
 import { EstadoBadge } from "./EstadoBadge";
 import { SeveridadBadge } from "./SeveridadBadge";
+import { TextoConNegritas } from "./TextoConNegritas";
 import "./TarjetaHallazgo.css";
 
 export interface Hallazgo {
@@ -169,7 +170,9 @@ export function TarjetaHallazgo({
             hallazgo.correccion_sugerida && (
               <div className="tarjeta-hallazgo__explicacion">
                 <h3>Explicación y corrección sugerida</h3>
-                <p>{hallazgo.correccion_sugerida}</p>
+                <p>
+                  <TextoConNegritas texto={hallazgo.correccion_sugerida} />
+                </p>
               </div>
             )
           )}

@@ -123,3 +123,15 @@ Hallazgo local 14/10: dos fuentes distintas se crearon con `CONTIT-001` versión
 | `src/ui/.../BaseConocimiento.tsx` | Comprobación previa al escribir ID y versión (mensaje, advertencia y botón bloqueado) y de nuevo al enviar, antes de subir el archivo. | ok (+3) |
 
 Métricas: pytest 798 pasan (cobertura 94 %), mypy y ruff sin errores, vitest 134 pasan, tsc sin errores.
+
+## Hallazgos locales 15/10 — chat
+
+Detectados al preparar las capturas de la presentación:
+
+| Hallazgo | Causa | Corrección | Prueba |
+| --- | --- | --- | --- |
+| El chat respondía con un mensaje vacío (solo las fuentes) | gpt-oss gastó los 800 tokens permitidos razonando y no redactó texto; con fuentes antiguas de fragmentos grandes el contexto llegaba a ~2,050 tokens | Si la respuesta viene vacía se guarda un mensaje explicativo ("Reformule la pregunta…"). Pendiente de fondo: reindexar las fuentes grandes con la fragmentación de 450 tokens | `test_respuesta_vacia_del_modelo_se_reemplaza_por_un_mensaje_explicativo` |
+| Mientras el chat esperaba a la IA, el servidor no atendía a nadie (ni el inicio de sesión) | `enviar_mensaje_chat` es `async` y llamaba a la IA de forma bloqueante (bloqueaba el ciclo de eventos) | Búsqueda, generación y lectura de adjuntos corren en un hilo (`run_in_threadpool`) | `test_mientras_el_chat_espera_a_la_ia_el_servidor_sigue_atendiendo_a_los_demas` |
+| Las explicaciones y respuestas mostraban `**texto**` | La interfaz no interpretaba las negritas | Componente `TextoConNegritas` (sin HTML crudo) en hallazgos y chat | 2 pruebas de UI |
+
+El segundo hallazgo afecta directamente a la capacidad con usuarios simultáneos: sin esta corrección, una sola pregunta al chat paraba la API para todos. Las pruebas de carga deben ejecutarse con la imagen que ya la incluye.

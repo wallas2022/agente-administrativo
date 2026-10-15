@@ -211,7 +211,11 @@ def test_enviar_mensaje_con_adjunto_de_imagen_usa_su_texto(
         linea = Linea(texto="texto de la imagen adjunta", palabras=(palabra,))
         return [
             ResultadoPagina(
-                numero=1, ancho_px=10, alto_px=10, lineas=(linea,), palabras=(palabra,),
+                numero=1,
+                ancho_px=10,
+                alto_px=10,
+                lineas=(linea,),
+                palabras=(palabra,),
                 confianza_media=90.0,
             )
         ]
@@ -263,9 +267,11 @@ def test_adjunto_nunca_se_agrega_a_la_base_de_conocimiento(
     )
 
     assert sesion_bd.query(FuenteConocimiento).count() == 0
-    conteo_puntos = cliente_qdrant.count(collection_name=COLECCION).count if (
-        cliente_qdrant.collection_exists(COLECCION)
-    ) else 0
+    conteo_puntos = (
+        cliente_qdrant.count(collection_name=COLECCION).count
+        if (cliente_qdrant.collection_exists(COLECCION))
+        else 0
+    )
     assert conteo_puntos == 0
 
 
@@ -324,3 +330,58 @@ def test_cada_rol_solo_ve_sus_propias_conversaciones(cliente: TestClient) -> Non
     for correo in correos:
         respuesta = cliente.get("/chat/conversaciones", headers=_encabezado(cliente, correo))
         assert len(respuesta.json()) == 1
+
+
+def test_respuesta_vacia_del_modelo_se_reemplaza_por_un_mensaje_explicativo(
+    cliente: TestClient, monkeypatch
+) -> None:
+    # gpt-oss puede gastar todos los tokens permitidos razonando y devolver contenido vacío.
+    monkeypatch.setattr(httpx, "post", lambda url, *, json, timeout: _respuesta_chat_falsa("  "))
+    encabezado = _encabezado(cliente, "analista@local")
+    conversacion = cliente.post("/chat/conversaciones", headers=encabezado).json()
+
+    respuesta = cliente.post(
+        f"/chat/conversaciones/{conversacion['id']}/mensajes",
+        headers=encabezado,
+        data={"contenido": "Una pregunta muy larga"},
+    )
+
+    assert respuesta.status_code == 200
+    contenido = respuesta.json()["contenido"]
+    assert contenido.strip() != ""
+    assert "reformule" in contenido.lower()
+
+
+def test_mientras_el_chat_espera_a_la_ia_el_servidor_sigue_atendiendo_a_los_demas(
+    cliente: TestClient, monkeypatch
+) -> None:
+    import threading
+    import time
+
+    # Una generación lenta no debe bloquear el servidor: antes, el endpoint async llamaba a la IA
+    # de forma bloqueante y congelaba hasta el inicio de sesión de los demás usuarios.
+    def _post_lento(url, *, json, timeout):
+        time.sleep(1.5)
+        return _respuesta_chat_falsa("respuesta lenta")
+
+    monkeypatch.setattr(httpx, "post", _post_lento)
+    encabezado = _encabezado(cliente, "analista@local")
+    conversacion = cliente.post("/chat/conversaciones", headers=encabezado).json()
+    hilo = threading.Thread(
+        target=lambda: cliente.post(
+            f"/chat/conversaciones/{conversacion['id']}/mensajes",
+            headers=encabezado,
+            data={"contenido": "Pregunta lenta"},
+        )
+    )
+    hilo.start()
+    time.sleep(0.4)
+
+    inicio = time.monotonic()
+    respuesta = cliente.get("/health")
+    espera = time.monotonic() - inicio
+    hilo.join()
+
+    assert respuesta.status_code == 200
+    assert espera < 0.8, f"el servidor estuvo bloqueado {espera:.1f} s mientras el chat esperaba"
+
