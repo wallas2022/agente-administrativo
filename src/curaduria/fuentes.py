@@ -20,6 +20,7 @@ orden correcto para no violarlo nunca, ni siquiera transitoriamente.
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -100,3 +101,67 @@ def aprobar_fuente(
     fuente.fecha_aprobacion = ahora
     sesion.flush()
     return anterior
+
+
+@dataclass(frozen=True)
+class EvaluacionAlta:
+    permitido: bool
+    codigo_http: int = 200
+    mensaje: str | None = None
+    advertencias: list[str] = field(default_factory=list)
+    es_nueva_version: bool = False
+
+
+def mensaje_duplicada(fuente_id: str, version: str) -> str:
+    return f"Ya existe {fuente_id} versión {version}; use otro ID o suba una nueva versión"
+
+
+def evaluar_alta_fuente(
+    sesion: Session,
+    *,
+    fuente_id: str,
+    version: str,
+    titulo: str,
+    tipo: str,
+    area_id: uuid.UUID,
+) -> EvaluacionAlta:
+    """Bloque 3.5: (fuente_id, version) es único. Un fuente_id existente con otra versión es una
+    nueva versión del mismo documento solo si coinciden el área y el tipo (se advierte si el
+    título difiere); un fuente_id de otra área se rechaza (403)."""
+    fuente_id = fuente_id.strip()
+    version = version.strip()
+    existentes = (
+        sesion.query(FuenteConocimiento)
+        .filter(FuenteConocimiento.fuente_id == fuente_id)
+        .order_by(FuenteConocimiento.fecha_carga.desc())
+        .all()
+    )
+    if not existentes:
+        return EvaluacionAlta(permitido=True)
+    if any(f.area_id != area_id for f in existentes):
+        return EvaluacionAlta(
+            permitido=False,
+            codigo_http=403,
+            mensaje=f"El ID {fuente_id} pertenece a otra área; use otro ID",
+        )
+    if any(f.version == version for f in existentes):
+        return EvaluacionAlta(
+            permitido=False, codigo_http=409, mensaje=mensaje_duplicada(fuente_id, version)
+        )
+    ultima = existentes[0]
+    if ultima.tipo != clasificar_tipo_fuente(tipo):
+        return EvaluacionAlta(
+            permitido=False,
+            codigo_http=409,
+            mensaje=(
+                f"El ID {fuente_id} ya existe con tipo '{ultima.tipo}'; una nueva versión debe "
+                "conservar el tipo. Use otro ID"
+            ),
+        )
+    advertencias = []
+    if titulo.strip().lower() != ultima.titulo.strip().lower():
+        advertencias.append(
+            f"El título difiere del de la versión existente («{ultima.titulo}»); confirme que "
+            "es el mismo documento"
+        )
+    return EvaluacionAlta(permitido=True, advertencias=advertencias, es_nueva_version=True)

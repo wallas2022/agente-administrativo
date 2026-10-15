@@ -206,9 +206,7 @@ def test_aprobar_fuente_indexa_y_la_deja_vigente(cliente, sesion_bd) -> None:
     encabezados = _encabezados(test_client, "curador@local")
     fuente = _crear_fuente(test_client, encabezados)
 
-    respuesta = test_client.post(
-        f"/curaduria/fuentes/{fuente['id']}/aprobar", headers=encabezados
-    )
+    respuesta = test_client.post(f"/curaduria/fuentes/{fuente['id']}/aprobar", headers=encabezados)
     assert respuesta.status_code == 202, respuesta.text
     assert respuesta.json()["estado"] == "indexando"  # responde antes de indexar
 
@@ -373,9 +371,7 @@ def test_editor_de_glosario_crear_listar_y_eliminar(cliente, sesion_bd) -> None:
     respuesta = test_client.get("/curaduria/glosario", headers=encabezados)
     assert any(t["termino"] == "DTE" for t in respuesta.json())
 
-    respuesta = test_client.delete(
-        f"/curaduria/glosario/{termino['id']}", headers=encabezados
-    )
+    respuesta = test_client.delete(f"/curaduria/glosario/{termino['id']}", headers=encabezados)
     assert respuesta.status_code == 204
     assert sesion_bd.get(Glosario, uuid.UUID(termino["id"])) is None
     assert sesion_bd.query(Bitacora).filter_by(accion="glosario_eliminado").count() == 1
@@ -413,7 +409,11 @@ def test_validar_plantilla_real_no_persiste_nada(cliente, sesion_bd) -> None:
     cuerpo = respuesta.json()
     assert cuerpo["es_valido"] is True
     assert cuerpo["resumen"] == {
-        "fuentes": 8, "cuentas": 42, "reglas": 14, "glosario": 16, "checklist": 12
+        "fuentes": 8,
+        "cuentas": 42,
+        "reglas": 14,
+        "glosario": 16,
+        "checklist": 12,
     }
     assert sesion_bd.query(FuenteConocimiento).count() == 0
 
@@ -470,13 +470,40 @@ def test_importar_plantilla_con_errores_no_persiste_nada(cliente, sesion_bd) -> 
     _hoja(
         wb,
         "Inventario de fuentes",
-        ("fuente_id", "titulo", "tipo", "version", "vigente_desde", "estado", "dueno_area",
-         "archivo_entregado", "observaciones"),
+        (
+            "fuente_id",
+            "titulo",
+            "tipo",
+            "version",
+            "vigente_desde",
+            "estado",
+            "dueno_area",
+            "archivo_entregado",
+            "observaciones",
+        ),
         [
-            ("POL-001", "Política de cierre", "política (Word)", "1.0", "2026-01-01",
-             "publicado", "x", "a.docx", None),  # estado inválido
-            ("CAT-001", "Catálogo de cuentas", "catálogo (Excel)", "1.0", "2026-01-01",
-             "vigente", "x", "b.xlsx", None),
+            (
+                "POL-001",
+                "Política de cierre",
+                "política (Word)",
+                "1.0",
+                "2026-01-01",
+                "publicado",
+                "x",
+                "a.docx",
+                None,
+            ),  # estado inválido
+            (
+                "CAT-001",
+                "Catálogo de cuentas",
+                "catálogo (Excel)",
+                "1.0",
+                "2026-01-01",
+                "vigente",
+                "x",
+                "b.xlsx",
+                None,
+            ),
         ],
     )
     _hoja(
@@ -491,8 +518,16 @@ def test_importar_plantilla_con_errores_no_persiste_nada(cliente, sesion_bd) -> 
     _hoja(
         wb,
         "Reglas contables",
-        ("id_regla", "descripcion", "area", "tipo_documento", "severidad", "moneda",
-         "fuente_id", "estado_validacion"),
+        (
+            "id_regla",
+            "descripcion",
+            "area",
+            "tipo_documento",
+            "severidad",
+            "moneda",
+            "fuente_id",
+            "estado_validacion",
+        ),
         [("RN-99", "Regla nueva", "Contabilidad", "Excel", "alta", "Q", "ZZZ-999", "Sí")],
     )  # fuente_id de regla inexistente en el inventario
     _hoja(
@@ -594,3 +629,173 @@ def test_el_listado_expone_el_progreso_de_la_indexacion(cliente, sesion_bd) -> N
         40,
     )
 
+
+# --- Bloque 3.5: unicidad de fuentes ---------------------------------------------------
+
+
+def _post_fuente(test_client, encabezados, **cambios):
+    datos = {
+        "fuente_id": "CONTIT-001",
+        "titulo": "Redes y Telecomunicaciones",
+        "tipo": "política (Word)",
+        "version": "1",
+        "vigente_desde": "2026-01-15",
+        "dueno": "TI",
+    }
+    datos.update(cambios)
+    return test_client.post(
+        "/curaduria/fuentes",
+        headers=encabezados,
+        data=datos,
+        files={"archivo": ("doc.pdf", RUTA_PDF_EJEMPLO.read_bytes(), "application/pdf")},
+    )
+
+
+def test_alta_duplicada_se_rechaza_con_409_sin_tocar_el_archivo_existente(
+    cliente, sesion_bd
+) -> None:
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+    assert _post_fuente(test_client, encabezados).status_code == 200
+    s3 = main.app.dependency_overrides[main.obtener_cliente_almacenamiento]()
+    antes = s3.list_objects_v2(Bucket="conocimiento")["Contents"]
+
+    respuesta = _post_fuente(test_client, encabezados, titulo="Patrón de diseños")
+
+    assert respuesta.status_code == 409
+    assert respuesta.json()["detail"] == (
+        "Ya existe CONTIT-001 versión 1; use otro ID o suba una nueva versión"
+    )
+    assert sesion_bd.query(FuenteConocimiento).filter_by(fuente_id="CONTIT-001").count() == 1
+    despues = s3.list_objects_v2(Bucket="conocimiento")["Contents"]
+    assert [(o["Key"], o["ETag"]) for o in despues] == [(o["Key"], o["ETag"]) for o in antes]
+
+
+def test_nueva_version_del_mismo_documento_se_acepta(cliente, sesion_bd) -> None:
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+    _post_fuente(test_client, encabezados)
+
+    respuesta = _post_fuente(test_client, encabezados, version="2")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["version"] == "2" and respuesta.json()["advertencias"] is None
+    assert sesion_bd.query(FuenteConocimiento).filter_by(fuente_id="CONTIT-001").count() == 2
+
+
+def test_nueva_version_con_otro_titulo_se_acepta_con_advertencia(cliente) -> None:
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+    _post_fuente(test_client, encabezados)
+
+    respuesta = _post_fuente(test_client, encabezados, version="2", titulo="Patrón de diseños")
+
+    assert respuesta.status_code == 200
+    assert "Redes y Telecomunicaciones" in respuesta.json()["advertencias"][0]
+
+
+def test_nueva_version_con_otro_tipo_se_rechaza(cliente) -> None:
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+    _post_fuente(test_client, encabezados)
+
+    respuesta = _post_fuente(test_client, encabezados, version="2", tipo="normativa (ley)")
+
+    assert respuesta.status_code == 409
+    assert "tipo" in respuesta.json()["detail"]
+
+
+def test_id_de_otra_area_se_rechaza_con_403(cliente, sesion_bd) -> None:
+    from datetime import UTC, date, datetime
+
+    from comun.modelos import Area, Usuario
+
+    test_client, _qdrant = cliente
+    otra = Area(nombre="Tesorería")
+    sesion_bd.add(otra)
+    sesion_bd.flush()
+    autor = sesion_bd.query(Usuario).first()
+    sesion_bd.add(
+        FuenteConocimiento(
+            fuente_id="CONTIT-001",
+            titulo="De otra área",
+            tipo="regla_interna",
+            prioridad=1,
+            version="1",
+            vigente_desde=date(2026, 1, 1),
+            estado="borrador",
+            area_id=otra.id,
+            dueno="Tesorería",
+            archivo="x/CONTIT-001/1/a.pdf",
+            cargado_por=autor.id,
+            fecha_carga=datetime.now(UTC),
+        )
+    )
+    sesion_bd.commit()
+    encabezados = _encabezados(test_client, "curador@local")
+
+    respuesta = _post_fuente(test_client, encabezados, version="2")
+
+    assert respuesta.status_code == 403
+    assert "otra área" in respuesta.json()["detail"]
+
+
+def test_validar_alta_adelanta_el_veredicto_antes_de_subir_el_archivo(cliente) -> None:
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+    _post_fuente(test_client, encabezados)
+
+    def validar(**c):
+        cuerpo = {
+            "fuente_id": "CONTIT-001",
+            "version": "1",
+            "titulo": "Redes y Telecomunicaciones",
+            "tipo": "política (Word)",
+        }
+        cuerpo.update(c)
+        return test_client.post("/curaduria/fuentes/validar-alta", headers=encabezados, json=cuerpo)
+
+    duplicada = validar().json()
+    assert duplicada["permitido"] is False and duplicada["codigo_http"] == 409
+    assert "Ya existe CONTIT-001 versión 1" in duplicada["mensaje"]
+    nueva = validar(version="2", titulo="Otro título").json()
+    assert nueva["permitido"] and nueva["es_nueva_version"] and len(nueva["advertencias"]) == 1
+    assert validar(fuente_id="NUEVO-001").json()["permitido"] is True
+
+
+def test_validar_alta_exige_permiso_de_gestion(cliente) -> None:
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "analista@local")
+
+    respuesta = test_client.post(
+        "/curaduria/fuentes/validar-alta",
+        headers=encabezados,
+        json={"fuente_id": "X", "version": "1"},
+    )
+
+    assert respuesta.status_code == 403
+
+
+def test_importar_la_plantilla_dos_veces_rechaza_los_ids_repetidos_con_hoja_fila_y_columna(
+    cliente,
+) -> None:
+    test_client, _qdrant = cliente
+    encabezados = _encabezados(test_client, "curador@local")
+    contenido = RUTA_PLANTILLA_REAL.read_bytes()
+
+    def subir(ruta):
+        return test_client.post(
+            ruta,
+            headers=encabezados,
+            files={"archivo": ("plantilla.xlsx", contenido, "application/octet-stream")},
+        )
+
+    primera = subir("/curaduria/plantilla/importar").json()
+    assert primera["es_valido"] is True
+
+    for ruta in ("/curaduria/plantilla/validar", "/curaduria/plantilla/importar"):
+        segunda = subir(ruta).json()
+        assert segunda["es_valido"] is False
+        error = segunda["errores"][0]
+        assert error["hoja"] == "Inventario de fuentes" and error["columna"] == "fuente_id"
+        assert error["fila"] >= 2 and "Ya existe" in error["mensaje"]

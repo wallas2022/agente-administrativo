@@ -743,6 +743,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/curaduria/fuentes/validar-alta": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validar Alta Fuente
+         * @description Comprobación previa a subir el archivo (la UI la usa al escribir el ID y la versión): dice
+         *     si el alta se permitirá, con el mismo criterio que POST /curaduria/fuentes.
+         */
+        post: operations["validar_alta_fuente_curaduria_fuentes_validar_alta_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/curaduria/fuentes/{fuente_id}/vista-previa": {
         parameters: {
             query?: never;
@@ -1202,6 +1223,8 @@ export interface components {
             fragmentos_procesados?: number | null;
             /** Motivo Error */
             motivo_error?: string | null;
+            /** Advertencias */
+            advertencias?: string[] | null;
         };
         /** GlosarioEsquema */
         GlosarioEsquema: {
@@ -1599,6 +1622,19 @@ export interface components {
             /** Rol */
             rol: string;
         };
+        /** RespuestaValidarAltaFuente */
+        RespuestaValidarAltaFuente: {
+            /** Permitido */
+            permitido: boolean;
+            /** Codigo Http */
+            codigo_http: number;
+            /** Mensaje */
+            mensaje?: string | null;
+            /** Advertencias */
+            advertencias: string[];
+            /** Es Nueva Version */
+            es_nueva_version: boolean;
+        };
         /** RespuestaValidarPlantilla */
         RespuestaValidarPlantilla: {
             /** Es Valido */
@@ -1710,6 +1746,23 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /** SolicitudValidarAltaFuente */
+        SolicitudValidarAltaFuente: {
+            /** Fuente Id */
+            fuente_id: string;
+            /** Version */
+            version: string;
+            /**
+             * Titulo
+             * @default
+             */
+            titulo: string;
+            /**
+             * Tipo
+             * @default
+             */
+            tipo: string;
         };
         /** TarjetasConsumoEsquema */
         TarjetasConsumoEsquema: {
@@ -2954,6 +3007,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FuenteCuraduriaEsquema"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    validar_alta_fuente_curaduria_fuentes_validar_alta_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SolicitudValidarAltaFuente"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaValidarAltaFuente"];
                 };
             };
             /** @description Validation Error */

@@ -171,7 +171,18 @@ srv$ dcs build
 
 ## Paso 5. Migrar la base de datos (5 min)
 
-Hay una migración nueva (`d41a9b7c5e20`): agrega a `fuente_conocimiento` las columnas `fragmentos_total`, `fragmentos_procesados` y `motivo_error`. Se aplica **antes** de levantar la API nueva.
+Hay dos migraciones nuevas, que se aplican **antes** de levantar la API nueva:
+
+1. `d41a9b7c5e20`: agrega a `fuente_conocimiento` las columnas `fragmentos_total`, `fragmentos_procesados` y `motivo_error`.
+2. `e7b2c9a14f60` (bloque 3.5): restricción UNIQUE `(fuente_id, version)`. **Si hay filas duplicadas, la migración se detiene y las lista sin borrar nada.**
+
+Antes de migrar, busca duplicados (solo lee):
+
+```bash
+srv$ dcs run --rm --no-deps api python -m curaduria.duplicados
+```
+
+Si lista grupos, decide cuál renombrar y corrígelo (por ejemplo `UPDATE fuente_conocimiento SET fuente_id = 'ID-NUEVO' WHERE id = '<id de la fila>';`; si la fuente ya está vigente, actualiza también el payload `fuente_id` de sus puntos en Qdrant) y vuelve a ejecutar el comando hasta que diga que no hay duplicados.
 
 ```bash
 srv$ dcs up -d postgres redis qdrant
@@ -181,7 +192,7 @@ srv$ dcs run --rm --no-deps -w /app/api api python -m alembic upgrade head
 srv$ dcs run --rm --no-deps -w /app/api api python -m alembic current
 ```
 
-- Antes de `upgrade` debe mostrar `7fcc343bac6f`; después, `d41a9b7c5e20 (head)`.
+- Antes de `upgrade` debe mostrar `7fcc343bac6f`; después, `e7b2c9a14f60 (head)`.
 - Comprueba las columnas:
   ```bash
   srv$ dcs exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\d fuente_conocimiento"' | grep -E 'fragmentos_|motivo_error'
@@ -373,7 +384,7 @@ Comprueba que los errores se ven y se recuperan.
 - [ ] `git log` muestra el Bloque 6 de P-15; cambios locales apartados con `git stash`
 - [ ] Garage con `garage.toml` propio (no versionado), layout, llave y buckets; `MINIO_ENDPOINT=garage:3900`
 - [ ] Objeto subido, `restart garage` y objeto descargado correctamente (persistencia)
-- [ ] Migración `d41a9b7c5e20` aplicada
+- [ ] Migraciones `d41a9b7c5e20` y `e7b2c9a14f60` aplicadas (sin fuentes duplicadas)
 - [ ] `worker_indexacion` arriba y escuchando `indexacion`; LocalStack ya no se levanta
 - [ ] Fuente pequeña: `indexando: fragmento N de M` → `vigente`
 - [ ] Falla simulada: `error_indexacion` con motivo legible → **Reintentar** → `vigente`

@@ -100,3 +100,26 @@ Métricas: pytest 769 pasan (cobertura 94 %), mypy y ruff sin errores, vitest 13
 4. Si alguna ya está `vigente` con fragmentos grandes: subir el mismo archivo como versión nueva del mismo `fuente_id` y aprobarla; la anterior pasa a `obsoleta` al terminar.
 5. Seguimiento: el estado muestra "indexando: fragmento N de M"; `dcs logs -f worker_indexacion`; las filas `embeddings_kb` de `uso_llm` (una por lote) dan el tiempo real por lote en el dashboard de P-13.
 6. Anotar aquí fragmentos, duración total y tiempo por lote medidos, y verificar con el chat que ambas fuentes responden con citas.
+
+## Hallazgo local 14/10 — worker de indexación sin el paquete `curaduria`
+
+Al probar P-15 en local, las fuentes aprobadas quedaron en `indexando` para siempre. En el log de `worker_indexacion`: `ModuleNotFoundError: No module named 'curaduria'`.
+
+- **Causa:** Celery quita el directorio de trabajo de `sys.path` al terminar de cargar la app. La tarea importaba `curaduria` dentro de la función (en el momento de ejecutarse), y ese paquete no se había cargado al arrancar. Los demás paquetes (`rag`, `ocr`, `comun`) ya estaban cargados porque los pipelines los importan al inicio. En stage habría ocurrido igual.
+- **Corrección (commit `f313d92`):** los imports van al inicio de `orquestador/tareas.py`, y ante cualquier falla inesperada la tarea marca la fuente como `error_indexacion` con el motivo en vez de dejarla en `indexando`.
+- **Pruebas nuevas:** el módulo carga sus dependencias al importarse (en un proceso aparte), `marcar_error_indexacion`, y una falla inesperada de la tarea deja la fuente en `error_indexacion`.
+
+## Bloque 3.5 — Unicidad de fuentes
+
+Hallazgo local 14/10: dos fuentes distintas se crearon con `CONTIT-001` versión 1.
+
+| Ruta | Cambio | Pruebas |
+| --- | --- | --- |
+| `src/curaduria/fuentes.py` | `evaluar_alta_fuente`: mismo ID y versión → 409 "Ya existe {id} versión {v}; use otro ID o suba una nueva versión"; mismo ID con otra versión → nueva versión solo si coinciden área y tipo (se advierte si el título difiere); ID de otra área → 403; tipo distinto → 409. | ok (17) |
+| `src/api/main.py` | `POST /curaduria/fuentes` valida **antes de subir el archivo** (la llave del objeto incluye ID y versión, así que un duplicado habría sobrescrito el archivo existente); captura la carrera con la restricción de la base (409). Nuevo `POST /curaduria/fuentes/validar-alta` para la UI. | ok (+8) |
+| `src/comun/modelos.py`, migración `e7b2c9a14f60` | `UNIQUE (fuente_id, version)`. La migración **se detiene y lista los duplicados sin borrar nada** si los hay. | ok |
+| `src/curaduria/duplicados.py` | Listado de solo lectura (`python -m curaduria.duplicados`): id, título, tipo, estado, área, fecha y fragmentos de cada fila repetida. | ok |
+| `src/curaduria/plantilla.py` | El importador (`validar` e `importar`) rechaza IDs ya existentes o de otra área con hoja, fila y columna; el ID repetido dentro de la hoja ya se rechazaba. | ok |
+| `src/ui/.../BaseConocimiento.tsx` | Comprobación previa al escribir ID y versión (mensaje, advertencia y botón bloqueado) y de nuevo al enviar, antes de subir el archivo. | ok (+3) |
+
+Métricas: pytest 798 pasan (cobertura 94 %), mypy y ruff sin errores, vitest 134 pasan, tsc sin errores.

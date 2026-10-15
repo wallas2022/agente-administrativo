@@ -39,6 +39,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWTError
 from qdrant_client import QdrantClient
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api.esquemas import (
@@ -77,6 +78,7 @@ from api.esquemas import (
     RespuestaPasswordTemporal,
     RespuestaRecursos,
     RespuestaToken,
+    RespuestaValidarAltaFuente,
     RespuestaValidarPlantilla,
     RespuestaVistaPrevia,
     SolicitudActualizarPermiso,
@@ -90,6 +92,7 @@ from api.esquemas import (
     SolicitudGlosario,
     SolicitudIniciarCarga,
     SolicitudLogin,
+    SolicitudValidarAltaFuente,
     UsuarioAdminEsquema,
 )
 from comun import almacenamiento
@@ -150,12 +153,22 @@ from comun.uso_llm import (
 )
 from curaduria.aprobacion import ESTADOS_INICIABLES, iniciar_indexacion
 from curaduria.extraccion import PdfSinTextoError, extraer_fragmentos
-from curaduria.fuentes import clasificar_tipo_fuente, prioridad_de_tipo
+from curaduria.fuentes import (
+    clasificar_tipo_fuente,
+    evaluar_alta_fuente,
+    mensaje_duplicada,
+    prioridad_de_tipo,
+)
 from curaduria.indexacion import (
     COLECCION_KB,
     desactivar_fragmentos_de_fuente,
 )
-from curaduria.plantilla import ResultadoImportacion, cargar_plantilla, leer_plantilla
+from curaduria.plantilla import (
+    ResultadoImportacion,
+    cargar_plantilla,
+    leer_plantilla,
+    validar_fuentes_contra_bd,
+)
 from ocr.exportar_docx import construir_docx_resaltado
 from ocr.motor import FuncionOcr, ocr_imagen_tesseract
 from ortografia.cliente_languagetool import CoincidenciaLT, revisar_texto
@@ -2358,6 +2371,31 @@ def listar_fuentes_curaduria(
     return [_a_esquema_fuente(f) for f in fuentes]
 
 
+@app.post("/curaduria/fuentes/validar-alta", response_model=RespuestaValidarAltaFuente)
+def validar_alta_fuente(
+    solicitud: SolicitudValidarAltaFuente,
+    usuario: Annotated[Usuario, Depends(requiere_permiso("conocimiento:gestionar"))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
+) -> RespuestaValidarAltaFuente:
+    """Comprobación previa a subir el archivo (la UI la usa al escribir el ID y la versión): dice
+    si el alta se permitirá, con el mismo criterio que POST /curaduria/fuentes."""
+    evaluacion = evaluar_alta_fuente(
+        sesion,
+        fuente_id=solicitud.fuente_id,
+        version=solicitud.version,
+        titulo=solicitud.titulo,
+        tipo=solicitud.tipo,
+        area_id=usuario.area_id,
+    )
+    return RespuestaValidarAltaFuente(
+        permitido=evaluacion.permitido,
+        codigo_http=evaluacion.codigo_http,
+        mensaje=evaluacion.mensaje,
+        advertencias=evaluacion.advertencias,
+        es_nueva_version=evaluacion.es_nueva_version,
+    )
+
+
 @app.post("/curaduria/fuentes", response_model=FuenteCuraduriaEsquema)
 async def crear_fuente(
     usuario: Annotated[Usuario, Depends(requiere_permiso("conocimiento:gestionar"))],
@@ -2380,6 +2418,21 @@ async def crear_fuente(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="El archivo está vacío"
         )
 
+    fuente_id = fuente_id.strip()
+    version = version.strip()
+    # Antes de subir nada: la llave del objeto incluye el ID y la versión, así que un alta
+    # duplicada con el mismo nombre de archivo sobrescribiría el archivo de la fuente existente.
+    evaluacion = evaluar_alta_fuente(
+        sesion,
+        fuente_id=fuente_id,
+        version=version,
+        titulo=titulo,
+        tipo=tipo,
+        area_id=usuario.area_id,
+    )
+    if not evaluacion.permitido:
+        raise HTTPException(status_code=evaluacion.codigo_http, detail=evaluacion.mensaje)
+
     tipo_clasificado = clasificar_tipo_fuente(tipo)
     nombre_archivo = archivo.filename or "archivo"
     llave = f"{usuario.area_id}/{fuente_id}/{version}/{nombre_archivo}"
@@ -2401,7 +2454,13 @@ async def crear_fuente(
         fecha_carga=datetime.now(UTC),
     )
     sesion.add(fila)
-    sesion.flush()
+    try:
+        sesion.flush()
+    except IntegrityError as error:  # alta simultánea: la restricción UNIQUE de la base gana
+        sesion.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=mensaje_duplicada(fuente_id, version)
+        ) from error
     _bitacora_curaduria(
         sesion,
         usuario=usuario,
@@ -2410,7 +2469,9 @@ async def crear_fuente(
         detalle=f"{fuente_id} v{version} (borrador)",
     )
     sesion.commit()
-    return _a_esquema_fuente(fila)
+    esquema = _a_esquema_fuente(fila)
+    esquema.advertencias = evaluacion.advertencias or None
+    return esquema
 
 
 @app.get("/curaduria/fuentes/{fuente_id}/vista-previa", response_model=RespuestaVistaPrevia)
@@ -2657,12 +2718,14 @@ def _errores_a_esquema(resultado: ResultadoImportacion) -> list[ErrorImportacion
 @app.post("/curaduria/plantilla/validar", response_model=RespuestaValidarPlantilla)
 async def validar_plantilla_endpoint(
     usuario: Annotated[Usuario, Depends(requiere_permiso("conocimiento:gestionar"))],
+    sesion: Annotated[Session, Depends(obtener_sesion)],
     archivo: Annotated[UploadFile, File()],
 ) -> RespuestaValidarPlantilla:
     """Lee y valida la plantilla SIN persistir nada (RF-16, Bloque K2/K5) --
     reporta todos los errores encontrados, de todas las hojas."""
     contenido = await archivo.read()
     resultado = leer_plantilla(contenido)
+    resultado.errores.extend(validar_fuentes_contra_bd(sesion, resultado, usuario.area_id))
     return RespuestaValidarPlantilla(
         es_valido=resultado.es_valido,
         errores=_errores_a_esquema(resultado),
@@ -2681,6 +2744,7 @@ async def importar_plantilla_endpoint(
     parcial: si hay errores, no se persiste nada y se devuelve el reporte."""
     contenido = await archivo.read()
     resultado = leer_plantilla(contenido)
+    resultado.errores.extend(validar_fuentes_contra_bd(sesion, resultado, usuario.area_id))
     if not resultado.es_valido:
         return RespuestaImportarPlantilla(
             es_valido=False, errores=_errores_a_esquema(resultado), cargado=None

@@ -25,6 +25,13 @@ type Termino = {
   definicion: string;
 };
 
+type ValidacionAlta = {
+  permitido: boolean;
+  mensaje?: string | null;
+  advertencias: string[];
+  es_nueva_version: boolean;
+};
+
 type FragmentoVistaPrevia = { contenido: string; seccion?: string | null; pagina?: number | null };
 
 type ErrorImportacion = {
@@ -122,6 +129,31 @@ export function BaseConocimiento() {
   const [formFuente, setFormFuente] = useState(FORM_FUENTE_VACIO);
   const [archivoFuente, setArchivoFuente] = useState<File | null>(null);
   const [subiendoFuente, setSubiendoFuente] = useState(false);
+  const [alta, setAlta] = useState<ValidacionAlta | null>(null);
+
+  async function validarAlta(): Promise<ValidacionAlta | null> {
+    const { fuente_id, version, titulo, tipo } = formFuente;
+    if (!fuente_id.trim() || !version.trim()) return null;
+    try {
+      const { data } = await clienteApi.POST("/curaduria/fuentes/validar-alta", {
+        body: { fuente_id, version, titulo, tipo },
+      });
+      return data ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Comprobación previa (antes de subir el archivo): ID y versión repetidos se avisan al escribir.
+  useEffect(() => {
+    if (!formFuente.fuente_id.trim() || !formFuente.version.trim()) {
+      setAlta(null);
+      return;
+    }
+    const temporizador = setTimeout(() => void validarAlta().then(setAlta), 400);
+    return () => clearTimeout(temporizador);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formFuente.fuente_id, formFuente.version, formFuente.titulo, formFuente.tipo]);
 
   async function manejarSubirFuente(evento: FormEvent) {
     evento.preventDefault();
@@ -132,6 +164,12 @@ export function BaseConocimiento() {
     setSubiendoFuente(true);
     setError(null);
     try {
+      const veredicto = await validarAlta();
+      setAlta(veredicto);
+      if (veredicto && !veredicto.permitido) {
+        setError(veredicto.mensaje ?? "No se puede registrar esta fuente");
+        return;
+      }
       const cuerpo = new FormData();
       for (const [clave, valor] of Object.entries(formFuente)) cuerpo.append(clave, valor);
       cuerpo.append("archivo", archivoFuente);
@@ -338,11 +376,24 @@ export function BaseConocimiento() {
               onChange={(e) => setArchivoFuente(e.target.files?.[0] ?? null)}
               required
             />
-            <button type="submit" disabled={subiendoFuente}>
+            <button type="submit" disabled={subiendoFuente || alta?.permitido === false}>
               {subiendoFuente ? "Subiendo…" : "Subir nueva fuente"}
             </button>
           </form>
         )}
+        {puedeEscribir && alta && !alta.permitido && (
+          <p className="base-conocimiento__error" role="alert">
+            {alta.mensaje}
+          </p>
+        )}
+        {puedeEscribir && alta?.permitido && alta.es_nueva_version && (
+          <p className="base-conocimiento__aviso" role="status">
+            {alta.advertencias.length > 0
+              ? alta.advertencias.join(" ")
+              : "Se registrará como una nueva versión de la fuente existente."}
+          </p>
+        )}
+
 
         {fuentes === null ? (
           <p>Cargando…</p>

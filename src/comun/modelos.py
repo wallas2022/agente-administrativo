@@ -231,6 +231,8 @@ class FuenteConocimiento(Base):
 
     __tablename__ = "fuente_conocimiento"
     __table_args__ = (
+        # Bloque 3.5: una misma versión de un fuente_id no puede registrarse dos veces.
+        UniqueConstraint("fuente_id", "version", name="ux_fuente_conocimiento_id_version"),
         # Invariante "una sola versión vigente por fuente_id" (Bloque K1) --
         # reforzado a nivel de base de datos, no solo confiado a
         # kb.fuentes.aprobar_fuente. Índice parcial: varias filas pueden

@@ -105,4 +105,84 @@ describe("BaseConocimiento: aprobación asíncrona (P-15, ADR-010)", () => {
       .mock.calls.filter(([ruta]) => ruta === "/curaduria/fuentes").length;
     expect(llamadasFinales).toBeGreaterThan(llamadasIniciales);
   });
+
+  describe("unicidad de fuentes (bloque 3.5)", () => {
+    const DUPLICADA = {
+      permitido: false,
+      codigo_http: 409,
+      mensaje: "Ya existe CONTIT-001 versión 1; use otro ID o suba una nueva versión",
+      advertencias: [],
+      es_nueva_version: false,
+    };
+
+    function escribirIdYVersion(version = "1") {
+      fireEvent.change(screen.getByLabelText("fuente_id"), { target: { value: "CONTIT-001" } });
+      fireEvent.change(screen.getByLabelText("Versión"), { target: { value: version } });
+    }
+
+    it("avisa al escribir un ID y una versión repetidos y bloquea el botón de subir", async () => {
+      fuentes([]);
+      vi.mocked(clienteApi.POST).mockResolvedValue({
+        data: DUPLICADA,
+        error: undefined,
+        response: new Response(),
+      } as never);
+
+      render(<BaseConocimiento />);
+      await screen.findByLabelText("fuente_id");
+      escribirIdYVersion();
+
+      expect(await screen.findByText(/Ya existe CONTIT-001 versión 1/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Subir nueva fuente" })).toBeDisabled();
+      expect(clienteApi.POST).toHaveBeenCalledWith("/curaduria/fuentes/validar-alta", {
+        body: expect.objectContaining({ fuente_id: "CONTIT-001", version: "1" }),
+      });
+    });
+
+    it("una nueva versión se permite y muestra la advertencia de título distinto", async () => {
+      fuentes([]);
+      vi.mocked(clienteApi.POST).mockResolvedValue({
+        data: {
+          permitido: true,
+          codigo_http: 200,
+          mensaje: null,
+          advertencias: ["El título difiere del de la versión existente («Redes»)"],
+          es_nueva_version: true,
+        },
+        error: undefined,
+        response: new Response(),
+      } as never);
+
+      render(<BaseConocimiento />);
+      await screen.findByLabelText("fuente_id");
+      escribirIdYVersion("2");
+
+      expect(await screen.findByRole("status")).toHaveTextContent("El título difiere");
+      expect(screen.getByRole("button", { name: "Subir nueva fuente" })).toBeEnabled();
+    });
+
+    it("no sube el archivo si, al enviar, el servidor dice que el alta está duplicada", async () => {
+      fuentes([]);
+      const alta = { ...DUPLICADA, permitido: true, codigo_http: 200, mensaje: null };
+      vi.mocked(clienteApi.POST)
+        .mockResolvedValueOnce({ data: alta, error: undefined, response: new Response() } as never)
+        .mockResolvedValue({ data: DUPLICADA, error: undefined, response: new Response() } as never);
+      const fetchFalso = vi.fn();
+      vi.stubGlobal("fetch", fetchFalso);
+
+      render(<BaseConocimiento />);
+      await screen.findByLabelText("fuente_id");
+      escribirIdYVersion();
+      await waitFor(() => expect(clienteApi.POST).toHaveBeenCalledTimes(1));
+      fireEvent.change(screen.getByLabelText("Archivo"), {
+        target: { files: [new File(["x"], "doc.pdf", { type: "application/pdf" })] },
+      });
+      fireEvent.submit(screen.getByLabelText("fuente_id").closest("form") as HTMLFormElement);
+
+      expect(await screen.findAllByText(/Ya existe CONTIT-001 versión 1/)).not.toHaveLength(0);
+      expect(fetchFalso).not.toHaveBeenCalled();
+      vi.unstubAllGlobals();
+    });
+  });
 });
+

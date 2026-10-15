@@ -301,6 +301,22 @@ class FuenteCuraduriaEsquema(BaseModel):
     fragmentos_total: int | None = None
     fragmentos_procesados: int | None = None
     motivo_error: str | None = None
+    advertencias: list[str] | None = None
+
+
+class SolicitudValidarAltaFuente(BaseModel):
+    fuente_id: str
+    version: str
+    titulo: str = ""
+    tipo: str = ""
+
+
+class RespuestaValidarAltaFuente(BaseModel):
+    permitido: bool
+    codigo_http: int
+    mensaje: str | None = None
+    advertencias: list[str]
+    es_nueva_version: bool
 
 
 class RespuestaAprobarFuente(BaseModel):

@@ -102,6 +102,7 @@ class FuenteImportada:
     dueno_area: str
     archivo_entregado: str
     observaciones: str | None
+    fila: int = 0
 
 
 @dataclass(frozen=True)
@@ -185,7 +186,10 @@ def _encabezados(hoja_excel) -> tuple[object, ...]:  # type: ignore[no-untyped-d
 
 
 def _mapa_de_columnas(
-    hoja_excel, columnas_requeridas: tuple[str, ...], *, hoja: str  # type: ignore[no-untyped-def]
+    hoja_excel,
+    columnas_requeridas: tuple[str, ...],
+    *,
+    hoja: str,  # type: ignore[no-untyped-def]
 ) -> tuple[dict[str, int], list[ErrorImportacion]]:
     indice_por_nombre = {
         _texto(valor): indice
@@ -211,10 +215,13 @@ def _filas_de_datos(hoja_excel, indice_por_nombre: dict[str, int]):  # type: ign
     ):
         if all(valor is None for valor in fila):
             continue
-        yield numero_fila, {
-            nombre: (fila[indice] if indice < len(fila) else None)
-            for nombre, indice in indice_por_nombre.items()
-        }
+        yield (
+            numero_fila,
+            {
+                nombre: (fila[indice] if indice < len(fila) else None)
+                for nombre, indice in indice_por_nombre.items()
+            },
+        )
 
 
 def _leer_fuentes(hoja_excel) -> tuple[list[FuenteImportada], list[ErrorImportacion]]:  # type: ignore[no-untyped-def]
@@ -279,6 +286,7 @@ def _leer_fuentes(hoja_excel) -> tuple[list[FuenteImportada], list[ErrorImportac
                     dueno_area=dueno_area,
                     archivo_entregado=archivo_entregado,
                     observaciones=observaciones,
+                    fila=numero_fila,
                 )
             )
 
@@ -558,9 +566,33 @@ def _fuente_de_hoja_embebida(
     de cuentas, Glosario y Checklist de cierre no son documentos aparte,
     son hojas de la propia plantilla (ver Inventario de fuentes)."""
     referencia = f'hoja "{nombre_hoja.lower()}"'
-    return next(
-        (f for f in resultado.fuentes if f.archivo_entregado.lower() == referencia), None
-    )
+    return next((f for f in resultado.fuentes if f.archivo_entregado.lower() == referencia), None)
+
+
+def validar_fuentes_contra_bd(
+    sesion: Session, resultado: ResultadoImportacion, area_id: uuid.UUID
+) -> list[ErrorImportacion]:
+    """Bloque 3.5: la plantilla no puede registrar un (fuente_id, versión) que ya existe, ni un
+    fuente_id de otra área. Reporta hoja, fila y columna de cada fuente rechazada."""
+    from curaduria.fuentes import evaluar_alta_fuente
+
+    errores: list[ErrorImportacion] = []
+    for fuente in resultado.fuentes:
+        evaluacion = evaluar_alta_fuente(
+            sesion,
+            fuente_id=fuente.fuente_id,
+            version=fuente.version,
+            titulo=fuente.titulo,
+            tipo=fuente.tipo_libre,
+            area_id=area_id,
+        )
+        if not evaluacion.permitido:
+            errores.append(
+                ErrorImportacion(
+                    HOJA_FUENTES, fuente.fila or None, "fuente_id", evaluacion.mensaje or ""
+                )
+            )
+    return errores
 
 
 def cargar_plantilla(
