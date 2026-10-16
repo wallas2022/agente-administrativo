@@ -102,11 +102,24 @@ def ns_a_ms(valor: object) -> int | None:
     return int(valor) // 1_000_000 if isinstance(valor, int | float) else None
 
 
+TIMEOUT_LLM_POR_DEFECTO_S = 300.0
+
+
+def timeout_llm() -> float:
+    """`LLM_TIMEOUT_S` (300 s por defecto): tiempo máximo de una llamada al LLM. En CPU, una
+    generación larga puede acercarse a ese límite; se ajusta por ambiente sin tocar el código."""
+    try:
+        valor = float(os.environ.get("LLM_TIMEOUT_S", ""))
+    except ValueError:
+        return TIMEOUT_LLM_POR_DEFECTO_S
+    return valor if valor > 0 else TIMEOUT_LLM_POR_DEFECTO_S
+
+
 def _generar_con_mensajes(
     mensajes: list[dict[str, str]],
     *,
     modelo: str | None = None,
-    timeout: float = 300.0,
+    timeout: float | None = None,
     formato: str | dict | None = None,
     pensamiento: str | None = None,
     num_ctx: int | None = None,
@@ -135,7 +148,11 @@ def _generar_con_mensajes(
         cuerpo["format"] = formato
     if pensamiento is not None:
         cuerpo["think"] = pensamiento
-    respuesta = httpx.post(f"{base_url}/api/chat", json=cuerpo, timeout=timeout)
+    respuesta = httpx.post(
+        f"{base_url}/api/chat",
+        json=cuerpo,
+        timeout=timeout if timeout is not None else timeout_llm(),
+    )
     respuesta.raise_for_status()
     cuerpo_respuesta = respuesta.json()
     metricas = MetricasOllama(
@@ -154,7 +171,7 @@ def generar_texto_con_metricas(
     prompt: str,
     *,
     modelo: str | None = None,
-    timeout: float = 300.0,
+    timeout: float | None = None,
     formato: str | dict | None = None,
     pensamiento: str | None = None,
     num_ctx: int | None = None,
@@ -178,7 +195,7 @@ def generar_respuesta_chat(
     mensajes: list[dict[str, str]],
     *,
     modelo: str | None = None,
-    timeout: float = 300.0,
+    timeout: float | None = None,
     pensamiento: str | None = None,
     num_ctx: int | None = None,
     num_predict: int | None = None,
@@ -209,7 +226,7 @@ def generar_texto(
     prompt: str,
     *,
     modelo: str | None = None,
-    timeout: float = 300.0,
+    timeout: float | None = None,
     formato: str | dict | None = None,
     pensamiento: str | None = None,
     num_ctx: int | None = None,

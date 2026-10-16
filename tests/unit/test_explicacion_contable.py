@@ -207,3 +207,19 @@ def test_generar_explicaciones_lote_con_items_vacios_no_llama_al_llm() -> None:
 
     assert explicaciones == []
     assert llamadas == []
+
+
+def test_generar_explicaciones_lote_usa_respaldo_si_el_llm_falla_o_vence() -> None:
+    import httpx
+
+    def llm_que_vence(_prompt: str) -> str:
+        raise httpx.ReadTimeout("timed out")
+
+    explicaciones = generar_explicaciones_lote(
+        [(_hallazgo_rn01(), [])], funcion_llm=llm_que_vence, modelo="gpt-oss:20b"
+    )
+
+    # El análisis no debe fallar entero porque la IA tarde: los hallazgos de las reglas se
+    # publican con el texto de respaldo y la falla queda registrada en el uso del LLM.
+    assert len(explicaciones) == 1
+    assert "No se pudo generar una corrección automática" in explicaciones[0].texto

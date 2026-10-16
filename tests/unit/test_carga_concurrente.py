@@ -67,3 +67,14 @@ def test_la_tabla_muestra_los_estados_finales_y_los_errores() -> None:
 
     assert "fallido: 1" in tabla and "TimeoutError" in tabla
 
+
+def test_el_resumen_cuenta_los_hallazgos_sin_explicacion_de_la_ia() -> None:
+    mediciones = [
+        carga.Medicion("contable", True, 5.0, 100.0, "con_hallazgos", sin_explicacion=2),
+        carga.Medicion("contable", True, 6.0, 200.0, "con_hallazgos", sin_explicacion=0),
+    ]
+
+    r = carga.resumir(mediciones, 300.0, 2, "contable")
+
+    assert r["sin_explicacion_ia"] == 2
+    assert "Sin explicación IA" in carga.tabla_markdown([r])

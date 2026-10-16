@@ -42,6 +42,7 @@ Cada contraseña es distinta (el script genera una por marcador). Guardar copia 
 | LLM | `LLM_BASE_URL` | `http://ollama:11434` | Sí | Contenedor; v1 igual |
 | LLM | `LLM_MODEL_PRINCIPAL` | `gpt-oss:20b` | Sí | v1 decía `[POR CONFIRMAR]` |
 | LLM | `LLM_MODEL_EMBEDDINGS` | `bge-m3` | Sí | Igual al de indexación |
+| LLM | `LLM_TIMEOUT_S` | `300` | Sí (`rag/cliente_llm.py`) | Tiempo máximo de una llamada a la IA. Si una generación larga lo supera, el análisis contable ya no falla: publica los hallazgos de las reglas con texto de respaldo |
 | LLM | `EMBEDDINGS_TIMEOUT_S`, `EMBEDDINGS_LOTE`, `EMBEDDINGS_REINTENTOS`, `EMBEDDINGS_KEEP_ALIVE` | `300`, `16`, `3`, `24h` | Sí (`rag/cliente_embeddings.py`) | P-15: antes el timeout era 30 s fijos (un embedding llegó a tardar 173.8 s). También aplica a la búsqueda del chat |
 | LLM | `LLM_MODEL_ORTOGRAFIA` | sin definir | Sí (opcional) | Cae al principal |
 | Ollama | `OLLAMA_KEEP_ALIVE`, `OLLAMA_MAX_LOADED_MODELS`, `OLLAMA_NUM_PARALLEL` | `24h`, `3`, `1` | Servidor Ollama | Llegan al contenedor `ollama` por `env_file` |

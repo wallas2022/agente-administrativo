@@ -38,6 +38,7 @@ MAXIMO_USUARIOS = 20
 # La API devuelve el estado del documento: estos dos significan "todavía en curso".
 ESTADOS_EN_CURSO = {"cargado", "procesando"}
 ESTADOS_FALLIDOS = {"fallido", "excedido", "error"}
+MARCA_SIN_EXPLICACION = "No se pudo generar una corrección automática"
 
 TEXTO_ORTOGRAFIA = (
     "Estimados compañeros: les informamos que el cierre contable de este mes se realizará "
@@ -58,6 +59,7 @@ class Medicion:
     t_total: float | None
     estado: str
     error: str | None = None
+    sin_explicacion: int = 0
 
 
 def percentil(valores: list[float], p: float) -> float | None:
@@ -80,6 +82,7 @@ def resumir(mediciones: list[Medicion], duracion_s: float, usuarios: int, escena
         "ok": len(exitosas),
         "fallos": len(mediciones) - len(exitosas),
         "estados": {e: sum(1 for m in mediciones if m.estado == e) for e in sorted({m.estado for m in mediciones})},
+        "sin_explicacion_ia": sum(m.sin_explicacion for m in exitosas),
         "errores": sorted({m.error for m in mediciones if m.error}),
         "t_primeros_p50_s": percentil(primeros, 50),
         "t_primeros_p90_s": percentil(primeros, 90),
@@ -101,15 +104,15 @@ def tabla_markdown(resumenes: list[dict]) -> str:
 
     lineas = [
         "| Escenario | Usuarios | OK / total | 1ros. hallazgos p50 (s) | Total p50 (s) | Total p90 (s) "
-        "| Total máx. (s) | Duración (s) | Docs/hora | Estados finales | Errores |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Total máx. (s) | Duración (s) | Docs/hora | Sin explicación IA | Estados finales | Errores |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for r in resumenes:
         lineas.append(
             f"| {r['escenario']} | {r['usuarios']} | {r['ok']} / {r['peticiones']} "
             f"| {f(r['t_primeros_p50_s'])} | {f(r['t_total_p50_s'])} | {f(r['t_total_p90_s'])} "
             f"| {f(r['t_total_max_s'])} | {r['duracion_s']} | {f(r['docs_por_hora'])} "
-            f"| {estados_texto(r)} | {'; '.join(r['errores']) or '—'} |"
+            f"| {r['sin_explicacion_ia']} | {estados_texto(r)} | {'; '.join(r['errores']) or '—'} |"
         )
     return "\n".join(lineas)
 
@@ -193,7 +196,16 @@ def tarea_contable(api: Api, excel: Path, periodo: str, limite_s: float, cada_s:
         {"tipo_revision": "contable", "periodo_cierre": periodo},
     )
     primeros, total, estado = api.esperar(aid, t0, limite_s, cada_s)
-    return Medicion("contable", estado not in ESTADOS_FALLIDOS, primeros, total, estado)
+    sin_explicacion = 0
+    if estado not in ESTADOS_FALLIDOS:
+        # Si la IA no respondió a tiempo, los hallazgos quedan con el texto de respaldo.
+        hallazgos = api.cliente.get(f"/analisis/{aid}/hallazgos").json()
+        sin_explicacion = sum(
+            1 for h in hallazgos if MARCA_SIN_EXPLICACION in (h.get("correccion_sugerida") or "")
+        )
+    return Medicion(
+        "contable", estado not in ESTADOS_FALLIDOS, primeros, total, estado, None, sin_explicacion
+    )
 
 
 def tarea_ortografia(api: Api, limite_s: float, cada_s: float) -> Medicion:

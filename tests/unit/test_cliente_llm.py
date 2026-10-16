@@ -364,3 +364,22 @@ def test_generar_respuesta_chat_acepta_pensamiento_y_limites_de_contexto(monkeyp
     assert llamada["json"]["think"] == "low"
     assert llamada["json"]["options"]["num_ctx"] == 4096
     assert llamada["json"]["options"]["num_predict"] == 800
+
+
+def test_el_timeout_del_llm_es_300_s_y_se_configura_por_entorno(monkeypatch) -> None:
+    vistos: list[float] = []
+
+    def _post(url: str, *, json: dict, timeout: float):
+        vistos.append(timeout)
+        return _RespuestaFalsa({"message": {"content": "ok"}})
+
+    monkeypatch.setattr(httpx, "post", _post)
+    monkeypatch.delenv("LLM_TIMEOUT_S", raising=False)
+    cliente_llm.generar_texto("hola")
+    monkeypatch.setenv("LLM_TIMEOUT_S", "600")
+    cliente_llm.generar_texto("hola")
+    monkeypatch.setenv("LLM_TIMEOUT_S", "no-es-numero")
+    cliente_llm.generar_texto("hola")
+    cliente_llm.generar_texto("hola", timeout=7)
+
+    assert vistos == [300.0, 600.0, 300.0, 7]

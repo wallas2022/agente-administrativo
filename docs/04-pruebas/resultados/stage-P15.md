@@ -135,3 +135,17 @@ Detectados al preparar las capturas de la presentación:
 | Las explicaciones y respuestas mostraban `**texto**` | La interfaz no interpretaba las negritas | Componente `TextoConNegritas` (sin HTML crudo) en hallazgos y chat | 2 pruebas de UI |
 
 El segundo hallazgo afecta directamente a la capacidad con usuarios simultáneos: sin esta corrección, una sola pregunta al chat paraba la API para todos. Las pruebas de carga deben ejecutarse con la imagen que ya la incluye.
+
+## Prueba de carga en stage 15–16/10: hallazgos y correcciones
+
+Primera ronda de usuarios simultáneos (ver `tests/carga/README.md`).
+
+| Escenario | Resultado | Causa y corrección |
+| --- | --- | --- |
+| Ortografía, 3 / 5 / 10 usuarios | 100 % sin fallos; total p90 de 9.5, 7.2 y 10.8 s | Medido. Nota: no incluye la validación de la IA de los casos dudosos, que sigue en segundo plano |
+| Ortografía, 1 usuario | Falló a los 21 s con `timed out` | LanguageTool tenía un límite fijo de 20 s y la primera petición tras un rato sin uso es lenta. Ahora 60 s configurable (`LANGUAGETOOL_TIMEOUT_S`) |
+| Excel contable, 1 / 3 / 5 usuarios | 0 de 9 completados, todos `timed out` a ~5:15–5:30 | **Ollama estaba recortado por Docker:** el contenedor tenía un límite de 16 CPU (puesto a mano en stage) con la VM en 20 vCPU y Ollama lanzando 20 hilos; el 97.8 % de los ciclos de CPU estaban pausados (`nr_throttled 62880` de `nr_periods 64276`, ~6 h de CPU pausada). El archivo del repositorio decía 8 CPU, que tampoco coincidía. Corregido a 20 CPU y 80G, igual que la VM |
+| Excel contable tras recrear Ollama | Sigue fallando a ~5:15 (a confirmar si el contenedor se recreó con 20 CPU) | La llamada a la IA del análisis contable no tenía tope de razonamiento ni de salida y, si vencía, **todo el análisis se marcaba fallido** aunque las reglas ya hubieran terminado. Ahora: razonamiento bajo y salida acotada (2,500 tokens), `LLM_TIMEOUT_S` configurable y, si la IA no responde, los hallazgos se publican con el texto de respaldo (el uso queda registrado como timeout) |
+
+Pendiente: medir de nuevo en stage con Ollama a 20 CPU y la imagen nueva del worker. La tabla de carga ahora incluye "Sin explicación IA" para distinguir un análisis completo de uno degradado.
+

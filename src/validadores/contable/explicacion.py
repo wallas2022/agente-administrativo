@@ -22,6 +22,7 @@ incumpliendo RNF-04 — ver docs/04-pruebas/resultados/local-S1.md):
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -217,7 +218,15 @@ def generar_explicaciones_lote(
         return []
 
     prompt = construir_prompt_lote(items)
-    texto_crudo = funcion_llm(prompt)
+    try:
+        texto_crudo = funcion_llm(prompt)
+    except Exception:  # noqa: BLE001 - la IA lenta o caída no debe tumbar todo el análisis
+        # Las reglas ya detectaron y publicaron los hallazgos; sin explicación de la IA caen
+        # al texto de respaldo. La falla (p. ej. timeout) queda registrada en uso_llm.
+        logging.getLogger(__name__).warning(
+            "La IA no respondió a tiempo; se usan explicaciones de respaldo", exc_info=True
+        )
+        texto_crudo = ""
     por_indice = _parsear_json_lote(texto_crudo)
 
     explicaciones: list[ExplicacionGenerada] = []

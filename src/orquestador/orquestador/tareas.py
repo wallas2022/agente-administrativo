@@ -62,6 +62,12 @@ from rag.cliente_embeddings import (
 
 FuncionEncolarValidacionDudosos = Callable[[str], str]
 
+# CU-01: la explicación de los hallazgos es breve (JSON corto). Sin tope, gpt-oss razona miles de
+# tokens y en CPU una sola llamada superaba el límite de 300 s (prueba de carga del 15/10).
+# Mismo ajuste que ya usan CU-02 y el chat (docs/04-pruebas/resultados/local-cu02-rendimiento.md).
+PENSAMIENTO_LLM_CONTABLE = "low"
+NUM_PREDICT_LLM_CONTABLE = 2500
+
 
 def _registrar_bitacora(
     sesion: Session,
@@ -369,12 +375,15 @@ def analizar_documento(documento_id: str, analisis_id: str) -> str:
         funcion_embedding = obtener_embedding
         funcion_llm = generar_texto
         if analisis_fila is not None and documento_fila is not None:
+            es_contable = tipo_revision_fila is not None and tipo_revision_fila.nombre == "contable"
             funcion_llm = envolver_generar_texto(
                 sesion=sesion,
                 usuario_id=analisis_fila.usuario_id,
                 area_id=documento_fila.area_id,
                 analisis_id=analisis_fila.id,
                 caso_uso=tipo_revision_fila.nombre if tipo_revision_fila else "desconocido",
+                pensamiento=PENSAMIENTO_LLM_CONTABLE if es_contable else None,
+                num_predict=NUM_PREDICT_LLM_CONTABLE if es_contable else None,
             )
             funcion_embedding = envolver_obtener_embedding(
                 sesion=sesion,

@@ -77,7 +77,7 @@ def envolver_generar_texto(
     analisis_id: uuid.UUID | None,
     caso_uso: str,
     modelo: str | None = None,
-    timeout: float = 300.0,
+    timeout: float | None = None,
     formato: str | dict | None = None,
     pensamiento: str | None = None,
     num_ctx: int | None = None,
