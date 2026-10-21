@@ -162,7 +162,7 @@ Medida con 40 tokens, razonamiento bajo y la CPU de Ollama ya en 20 (VM de 20 vC
 - **Lectura del prompt: ~3 tokens por segundo** (73 tokens en 22–25 s). En una CPU con AVX2 leer es decenas de veces más rápido que generar; aquí es igual de lento. Es el cuello de botella: un prompt de 1,500 tokens tarda unos 8 minutos solo en leerse, más que el límite de 300 s.
 - **Por qué fallaba el análisis contable:** el prompt incluía hasta 3 fragmentos completos (~450 tokens cada uno) por hallazgo, más uno de referencia.
 - **Cambiar el número de hilos recarga el modelo** (~15 s por cambio): el valor debe ser fijo en todas las llamadas.
-- **Ollama arrancó con 4 espacios paralelos** (visto en el log) porque `OLLAMA_NUM_PARALLEL` no llegó al contenedor: no estaba en `.env.stage.example`.
+- **Ollama arrancó con 4 espacios paralelos** (visto en el log) porque el `.env.stage` de stage tiene `OLLAMA_NUM_PARALLEL=4`. No es un error de entrega (corregido en una nota anterior de este mismo informe); queda pendiente medir si 1 o 4 conviene con la prueba de carga.
 
-Correcciones: `LLM_NUM_THREAD=12`, prompt compacto (2 fragmentos de hasta 400 caracteres), `LLM_TIMEOUT_S=600` en stage y las variables de Ollama en la plantilla. Con esta velocidad, cada análisis contable tardaría del orden de varios minutos (la lectura de ~450 tokens y la generación de ~150 tokens suman unos 3–4 minutos por llamada): válido para el piloto, pero la capacidad con muchos hallazgos o usuarios depende de la decisión de hardware (ADR-005) o de modelo.
+Correcciones: `LLM_NUM_THREAD=12`, prompt compacto (2 fragmentos de hasta 400 caracteres), `LLM_TIMEOUT_S=600` en stage. Con esta velocidad, cada análisis contable tardaría del orden de varios minutos (la lectura de ~450 tokens y la generación de ~150 tokens suman unos 3–4 minutos por llamada): válido para el piloto, pero la capacidad con muchos hallazgos o usuarios depende de la decisión de hardware (ADR-005) o de modelo.
 

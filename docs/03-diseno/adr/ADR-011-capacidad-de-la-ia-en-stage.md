@@ -44,7 +44,7 @@ Combinar **A (ya aplicada)** con una **medición de B y C** antes de comprometer
 - Prompt de explicación compacto: 2 fragmentos de hasta 400 caracteres en vez de 3 completos.
 - Razonamiento bajo y salida acotada (2,500 tokens) en CU-01; `LLM_TIMEOUT_S` configurable (600 en stage).
 - Si la IA no responde a tiempo, los hallazgos de las reglas se publican con el texto de respaldo en lugar de marcar el análisis como fallido.
-- `OLLAMA_NUM_PARALLEL=1` y los demás ajustes de Ollama en la plantilla de entorno.
+- Los ajustes de Ollama quedaron documentados en la plantilla de entorno (`OLLAMA_NUM_PARALLEL=4` es el valor actual de stage; falta medir 1 frente a 4).
 
 ## Consecuencias
 

@@ -44,7 +44,7 @@ Cada contraseña es distinta (el script genera una por marcador). Guardar copia 
 | LLM | `LLM_MODEL_EMBEDDINGS` | `bge-m3` | Sí | Igual al de indexación |
 | LLM | `LLM_TIMEOUT_S` | `600` (stage) | Sí (`rag/cliente_llm.py`) | Tiempo máximo de una llamada a la IA. Si una generación larga lo supera, el análisis contable ya no falla: publica los hallazgos de las reglas con texto de respaldo |
 | LLM | `LLM_NUM_THREAD` | `12` (stage) | Sí (`rag/cliente_llm.py`) | Hilos de CPU de Ollama en el chat. Medido en stage: 12 hilos = 2.3 tokens/s y 20 hilos = 1.3. Debe ser fijo (cambiarlo recarga el modelo) |
-| Ollama | `OLLAMA_KEEP_ALIVE`, `OLLAMA_MAX_LOADED_MODELS`, `OLLAMA_NUM_PARALLEL` | `24h`, `3`, `1` | Servidor Ollama | Ahora también en `.env.stage.example`. Sin `OLLAMA_NUM_PARALLEL=1`, Ollama arrancó con 4 espacios paralelos (visto en el log) |
+| Ollama | `OLLAMA_KEEP_ALIVE`, `OLLAMA_MAX_LOADED_MODELS`, `OLLAMA_NUM_PARALLEL` | `24h`, `3`, `4` (hoy en stage) | Servidor Ollama | Llegan al contenedor por `env_file`. `OLLAMA_NUM_PARALLEL` define cuántas peticiones atiende a la vez (espacios paralelos); en stage está en 4. Pendiente medir 1 frente a 4 con la prueba de carga |
 | LLM | `EMBEDDINGS_TIMEOUT_S`, `EMBEDDINGS_LOTE`, `EMBEDDINGS_REINTENTOS`, `EMBEDDINGS_KEEP_ALIVE` | `300`, `16`, `3`, `24h` | Sí (`rag/cliente_embeddings.py`) | P-15: antes el timeout era 30 s fijos (un embedding llegó a tardar 173.8 s). También aplica a la búsqueda del chat |
 | LLM | `LLM_MODEL_ORTOGRAFIA` | sin definir | Sí (opcional) | Cae al principal |
 | Ollama | `OLLAMA_KEEP_ALIVE`, `OLLAMA_MAX_LOADED_MODELS`, `OLLAMA_NUM_PARALLEL` | `24h`, `3`, `1` | Servidor Ollama | Llegan al contenedor `ollama` por `env_file` |
