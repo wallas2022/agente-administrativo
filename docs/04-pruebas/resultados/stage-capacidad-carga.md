@@ -27,8 +27,21 @@ Los primeros hallazgos del Excel contable (reglas) salen en 3 a 13 s; el total i
 - Chat con 5 usuarios: un error 504 (aprox. 311 s de espera).
 - Ortografía no depende de la IA en la ruta crítica y escala bien hasta 10 usuarios.
 
+## Prueba mixta (Excel, ortografía y chat a la vez)
+
+Reparto del script: con 3 usuarios 1 de cada tipo; con 5 usuarios 2 de Excel, 2 de ortografía y 1 de chat.
+
+| Usuarios | OK / total | Total p50 (s) | Total p90 (s) | Total máx. (s) | Docs/hora | Sin explicación IA |
+| --- | --- | --- | --- | --- | --- | --- |
+| 3 | 3 / 3 | 375.4 | 435.0 | 435.0 | 24.8 | 0 |
+| 5 | 5 / 5 | 462.3 | 581.7 | 581.7 | 30.9 | 0 |
+
+- Primera corrida (commit anterior a `e24df0b`): el chat dio 504 a los 371 s y 520 s porque la función del chat tenía un tiempo máximo fijo de 300 s, sin respetar `LLM_TIMEOUT_S=600`. Corregido en `e24df0b`.
+- Segunda corrida (con la corrección): sin fallos, pero con 5 usuarios el máximo fue 581.7 s frente al límite de 600 s; con más carga habría errores por tiempo.
+- Con la IA compartida, el rendimiento total fue de aprox. 25 a 31 documentos por hora, menor que las aprox. 52 por hora de las pruebas separadas.
+- La tabla no separa los tiempos por escenario: [POR CONFIRMAR].
+
 ## Pendiente
 
-- Escenario `mixto` (chat y Excel comparten la IA): [POR CONFIRMAR].
 - Medir `OLLAMA_NUM_PARALLEL=1` frente a 4: [POR CONFIRMAR].
 - Decisión sobre ADR-011 (hardware con AVX2, modelo pequeño o menos uso de IA).
