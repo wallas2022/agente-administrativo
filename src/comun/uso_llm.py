@@ -179,7 +179,7 @@ def generar_respuesta_chat_con_registro(
     area_id: uuid.UUID,
     caso_uso: str = "chat_kb",
     modelo: str | None = None,
-    timeout: float = 300.0,
+    timeout: float | None = None,
     pensamiento: str | None = None,
     num_ctx: int | None = None,
     num_predict: int | None = None,

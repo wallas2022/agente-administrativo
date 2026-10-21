@@ -293,6 +293,37 @@ def test_generar_respuesta_chat_con_registro_devuelve_el_texto_y_registra_ok(
     assert fila.tokens_salida == 30
 
 
+def test_el_chat_usa_llm_timeout_s_si_no_se_pasa_un_timeout(
+    sesion, usuario_y_area, monkeypatch
+) -> None:
+    # En stage el chat cortaba a los 300 s fijos aunque LLM_TIMEOUT_S=600 (prueba mixta del 21/10).
+    usuario, area = usuario_y_area
+    vistos: list[float] = []
+
+    class _RespuestaFalsa:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return {"message": {"content": "ok"}}
+
+    def _post(url, *, json, timeout):
+        vistos.append(timeout)
+        return _RespuestaFalsa()
+
+    monkeypatch.setattr(httpx, "post", _post)
+    monkeypatch.setenv("LLM_TIMEOUT_S", "600")
+
+    generar_respuesta_chat_con_registro(
+        [{"role": "user", "content": "hola"}],
+        sesion=sesion,
+        usuario_id=usuario.id,
+        area_id=area.id,
+    )
+
+    assert vistos == [600.0]
+
+
 def test_generar_respuesta_chat_con_registro_registra_timeout_y_relanza(
     sesion, usuario_y_area, monkeypatch
 ) -> None:
