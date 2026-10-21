@@ -115,6 +115,18 @@ def timeout_llm() -> float:
     return valor if valor > 0 else TIMEOUT_LLM_POR_DEFECTO_S
 
 
+def num_thread_llm() -> int | None:
+    """`LLM_NUM_THREAD`: hilos de CPU de Ollama en las llamadas de chat. Sin definir, Ollama usa
+    uno por vCPU; con más hilos que núcleos físicos la generación empeora (en stage: 12 hilos
+    dieron 2.3 tokens/s y 20 hilos 1.3). Debe ser el mismo en todas las llamadas: cambiarlo
+    recarga el modelo."""
+    try:
+        valor = int(os.environ.get("LLM_NUM_THREAD", ""))
+    except ValueError:
+        return None
+    return valor if valor > 0 else None
+
+
 def _generar_con_mensajes(
     mensajes: list[dict[str, str]],
     *,
@@ -134,6 +146,9 @@ def _generar_con_mensajes(
     }
     if num_ctx is not None:
         opciones["num_ctx"] = num_ctx
+    hilos = num_thread_llm()
+    if hilos is not None:
+        opciones["num_thread"] = hilos
     if num_predict is not None:
         opciones["num_predict"] = num_predict
 

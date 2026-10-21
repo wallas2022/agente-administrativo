@@ -223,3 +223,21 @@ def test_generar_explicaciones_lote_usa_respaldo_si_el_llm_falla_o_vence() -> No
     # publican con el texto de respaldo y la falla queda registrada en el uso del LLM.
     assert len(explicaciones) == 1
     assert "No se pudo generar una corrección automática" in explicaciones[0].texto
+
+
+def test_el_prompt_lote_se_compacta_para_una_cpu_lenta() -> None:
+    # En stage la IA lee ~3 tokens por segundo: con 3 fragmentos completos por hallazgo el prompt
+    # superaba por sí solo el límite de 300 s (prueba de carga del 21/10).
+    largo = "texto de la política " * 200  # ~4,200 caracteres
+    fragmentos = [
+        _fragmento().__class__(**{**_fragmento().__dict__, "contenido": f"F{i} {largo}"})
+        for i in range(4)
+    ]
+
+    prompt = construir_prompt_lote([(_hallazgo_rn01(), fragmentos)])
+
+    assert "F0 " in prompt and "F1 " in prompt  # se conservan los 2 mejores
+    assert "F2 " not in prompt and "F3 " not in prompt
+    assert prompt.count("texto de la política") < 2 * 30  # cada fragmento recortado
+    assert len(prompt) < 2_500
+    assert "…" in prompt

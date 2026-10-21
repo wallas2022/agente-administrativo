@@ -149,3 +149,20 @@ Primera ronda de usuarios simultáneos (ver `tests/carga/README.md`).
 
 Pendiente: medir de nuevo en stage con Ollama a 20 CPU y la imagen nueva del worker. La tabla de carga ahora incluye "Sin explicación IA" para distinguir un análisis completo de uno degradado.
 
+## Velocidad real de la IA en stage (21/10)
+
+Medida con 40 tokens, razonamiento bajo y la CPU de Ollama ya en 20 (VM de 20 vCPU sobre un servidor de 12 núcleos físicos, sin AVX; `st` = 0 en `vmstat`, es decir, el servidor físico no estaba sobrecargado):
+
+| Hilos de Ollama | Generación (tokens/s) | Carga del modelo |
+| --- | --- | --- |
+| 10 o 6 (la salida se cortó al pegar) | 2.12 | 71.8 s (primera, con el modelo recién arrancado) |
+| 12 | **2.32** | 15.2 s |
+| 20 (valor por defecto = vCPU) | 1.33 | 14.5 s |
+
+- **Lectura del prompt: ~3 tokens por segundo** (73 tokens en 22–25 s). En una CPU con AVX2 leer es decenas de veces más rápido que generar; aquí es igual de lento. Es el cuello de botella: un prompt de 1,500 tokens tarda unos 8 minutos solo en leerse, más que el límite de 300 s.
+- **Por qué fallaba el análisis contable:** el prompt incluía hasta 3 fragmentos completos (~450 tokens cada uno) por hallazgo, más uno de referencia.
+- **Cambiar el número de hilos recarga el modelo** (~15 s por cambio): el valor debe ser fijo en todas las llamadas.
+- **Ollama arrancó con 4 espacios paralelos** (visto en el log) porque `OLLAMA_NUM_PARALLEL` no llegó al contenedor: no estaba en `.env.stage.example`.
+
+Correcciones: `LLM_NUM_THREAD=12`, prompt compacto (2 fragmentos de hasta 400 caracteres), `LLM_TIMEOUT_S=600` en stage y las variables de Ollama en la plantilla. Con esta velocidad, cada análisis contable tardaría del orden de varios minutos (la lectura de ~450 tokens y la generación de ~150 tokens suman unos 3–4 minutos por llamada): válido para el piloto, pero la capacidad con muchos hallazgos o usuarios depende de la decisión de hardware (ADR-005) o de modelo.
+

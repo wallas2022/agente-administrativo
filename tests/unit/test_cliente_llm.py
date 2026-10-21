@@ -383,3 +383,23 @@ def test_el_timeout_del_llm_es_300_s_y_se_configura_por_entorno(monkeypatch) -> 
     cliente_llm.generar_texto("hola", timeout=7)
 
     assert vistos == [300.0, 600.0, 300.0, 7]
+
+
+def test_el_numero_de_hilos_se_pasa_a_ollama_solo_si_se_configura(monkeypatch) -> None:
+    cuerpos: list[dict] = []
+
+    def _post(url: str, *, json: dict, timeout: float):
+        cuerpos.append(json["options"])
+        return _RespuestaFalsa({"message": {"content": "ok"}})
+
+    monkeypatch.setattr(httpx, "post", _post)
+    monkeypatch.delenv("LLM_NUM_THREAD", raising=False)
+    cliente_llm.generar_texto("hola")
+    monkeypatch.setenv("LLM_NUM_THREAD", "12")
+    cliente_llm.generar_texto("hola")
+    monkeypatch.setenv("LLM_NUM_THREAD", "no-es-numero")
+    cliente_llm.generar_texto("hola")
+
+    assert "num_thread" not in cuerpos[0]
+    assert cuerpos[1]["num_thread"] == 12
+    assert "num_thread" not in cuerpos[2]

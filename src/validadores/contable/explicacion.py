@@ -30,7 +30,11 @@ from dataclasses import dataclass
 from rag.busqueda import ResultadoBusqueda, construir_citas
 from validadores.contable.reglas import HallazgoDetectado
 
-VERSION_PROMPT_LOTE = "redaccion-contable-lote.v1"
+VERSION_PROMPT_LOTE = "redaccion-contable-lote.v2"
+# Prompt compacto: la IA de stage (CPU sin AVX) lee ~3 tokens por segundo, así que cada token del
+# prompt cuesta ~0.3 s. Solo se incluyen los 2 mejores fragmentos, recortados.
+MAX_FRAGMENTOS_PROMPT = 2
+MAX_CARACTERES_FRAGMENTO_PROMPT = 400
 VERSION_PLANTILLA = "plantilla.v1"
 
 FuncionLLM = Callable[[str], str]
@@ -130,13 +134,23 @@ def generar_explicacion_plantilla_grupo(
     )
 
 
+def _recortar(texto: str) -> str:
+    plano = " ".join(texto.split())
+    if len(plano) <= MAX_CARACTERES_FRAGMENTO_PROMPT:
+        return plano
+    return plano[:MAX_CARACTERES_FRAGMENTO_PROMPT].rstrip() + "…"
+
+
 def construir_prompt_lote(
     items: list[tuple[HallazgoDetectado, list[ResultadoBusqueda]]],
 ) -> str:
     bloques = []
     for indice, (hallazgo, fragmentos) in enumerate(items):
         contexto_fuente = (
-            "\n".join(f"[{f.fuente_id}] {f.contenido}" for f in fragmentos)
+            "\n".join(
+                f"[{f.fuente_id}] {_recortar(f.contenido)}"
+                for f in fragmentos[:MAX_FRAGMENTOS_PROMPT]
+            )
             if fragmentos
             else "(sin fuente recuperada para este hallazgo)"
         )
