@@ -1,12 +1,12 @@
 # ADR-011 — Capacidad de la IA en stage: velocidad medida y opciones
 
-**Versión:** 0.2 (opción A decidida para el piloto)
+**Versión:** 0.3 (A aplicada y declarada insuficiente; se recomienda B)
 **Fecha:** 2026-10-21
 **Relacionado con:** RNF-04, RNF-05, R-02, R-11, ADR-001, ADR-005, ADR-008, docs/04-pruebas/resultados/stage-P15.md
 
 ## Estado
 
-**Decidido (22/10/2026, responsable del proyecto): opción A** para el piloto: mantener gpt-oss:20b en el hardware actual con los ajustes de parámetros. No cambia ningún modelo ni equipo. Las opciones B, C y D siguen abiertas para ampliar más allá del piloto (medición de AVX2 y de modelos pequeños pendiente). Las correcciones de parámetros ya aplicadas se listan al final.
+**Propuesta de decisión, pendiente de aprobación del responsable del proyecto.** La opción A (mantener el hardware con ajustes de parámetros) ya se aplicó el 22/10/2026 y se midió: **resuelve las fallas pero no la capacidad**. Con el servidor actual no es viable una versión de pruebas con usuarios reales que usen la IA (explicación del Excel y chat). Se recomienda B como solución de fondo, con D y prioridad al chat como alivio inmediato, y C como prueba comparativa. Las opciones B y C requieren una medición previa. Este documento no cambia ningún modelo ni equipo.
 
 ## Contexto
 
@@ -32,10 +32,9 @@ La lectura del prompt es el cuello de botella: en una CPU con AVX2 es una o dos 
 
 ## Recomendación
 
-Combinar **A (ya aplicada)** con una **medición de B y C** antes de comprometerse:
-1. Medir los mismos tokens por segundo (generación y lectura del prompt) de gpt-oss:20b en un equipo con AVX2, aunque sea una PC.
-2. Probar uno o dos modelos pequeños en stage con el mismo dataset de CU-01 y CU-05 y comparar calidad y tiempo.
-3. Con esos números, decidir entre B, C o D para el piloto, y reflejarlo en la diapositiva de capacidad para los directivos.
+1. **Alivio inmediato (sin hardware):** dar prioridad al chat sobre los análisis largos, limitar los usuarios simultáneos mientras tanto y reducir el uso de la IA donde una plantilla basta (opción D).
+2. **Medir:** repetir las pruebas de carga (`tests/carga`) con el motor de IA en un equipo con AVX2 o GPU (opción B) y con uno o dos modelos pequeños (opción C), con el mismo conjunto de documentos de CU-01 y CU-05, comparando calidad y tiempo.
+3. **Decidir:** con esos números, dimensionar el equipo de producción (opción B, motor de IA desacoplado por `LLM_BASE_URL`) y abrir la versión de pruebas con usuarios reales.
 
 ## Correcciones de parámetros ya aplicadas (no son un cambio de modelo)
 
@@ -48,9 +47,9 @@ Combinar **A (ya aplicada)** con una **medición de B y C** antes de comprometer
 
 ## Consecuencias
 
-- Hasta decidir, las cifras de capacidad con explicación por IA deben presentarse como "medidas con el hardware actual, con límite conocido", no como capacidad de producción.
+- Hasta decidir, las cifras de capacidad con explicación por IA deben presentarse como "medidas con el hardware actual, con límite conocido", no como capacidad de producción. Presentación para directivos: docs/presentacion/agente_administrativo_analisis_final.pptx.
 - La decisión debe cerrar también el punto abierto de ADR-005 (dónde corre el motor de IA).
 
-## Cifras con las que se decidió
+## Cifras en que se basa
 
-Ver docs/04-pruebas/resultados/stage-capacidad-carga.md: ortografía hasta 10 usuarios simultáneos sin fallos (p90 8.0 s); Excel contable 5 usuarios sin fallos (p90 345 s); mezcla de 5 usuarios con IA compartida p90 582 s (límite de 600 s); aprox. 50 respuestas de IA por hora en total. `OLLAMA_NUM_PARALLEL` 1 frente a 4 sin diferencia.
+Ver docs/04-pruebas/resultados/stage-capacidad-carga.md: ortografía hasta 10 usuarios simultáneos sin fallos (total p90 de 8.0 s); Excel contable con 5 usuarios sin fallos (p90 de 345 s); mezcla de 5 usuarios con la IA compartida, p90 de 582 s frente al límite de 600 s; aprox. 50 respuestas de IA por hora en total. `OLLAMA_NUM_PARALLEL` en 1 o en 4 no mostró diferencia. La proyección con un equipo 2× o 10× más rápido es una estimación [POR CONFIRMAR]: se divide el tiempo medido entre el factor y supone que la IA es el único límite.
