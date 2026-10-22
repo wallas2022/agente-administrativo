@@ -1,12 +1,12 @@
 # ADR-011 — Capacidad de la IA en stage: velocidad medida y opciones
 
-**Versión:** 0.1 (propuesta)
+**Versión:** 0.2 (opción A decidida para el piloto)
 **Fecha:** 2026-10-21
 **Relacionado con:** RNF-04, RNF-05, R-02, R-11, ADR-001, ADR-005, ADR-008, docs/04-pruebas/resultados/stage-P15.md
 
 ## Estado
 
-**Propuesta, pendiente de decisión del responsable del proyecto.** Este documento no cambia ningún modelo ni equipo; las correcciones de parámetros ya aplicadas se listan al final.
+**Decidido (22/10/2026, responsable del proyecto): opción A** para el piloto: mantener gpt-oss:20b en el hardware actual con los ajustes de parámetros. No cambia ningún modelo ni equipo. Las opciones B, C y D siguen abiertas para ampliar más allá del piloto (medición de AVX2 y de modelos pequeños pendiente). Las correcciones de parámetros ya aplicadas se listan al final.
 
 ## Contexto
 
@@ -50,3 +50,7 @@ Combinar **A (ya aplicada)** con una **medición de B y C** antes de comprometer
 
 - Hasta decidir, las cifras de capacidad con explicación por IA deben presentarse como "medidas con el hardware actual, con límite conocido", no como capacidad de producción.
 - La decisión debe cerrar también el punto abierto de ADR-005 (dónde corre el motor de IA).
+
+## Cifras con las que se decidió
+
+Ver docs/04-pruebas/resultados/stage-capacidad-carga.md: ortografía hasta 10 usuarios simultáneos sin fallos (p90 8.0 s); Excel contable 5 usuarios sin fallos (p90 345 s); mezcla de 5 usuarios con IA compartida p90 582 s (límite de 600 s); aprox. 50 respuestas de IA por hora en total. `OLLAMA_NUM_PARALLEL` 1 frente a 4 sin diferencia.

@@ -9,7 +9,11 @@ import { fileURLToPath } from "node:url";
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const SALIDA = path.resolve(AQUI, "../../../docs/presentacion/capturas");
 const BASE = process.env.UI_URL ?? "http://127.0.0.1:5173";
-const CLAVE = "cambiar123";
+// En stage: CAPTURA_CLAVE (nunca en Git), ADMIN_CORREO y, con certificado propio, IGNORAR_HTTPS=1.
+const CLAVE = process.env.CAPTURA_CLAVE ?? "cambiar123";
+const ADMIN_CORREO = process.env.ADMIN_CORREO ?? "administrador@local";
+// SOLO_RECURSOS=1: solo la captura 10 (Recursos); no pisa las demás capturas del local.
+const SOLO_RECURSOS = Boolean(process.env.SOLO_RECURSOS);
 const PREGUNTA =
   process.env.PREGUNTA_CHAT ??
   "¿Qué establece el compendio de leyes financieras sobre la elaboración del presupuesto público?";
@@ -23,6 +27,7 @@ async function contexto(correo) {
     viewport: { width: 1440, height: 900 },
     deviceScaleFactor: 1.5,
     locale: "es-GT",
+    ignoreHTTPSErrors: Boolean(process.env.IGNORAR_HTTPS),
   });
   const page = await ctx.newPage();
   await page.goto(`${BASE}/login`);
@@ -139,16 +144,20 @@ await intentar("08-base-conocimiento", async () => {
 
 // 09-10 dashboard, 11 configuración, 12 bitácora (administrador)
 await intentar("admin", async () => {
-  const { ctx, page } = await contexto("administrador@local");
+  const { ctx, page } = await contexto(ADMIN_CORREO);
   await ir(page, `/dashboard`);
   await page.waitForLoadState("networkidle");
-  await foto(page, "09-dashboard-consumo");
+  if (!SOLO_RECURSOS) await foto(page, "09-dashboard-consumo");
   await page.getByRole("tab", { name: /Recursos/ }).click().catch(async () => {
     await page.getByText("Recursos", { exact: true }).first().click();
   });
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(7000);
   await foto(page, "10-dashboard-recursos");
+  if (SOLO_RECURSOS) {
+    await ctx.close();
+    return;
+  }
   await ir(page, `/configuracion`);
   await page.waitForLoadState("networkidle");
   await foto(page, "11-configuracion-usuarios");
